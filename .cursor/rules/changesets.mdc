@@ -1,0 +1,62 @@
+---
+description: Changesets versioning and release workflow for the monorepo
+alwaysApply: true
+---
+
+# Changesets
+
+This monorepo uses `@changesets/cli` for versioning and publishing.
+
+## Package topology
+
+| Package                    | npm name             | Published to                                |
+| -------------------------- | -------------------- | ------------------------------------------- |
+| `packages/gea`             | `@geajs/core`        | npm                                         |
+| `packages/vite-plugin-gea` | `@geajs/vite-plugin` | npm                                         |
+| `packages/gea-ui`          | `@geajs/ui`          | npm                                         |
+| `packages/gea-mobile`      | `@geajs/mobile`      | npm                                         |
+| `packages/create-gea`      | `create-gea`         | npm                                         |
+| `packages/gea-tools`       | `gea-tools`          | VS Code Marketplace (ignored by changesets) |
+
+## Key config (`.changeset/config.json`)
+
+- **`linked: [["@geajs/core", "@geajs/vite-plugin"]]`** — these two always receive the same minor/major bump level.
+- **`ignore: ["gea-tools"]`** — the VS Code/Cursor extension has its own release lifecycle.
+- **`access: "public"`** — all packages publish as public.
+- **`updateInternalDependencies: "patch"`** — when a dependency bumps, dependents get their ranges updated automatically.
+- **`changelog: @changesets/changelog-github`** — entries link to PRs and contributors.
+
+## Workflow
+
+1. **After making changes**, create a changeset:
+
+   ```bash
+   npx changeset
+   ```
+
+   Pick the affected packages, choose semver bump levels, and write a human-readable summary. One changeset can cover multiple packages.
+
+2. **To release**, consume all pending changesets:
+
+   ```bash
+   npx changeset version   # bumps versions + updates CHANGELOGs
+   npx changeset publish   # publishes to npm
+   ```
+
+3. **Dry run** to verify what would be published without uploading:
+
+   ```bash
+   npx changeset publish --dry-run
+   ```
+
+4. **For pre-releases / testing**:
+   ```bash
+   npx changeset version --snapshot canary
+   npx changeset publish --tag canary
+   ```
+
+## Rules
+
+- Never manually edit version numbers in `package.json` — let changesets own them.
+- Every PR that changes published package output should include a changeset file.
+- Use `npx changeset add --empty` for PRs that intentionally need no release (e.g., docs-only, CI config).

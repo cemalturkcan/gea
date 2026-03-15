@@ -1,0 +1,11 @@
+{
+  "$schema": "https://unpkg.com/@changesets/config@3.1.3/schema.json",
+  "changelog": ["@changesets/changelog-github", { "repo": "dashersw/gea" }],
+  "commit": false,
+  "fixed": [],
+  "linked": [["@geajs/core", "@geajs/vite-plugin"]],
+  "access": "public",
+  "baseBranch": "main",
+  "updateInternalDependencies": "patch",
+  "ignore": ["gea-tools"]
+}

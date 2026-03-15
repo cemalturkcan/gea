@@ -1,0 +1,28 @@
+export { default as Component } from './lib/base/component'
+export { Store, isInternalProp } from './lib/store'
+export { default as ComponentManager } from './lib/base/component-manager'
+export { applyListChanges } from './lib/base/list'
+export type { ListConfig } from './lib/base/list'
+export { createRouter, Router, router, matchRoute, Link, Outlet, RouterView } from './lib/router'
+export type {
+  RouteMap,
+  RouteEntry,
+  RouteGroupConfig,
+  RouterOptions,
+  GuardFn,
+  GuardResult,
+  NavigationTarget,
+  InferRouteProps,
+} from './lib/router'
+
+import Component from './lib/base/component'
+import { applyListChanges } from './lib/base/list'
+import { Store } from './lib/store'
+
+const gea = {
+  Store,
+  Component,
+  applyListChanges,
+}
+
+export default gea
