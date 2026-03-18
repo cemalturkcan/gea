@@ -21,14 +21,14 @@ Gea is the fastest compiled UI framework — benchmarked with the [js-framework-
 
 | Framework | Weighted geometric mean |
 | --- | --- |
-| vanillajs | 1.00 |
+| vanillajs | 1.02 |
 | **Gea 1.0** | **1.03** |
-| Solid 1.9 | 1.10 |
-| Svelte 5 | 1.12 |
-| Vue 3.6 | 1.27 |
-| React 19.2 | 1.48 |
+| Solid 1.9 | 1.12 |
+| Svelte 5 | 1.14 |
+| Vue 3.6 | 1.26 |
+| React 19.2 | 1.50 |
 
-Lower is better (1.00 = fastest). Gea outperforms every compiled framework while requiring zero framework-specific concepts — no signals, no hooks, no compiler directives. It's not just the DX — it's the fastest, too.
+Lower is better (1.00 = fastest). Gea outperforms every compiled framework while requiring zero framework-specific concepts — no signals, no hooks, no compiler directives. It's not just the DX — it's the fastest, too. [Full benchmark report](https://geajs.com/benchmark-report.html)
 
 ## Quick Start
 
