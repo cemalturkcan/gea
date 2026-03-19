@@ -109,3 +109,4 @@ app.render(document.getElementById('app'))
 - Understand [JSX Syntax](core-concepts/jsx-syntax.md) differences from React
 - Add client-side routing with the built-in [Router](core-concepts/router.md)
 - Add mobile UI with [Gea Mobile](gea-mobile/overview.md)
+- Use Gea without a build step — [Browser Usage](browser-usage.md)

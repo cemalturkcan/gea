@@ -1,0 +1,157 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'DM Sans', system-ui, sans-serif;
+  background: #f5f5f7;
+  color: #1d1d1f;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  padding: 60px 20px;
+}
+
+#app {
+  width: 100%;
+  max-width: 520px;
+}
+
+.todo-app h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  margin-bottom: 24px;
+  letter-spacing: -0.02em;
+}
+
+.input-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.todo-input {
+  flex: 1;
+  padding: 10px 14px;
+  font: inherit;
+  font-size: 0.95rem;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.todo-input:focus {
+  border-color: #0071e3;
+}
+
+.add-btn {
+  padding: 10px 20px;
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.9rem;
+  background: #0071e3;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.add-btn:hover {
+  background: #0060c0;
+}
+
+.todo-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.todo-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: #fff;
+  border-radius: 8px;
+  transition: opacity 0.15s;
+}
+
+.todo-item.done .todo-text {
+  text-decoration: line-through;
+  opacity: 0.45;
+}
+
+.todo-item input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  accent-color: #0071e3;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.todo-text {
+  flex: 1;
+  font-size: 0.95rem;
+}
+
+.remove-btn {
+  background: none;
+  border: none;
+  font-size: 1.25rem;
+  color: #aaa;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  transition: color 0.15s;
+}
+
+.remove-btn:hover {
+  color: #e33;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 16px;
+  padding: 8px 4px;
+  font-size: 0.85rem;
+  color: #888;
+}
+
+.footer.hidden {
+  display: none;
+}
+
+.filters {
+  display: flex;
+  gap: 4px;
+}
+
+.filter-btn {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 4px 10px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  color: #888;
+  transition: all 0.15s;
+}
+
+.filter-btn:hover {
+  color: #1d1d1f;
+}
+
+.filter-btn.active {
+  border-color: #0071e3;
+  color: #0071e3;
+}

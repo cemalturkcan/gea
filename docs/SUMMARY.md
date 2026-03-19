@@ -3,6 +3,7 @@
 - [Introduction](README.md)
 - [Philosophy](philosophy.md)
 - [Getting Started](getting-started.md)
+- [Browser Usage (No Build Step)](browser-usage.md)
 
 ## Core Concepts
 

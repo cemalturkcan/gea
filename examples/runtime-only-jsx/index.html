@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Runtime-Only JSX Todo - Gea</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="../runtime-only/styles.css" />
+    <script src="https://unpkg.com/@geajs/core/dist/gea.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <script type="text/babel" data-presets="react">
+      /** @jsxRuntime classic */
+      /** @jsx gea.h */
+
+      const { Store, Component } = gea
+
+      // --- Store ---
+
+      let nextId = 1
+
+      class TodoStore extends Store {
+        todos = []
+        filter = 'all'
+        draft = ''
+
+        add() {
+          const t = this.draft.trim()
+          if (!t) return
+          this.draft = ''
+          this.todos.push({ id: nextId++, text: t, done: false })
+        }
+
+        toggle(id) {
+          const todo = this.todos.find((t) => t.id == id)
+          todo.done = !todo.done
+        }
+
+        remove(id) {
+          this.todos = this.todos.filter((t) => t.id != id)
+        }
+
+        setFilter(filter) {
+          this.filter = filter
+        }
+
+        get filteredTodos() {
+          if (this.filter === 'active') return this.todos.filter((t) => !t.done)
+          if (this.filter === 'completed') return this.todos.filter((t) => t.done)
+          return this.todos
+        }
+
+        get activeCount() {
+          return this.todos.filter((t) => !t.done).length
+        }
+      }
+
+      const store = new TodoStore()
+
+      // --- Component ---
+
+      class TodoApp extends Component {
+        template() {
+          return (
+            <div class="todo-app" id={this.id}>
+              <h1>Todo</h1>
+              <div class="input-row">
+                <input class="todo-input" type="text" placeholder="What needs to be done?" value={store.draft} />
+                <button class="add-btn">Add</button>
+              </div>
+              <ul class="todo-list">{this.renderItems()}</ul>
+              <div class={`footer ${store.todos.length === 0 ? 'hidden' : ''}`}>
+                <span class="active-count">{store.activeCount} items left</span>
+                <div class="filters">
+                  {['all', 'active', 'completed'].map((f) => (
+                    <button class={`filter-btn ${store.filter === f ? 'active' : ''}`} data-filter={f}>
+                      {f[0].toUpperCase() + f.slice(1)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )
+        }
+
+        renderItems() {
+          return store.filteredTodos
+            .map((todo) => (
+              <li class={`todo-item ${todo.done ? 'done' : ''}`}>
+                <input type="checkbox" data-id={todo.id} checked={todo.done} />
+                <span class="todo-text">{todo.text}</span>
+                <button class="remove-btn" data-id={todo.id}>
+                  &times;
+                </button>
+              </li>
+            ))
+            .join('')
+        }
+
+        createdHooks() {
+          this.__observer_removers__.push(
+            store.observe('todos', () => {
+              this.$('.todo-list').innerHTML = this.renderItems()
+              this.$('.active-count').textContent = `${store.activeCount} items left`
+              this.$('.footer').classList.toggle('hidden', store.todos.length === 0)
+            }),
+            store.observe('filter', () => {
+              this.$('.todo-list').innerHTML = this.renderItems()
+              this.$$('.filter-btn').forEach((btn) => {
+                btn.classList.toggle('active', btn.dataset.filter === store.filter)
+              })
+            }),
+            store.observe('draft', () => {
+              const input = this.$('.todo-input')
+              if (store.draft === '' || document.activeElement !== input) {
+                input.value = store.draft
+              }
+            }),
+          )
+        }
+
+        get events() {
+          return {
+            click: {
+              '.add-btn': () => store.add(),
+              'input[type="checkbox"]': (e) => store.toggle(e.target.dataset.id),
+              '.remove-btn': (e) => store.remove(e.target.dataset.id),
+              '.filter-btn': (e) => store.setFilter(e.target.dataset.filter),
+            },
+            input: {
+              '.todo-input': (e) => (store.draft = e.target.value),
+            },
+            keydown: {
+              '.todo-input': (e) => e.key === 'Enter' && store.add(),
+            },
+          }
+        }
+      }
+
+      // --- Mount ---
+
+      new TodoApp().render(document.getElementById('app'))
+    </script>
+  </body>
+</html>
