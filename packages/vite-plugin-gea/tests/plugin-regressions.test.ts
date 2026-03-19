@@ -1503,4 +1503,32 @@ test('hyphenated component names inside .map() produce correct opening tags', ()
   assert.match(output, /<issue-card\s/, 'full kebab-case tag name must appear before any attributes')
 })
 
-__PLACEHOLDER_FOR_SECOND_TEST__
+test('template-scoped prop variables inside .map() are rewritten to this.props', () => {
+  const output = transformComponentSource(`
+    import { Component } from '@geajs/core'
+
+    export default class SelectOption extends Component {
+      template({ options, value, isMulti }) {
+        return (
+          <div>
+            {options.map(opt => (
+              <div
+                key={opt.value}
+                class={\`option \${isMulti ? 'multi' : ''} \${opt.value === value ? 'selected' : ''}\`}
+              >
+                {opt.label}
+              </div>
+            ))}
+          </div>
+        )
+      }
+    }
+  `)
+
+  const renderMethod = output.match(/render\w*Item\(opt\)\s*\{([\s\S]*?)\n  \}/)
+  assert.ok(renderMethod, 'render item method must be generated')
+  const renderBody = renderMethod[1]
+  assert.match(renderBody, /this\.props\.isMulti/, 'isMulti must be accessed via this.props in the render item method')
+  assert.match(renderBody, /this\.props\.value/, 'value must be accessed via this.props in the render item method')
+  assert.doesNotMatch(renderBody, /[^.]isMulti\b/, 'bare isMulti must not appear in the render item method body')
+})

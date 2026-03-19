@@ -2,7 +2,12 @@ import * as t from '@babel/types'
 import { appendToBody, id, js, jsMethod } from 'eszter'
 import type { ArrayMapBinding, EventHandler, HandlerPropInMap } from './ir.ts'
 import { transformJSXToTemplate, transformJSXFragmentToTemplate } from './transform-jsx.ts'
-import { normalizePathParts, pathPartsToString, replacePropRefsInStatements } from './utils.ts'
+import {
+  normalizePathParts,
+  pathPartsToString,
+  replacePropRefsInExpression,
+  replacePropRefsInStatements,
+} from './utils.ts'
 
 function buildHandlerRegistrationStatements(
   handlerProps: HandlerPropInMap[],
@@ -187,8 +192,6 @@ export function generateRenderItemMethod(
   )
   const methodName = `render${arrayPath.charAt(0).toUpperCase() + arrayPath.slice(1).replace(/\./g, '')}Item`
 
-  wrapped.expressions = wrapped.expressions.map((expr) => unwrapComparisonOperands(expr as t.Expression))
-
   const propNames = new Set<string>()
   let wholeParam: string | undefined
   if (classBody) {
@@ -204,6 +207,10 @@ export function generateRenderItemMethod(
       wholeParam = templateMethod.params[0].name
     }
   }
+
+  wrapped.expressions = wrapped.expressions.map((expr) =>
+    replacePropRefsInExpression(unwrapComparisonOperands(expr as t.Expression), propNames, wholeParam),
+  )
 
   const handlerRegStmts = buildHandlerRegistrationStatements(
     handlerPropsInMap,
