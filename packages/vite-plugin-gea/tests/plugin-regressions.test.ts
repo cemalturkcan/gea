@@ -1532,3 +1532,35 @@ test('template-scoped prop variables inside .map() are rewritten to this.props',
   assert.match(renderBody, /this\.props\.value/, 'value must be accessed via this.props in the render item method')
   assert.doesNotMatch(renderBody, /[^.]isMulti\b/, 'bare isMulti must not appear in the render item method body')
 })
+
+test('component class getters that access stores create observers for underlying store paths', () => {
+  const output = transformComponentSource(`
+    import { Component } from '@geajs/core'
+    import routeStore from './route-store'
+
+    export default class Page extends Component {
+      get isBoard() {
+        return routeStore.path.startsWith('/board')
+      }
+
+      template() {
+        return (
+          <div>
+            {this.isBoard && <div>Board</div>}
+          </div>
+        )
+      }
+    }
+  `)
+
+  assert.match(
+    output,
+    /routeStore\.__store/,
+    'compiler must observe routeStore when a component getter accesses it',
+  )
+  assert.match(
+    output,
+    /observe\(.*path/,
+    'observer must be registered for the underlying store path the getter reads',
+  )
+})

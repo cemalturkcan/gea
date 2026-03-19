@@ -743,10 +743,35 @@ export function applyStaticReactivity(
               .map((m) => (m.key as t.Identifier).name),
           )
 
+          const componentGetterStoreDeps = new Map<string, Array<{ storeVar: string; pathParts: PathParts }>>()
+          for (const member of classPath.node.body.body) {
+            if (!t.isClassMethod(member) || member.kind !== 'get' || !t.isIdentifier(member.key)) continue
+            const deps: Array<{ storeVar: string; pathParts: PathParts }> = []
+            const program = t.program(member.body.body.map((s) => t.cloneNode(s, true) as t.Statement))
+            traverse(program, {
+              noScope: true,
+              MemberExpression(mePath: NodePath<t.MemberExpression>) {
+                if (!t.isIdentifier(mePath.node.object)) return
+                const objName = mePath.node.object.name
+                const ref = stateRefs.get(objName)
+                if (!ref || ref.kind !== 'imported') return
+                if (!t.isIdentifier(mePath.node.property)) return
+                deps.push({ storeVar: objName, pathParts: [mePath.node.property.name] })
+              },
+            })
+            if (deps.length > 0) componentGetterStoreDeps.set(member.key.name, deps)
+          }
+
           for (const [observeKey, propPath] of stateProps) {
             const { storeVar } = parseObserveKey(observeKey)
             if (hasOnPropChange && !storeVar && propPath[0] === 'props') continue
-            if (!storeVar && propPath.length === 1 && ownClassMethodNames.has(propPath[0])) continue
+            if (
+              !storeVar &&
+              propPath.length === 1 &&
+              ownClassMethodNames.has(propPath[0]) &&
+              !componentGetterStoreDeps.has(propPath[0])
+            )
+              continue
             const alreadyHandled = handledPaths.has(observeKey)
             const conditionalSlotIndices = conditionalSlotObserveIndices.get(observeKey) || []
             const arrayHandled = analysis.arrayMaps.some(
@@ -1058,7 +1083,45 @@ export function applyStaticReactivity(
               const { parts, storeVar } = parseObserveKey(observeKey)
               if (!storeVar) {
                 if (hasOnPropChange && parts[0] === 'props') return
-                if (parts.length === 1 && ownClassMethodNames.has(parts[0])) return
+                if (parts.length === 1 && ownClassMethodNames.has(parts[0])) {
+                  const compGetterDeps = componentGetterStoreDeps.get(parts[0])
+                  if (compGetterDeps && compGetterDeps.length > 0) {
+                    const originalMethodName = getObserveMethodName(parts)
+                    const wrapperMethodName = `${originalMethodName}__via`
+                    if (
+                      !classPath.node.body.body.some(
+                        (m) => t.isClassMethod(m) && t.isIdentifier(m.key) && m.key.name === wrapperMethodName,
+                      )
+                    ) {
+                      classPath.node.body.body.push(
+                        t.classMethod(
+                          'method',
+                          t.identifier(wrapperMethodName),
+                          [t.identifier('_v'), t.identifier('change')],
+                          t.blockStatement([
+                            t.expressionStatement(
+                              t.callExpression(
+                                t.memberExpression(t.thisExpression(), t.identifier(originalMethodName)),
+                                [
+                                  t.memberExpression(t.thisExpression(), t.identifier(parts[0])),
+                                  t.identifier('change'),
+                                ],
+                              ),
+                            ),
+                          ]),
+                        ),
+                      )
+                    }
+                    for (const dep of compGetterDeps) {
+                      const depKey = buildObserveKey(dep.pathParts, dep.storeVar) + `__getter_${parts[0]}`
+                      ensureStoreGroup(dep.storeVar).observeHandlers.set(depKey, {
+                        pathParts: dep.pathParts,
+                        methodName: wrapperMethodName,
+                      })
+                    }
+                  }
+                  return
+                }
                 localObserveHandlers.set(observeKey, { pathParts: parts, methodName: getObserveMethodName(parts) })
                 return
               }
