@@ -1638,3 +1638,63 @@ test('component used only in render prop is registered when in knownComponentImp
     'Avatar must be registered via Component._register even though it only appears in a render prop',
   )
 })
+
+test('complex conditional chains inside .map() item attributes compile correctly', () => {
+  const output = transformComponentSource(`
+    import { Component } from '@geajs/core'
+    import store from './todo-store'
+
+    export default class CardList extends Component {
+      template() {
+        return (
+          <div>
+            {store.items.map((item) => (
+              <div class={\`card \${item.a && item.b ? (item.c ? 'x' : 'y') : 'z'}\`}>
+                {item.label}
+              </div>
+            ))}
+          </div>
+        )
+      }
+    }
+  `)
+
+  assert.doesNotMatch(output, /SyntaxError/, 'compiled output must not contain syntax errors')
+  assert.doesNotMatch(output, /<div class=/, 'raw JSX div should not appear in compiled output')
+  assert.match(output, /card /, 'the class expression with card should be present in compiled output')
+})
+
+test('generated observer and buildProps methods include early-return guard from template', () => {
+  const output = transformComponentSource(`
+    import { Component } from '@geajs/core'
+    import issueStore from './issue-store'
+    import Spinner from './Spinner.jsx'
+    import MySelect from './MySelect.jsx'
+
+    export default class IssueDetails extends Component {
+      template() {
+        const { issue } = issueStore
+
+        if (!issue) return <Spinner />
+
+        const priority = issue.priority || 'medium'
+
+        return (
+          <div>
+            <MySelect value={priority} />
+          </div>
+        )
+      }
+    }
+  `)
+
+  const buildPropsMatch = output.match(/__buildProps_\w+\([^)]*\)\s*\{[\s\S]*?\n  \}/)
+
+  assert.ok(buildPropsMatch, '__buildProps method should be generated')
+  assert.match(buildPropsMatch![0], /issue/, 'buildProps method should reference issue')
+  assert.match(
+    buildPropsMatch![0],
+    /(!issue|issue\s*==\s*null|issue\s*===\s*null|\?\.)/,
+    'buildProps method must include a null guard for issue',
+  )
+})

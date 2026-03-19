@@ -158,12 +158,58 @@ function getEnsureChildMethodName(child: ChildComponent): string {
   return `__ensureChild_${child.instanceVar.replace(/^_/, '')}`
 }
 
+function collectBindingNames(stmt: t.Statement): string[] {
+  if (t.isVariableDeclaration(stmt)) {
+    const names: string[] = []
+    const collect = (node: t.LVal) => {
+      if (t.isIdentifier(node)) names.push(node.name)
+      else if (t.isObjectPattern(node))
+        node.properties.forEach((p) =>
+          collect(t.isRestElement(p) ? p.argument : ((p as t.ObjectProperty).value as t.LVal)),
+        )
+      else if (t.isArrayPattern(node)) node.elements.forEach((e) => e && collect(e))
+    }
+    stmt.declarations.forEach((d) => collect(d.id as t.LVal))
+    return names
+  }
+  return []
+}
+
+function collectTestIdentifiers(node: t.Node): Set<string> {
+  const names = new Set<string>()
+  const visit = (n: t.Node) => {
+    if (t.isIdentifier(n)) names.add(n.name)
+    for (const key of t.VISITOR_KEYS[n.type] || []) {
+      const child = (n as any)[key]
+      if (Array.isArray(child)) child.forEach((c: any) => c?.type && visit(c))
+      else if (child?.type) visit(child)
+    }
+  }
+  visit(node)
+  return names
+}
+
 function buildPropsBuilderMethod(child: ChildComponent): t.ClassMethod {
   const setupStmts: t.Statement[] = (child.setupStatements || []).map(
     (statement) => t.cloneNode(statement, true) as t.Statement,
   )
   const returnStmt = t.returnStatement(t.cloneNode(child.propsExpression, true))
   const prunedSetup = pruneUnusedSetupDestructuring(setupStmts, [returnStmt])
+
+  if (child.earlyReturnGuards?.length) {
+    for (const guard of child.earlyReturnGuards) {
+      const guardStmt = t.ifStatement(t.cloneNode(guard.test, true), t.returnStatement(t.objectExpression([])))
+      const testRefs = collectTestIdentifiers(guard.test)
+      let insertIndex = 0
+      for (let i = 0; i < prunedSetup.length; i++) {
+        if (collectBindingNames(prunedSetup[i]).some((name) => testRefs.has(name))) {
+          insertIndex = i + 1
+        }
+      }
+      prunedSetup.splice(insertIndex, 0, guardStmt)
+    }
+  }
+
   return appendToBody(jsMethod`${id(getPropsBuilderMethodName(child))}() {}`, ...prunedSetup, returnStmt)
 }
 

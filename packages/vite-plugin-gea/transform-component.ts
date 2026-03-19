@@ -232,10 +232,19 @@ export function transformComponentFile(
           }
         }
 
+        const earlyReturnGuards = (returnIndex >= 0 ? body.slice(0, returnIndex) : []).filter(
+          (s): s is t.IfStatement =>
+            t.isIfStatement(s) &&
+            (t.isReturnStatement(s.consequent) ||
+              (t.isBlockStatement(s.consequent) && s.consequent.body.some((b) => t.isReturnStatement(b))),
+            true),
+        )
+
         const allChildren = Array.from(componentInstances.values()).flat()
         for (const child of allChildren) {
           const mappings = directMappingsMap.get(child.instanceVar)
           if (mappings) child.directMappings = mappings
+          if (earlyReturnGuards.length > 0) child.earlyReturnGuards = earlyReturnGuards
         }
 
         injectChildComponents(ast, componentInstances, directForwardingSet)
