@@ -55,6 +55,7 @@ export default defineConfig({
           { text: 'What is Gea?', link: '/README' },
           { text: 'Philosophy', link: '/philosophy' },
           { text: 'Getting Started', link: '/getting-started' },
+          { text: 'Browser Usage (No Build Step)', link: '/browser-usage' },
         ],
       },
       {
