@@ -184,7 +184,11 @@ function tryResolveEntry(
     }
 
     // --- Path mode (default) ---
-    return resolveRecursive(entry.children, prefixMatch.rest, search, nextResult)
+    const childResult = resolveRecursive(entry.children, prefixMatch.rest, search, nextResult)
+    if (!childResult.component && !childResult.redirect && !childResult.isLazy) {
+      return null
+    }
+    return childResult
   }
 
   // --- Leaf: function or component ---
