@@ -168,6 +168,28 @@ export default class Component extends Store {
     return this.rendered_
   }
 
+  /**
+   * Force a full DOM replacement by re-evaluating the template.
+   * Used when the template has multiple return paths (early return pattern)
+   * and the reactive system can't patch individual elements.
+   */
+  __rerender() {
+    if (!this.rendered_ || !this.element_) return
+    const manager = ComponentManager.getInstance()
+    const newHtml = String(this.template(this.props)).trim()
+    const newEl = manager.createElement(newHtml)
+    const parent = this.element_.parentNode
+    if (parent) {
+      parent.replaceChild(newEl, this.element_)
+      this.element_ = newEl
+      ;(newEl as any).__geaComponent = this
+      this.attachBindings_()
+      this.mountCompiledChildComponents_()
+      this.instantiateChildComponents_()
+      this.setupEventDirectives_()
+    }
+  }
+
   onAfterRender() {}
 
   onAfterRenderAsync() {}
@@ -273,6 +295,7 @@ export default class Component extends Store {
         if (child['__geaCompiledChild']) {
           child.rendered_ = false
           child.element_ = null
+          this.__resetChildTree(child)
           return
         }
         if (typeof child.dispose == 'function') child.dispose()
@@ -280,11 +303,16 @@ export default class Component extends Store {
       this.__childComponents = []
     }
 
+    // Remove old element BEFORE calling template() so that getElementById
+    // inside child __geaUpdateProps won't find stale DOM nodes.
+    const placeholder = document.createComment('')
+    parent.insertBefore(placeholder, this.element_)
+    parent.removeChild(this.element_)
+
     const manager = ComponentManager.getInstance()
     const newElement = manager.createElement(String(this.template(this.props)).trim())
 
-    parent.insertBefore(newElement, nextSibling)
-    parent.removeChild(this.element_)
+    parent.replaceChild(newElement, placeholder)
 
     this.element_ = newElement
     this.rendered_ = true
@@ -326,6 +354,16 @@ export default class Component extends Store {
     setTimeout(() => requestAnimationFrame(() => this.onAfterRenderAsync()))
   }
 
+  __resetChildTree(comp: Component) {
+    if (!comp.__childComponents) return
+    comp.__childComponents.forEach((c) => {
+      if (!c) return
+      c.rendered_ = false
+      c.element_ = null
+      this.__resetChildTree(c)
+    })
+  }
+
   attachBindings_() {
     this.cleanupBindings_()
   }
@@ -354,7 +392,7 @@ export default class Component extends Store {
 
     elements.forEach((el) => {
       if (el.getAttribute('data-gea-component-mounted')) return
-      if (el.hasAttribute('data-gea-compiled-child-root')) return
+      if ((el as any).__geaCompiledChildRoot) return
 
       const ctorName = el.constructor.name
       if (ctorName !== 'HTMLUnknownElement' && ctorName !== 'HTMLElement') return
@@ -427,7 +465,7 @@ export default class Component extends Store {
       const existing = document.getElementById(child.id)
       if (!existing) return
       if (child.rendered_ && child.element_ === existing) return
-      existing.setAttribute('data-gea-compiled-child-root', '')
+      ;(existing as any).__geaCompiledChildRoot = true
       child.element_ = existing
       ;(existing as any).__geaComponent = child
       child.rendered_ = true
@@ -648,6 +686,31 @@ export default class Component extends Store {
         }
       }
       if (same) {
+        // Keys unchanged, but content inside items may have changed.
+        // Update existing elements in-place to preserve DOM node identity
+        // (avoids spurious removals visible to MutationObserver when
+        // multiple observers trigger __geaSyncMap in the same flush).
+        let child: ChildNode | null = container.firstChild
+        for (let j = 0; j < items.length; j++) {
+          while (child && (child.nodeType !== 1 || !(child as HTMLElement).hasAttribute('data-gea-item-id'))) {
+            if (child.nodeType === 8 && !(child as any).data) break
+            child = child.nextSibling
+          }
+          if (!child || child.nodeType !== 1) break
+          const oldEl = child as HTMLElement
+          child = child.nextSibling
+          const newEl = createItemFn(items[j], j)
+          if (oldEl.innerHTML !== newEl.innerHTML) {
+            oldEl.innerHTML = newEl.innerHTML
+          }
+          // Sync outer-element attributes (class, draggable, etc.)
+          for (let ai = 0; ai < newEl.attributes.length; ai++) {
+            const a = newEl.attributes[ai]
+            if (oldEl.getAttribute(a.name) !== a.value) {
+              oldEl.setAttribute(a.name, a.value)
+            }
+          }
+        }
         c.__geaPrev = items.slice()
         return
       }
@@ -879,7 +942,7 @@ export default class Component extends Store {
     } else if (cond && conf.getTruthyHtml) {
       const existingNode = marker.nextSibling as HTMLElement | null
       if (existingNode && (existingNode as Node) !== endMarker && existingNode.nodeType === 1) {
-        if (existingNode.hasAttribute('data-gea-compiled-child-root')) return needsPatch
+        if ((existingNode as any).__geaCompiledChildRoot) return needsPatch
         const newHtml = conf.getTruthyHtml()
         const tpl = document.createElement('template')
         tpl.innerHTML = newHtml
@@ -898,7 +961,7 @@ export default class Component extends Store {
       while (existing && (existing as Node) !== endMarker && idx < newChildren.length) {
         const desired = newChildren[idx]
         if (existing.nodeType === 1 && desired.nodeType === 1) {
-          if (!(existing as Element).hasAttribute('data-gea-compiled-child-root')) {
+          if (!(existing as any).__geaCompiledChildRoot) {
             Component.__patchNode(existing as Element, desired as Element)
           }
         } else if (existing.nodeType === 3 && desired.nodeType === 3) {

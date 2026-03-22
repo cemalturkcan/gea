@@ -1,0 +1,286 @@
+import assert from 'node:assert/strict'
+import babelGenerator from '@babel/generator'
+import * as t from '@babel/types'
+import { JSDOM } from 'jsdom'
+import { generateArrayHandlers, generateEnsureArrayConfigsMethod } from '../../src/generate-array'
+export { generateObserveHandler } from '../../src/generate-observe'
+import type { ArrayMapBinding } from '../../src/ir'
+import { geaPlugin } from '../../src/index'
+import { parseSource } from '../../src/parse'
+import type { StateRefMeta } from '../../src/parse'
+import { transformComponentFile } from '../../src/transform-component'
+import { generatePatchItemMethod, generateCreateItemMethod } from '../../src/generate-array-patch'
+import { getObserveMethodName, getJSXTagName } from '../../src/utils'
+import { applyListChanges } from '../../../gea/src/lib/base/list'
+
+export { t, getJSXTagName, getObserveMethodName, parseSource, geaPlugin, transformComponentFile }
+export type { ArrayMapBinding, StateRefMeta }
+
+export const generate = 'default' in babelGenerator ? babelGenerator.default : babelGenerator
+
+export function withDom<T>(run: (dom: JSDOM) => T): T {
+  const dom = new JSDOM('<!doctype html><html><body></body></html>')
+  const previous = {
+    window: globalThis.window,
+    document: globalThis.document,
+    HTMLElement: globalThis.HTMLElement,
+    Node: globalThis.Node,
+    NodeFilter: globalThis.NodeFilter,
+    Event: globalThis.Event,
+    CustomEvent: globalThis.CustomEvent,
+    requestAnimationFrame: globalThis.requestAnimationFrame,
+    cancelAnimationFrame: globalThis.cancelAnimationFrame,
+  }
+
+  Object.assign(globalThis, {
+    window: dom.window,
+    document: dom.window.document,
+    HTMLElement: dom.window.HTMLElement,
+    Node: dom.window.Node,
+    NodeFilter: dom.window.NodeFilter,
+    Event: dom.window.Event,
+    CustomEvent: dom.window.CustomEvent,
+    requestAnimationFrame: (cb: FrameRequestCallback) => setTimeout(() => cb(Date.now()), 0),
+    cancelAnimationFrame: (id: number) => clearTimeout(id),
+  })
+
+  try {
+    return run(dom)
+  } finally {
+    Object.assign(globalThis, previous)
+    dom.window.close()
+  }
+}
+
+export function createArrayObserverHarness(arrayMap: ArrayMapBinding) {
+  const arrayPath = arrayMap.arrayPathParts.join('.')
+  const methodName = `render${arrayPath.charAt(0).toUpperCase() + arrayPath.slice(1)}Item`
+  const observeMethodName = getObserveMethodName(arrayMap.arrayPathParts, arrayMap.storeVar)
+  const methods = generateArrayHandlers(arrayMap, observeMethodName)
+  const capName = arrayPath.charAt(0).toUpperCase() + arrayPath.slice(1).replace(/\./g, '')
+  const patchName = `patch${capName}Item`
+  const createName = `create${capName}Item`
+  const extraMethods: t.ClassMethod[] = []
+  const patchMethod = generatePatchItemMethod(arrayMap)
+  if (patchMethod) {
+    extraMethods.push(patchMethod)
+  } else {
+    extraMethods.push(
+      t.classMethod(
+        'method',
+        t.identifier(patchName),
+        [t.identifier('el'), t.identifier('item')],
+        t.blockStatement([
+          t.expressionStatement(
+            t.assignmentExpression(
+              '=',
+              t.memberExpression(t.identifier('el'), t.identifier('__geaItem')),
+              t.identifier('item'),
+            ),
+          ),
+          t.expressionStatement(
+            t.assignmentExpression(
+              '=',
+              t.memberExpression(t.identifier('el'), t.identifier('textContent')),
+              t.memberExpression(t.identifier('item'), t.identifier('label')),
+            ),
+          ),
+        ]),
+      ),
+    )
+  }
+  const createMethod = generateCreateItemMethod(arrayMap)
+  if (createMethod) {
+    extraMethods.push(createMethod)
+  } else {
+    extraMethods.push(
+      t.classMethod(
+        'method',
+        t.identifier(createName),
+        [t.identifier('item')],
+        t.blockStatement([
+          t.variableDeclaration('var', [
+            t.variableDeclarator(
+              t.identifier('__tw'),
+              t.callExpression(
+                t.memberExpression(
+                  t.memberExpression(t.thisExpression(), t.identifier(`__${arrayPath.replace(/\./g, '_')}_container`)),
+                  t.identifier('cloneNode'),
+                ),
+                [t.booleanLiteral(false)],
+              ),
+            ),
+          ]),
+          t.expressionStatement(
+            t.assignmentExpression(
+              '=',
+              t.memberExpression(t.identifier('__tw'), t.identifier('innerHTML')),
+              t.callExpression(t.memberExpression(t.thisExpression(), t.identifier(methodName)), [
+                t.identifier('item'),
+              ]),
+            ),
+          ),
+          t.variableDeclaration('var', [
+            t.variableDeclarator(
+              t.identifier('el'),
+              t.memberExpression(t.identifier('__tw'), t.identifier('firstElementChild')),
+            ),
+          ]),
+          t.returnStatement(t.identifier('el')),
+        ]),
+      ),
+    )
+  }
+  const classAst = t.program([
+    t.classDeclaration(
+      t.identifier('Harness'),
+      null,
+      t.classBody([
+        t.classMethod(
+          'method',
+          t.identifier('__applyListChanges'),
+          [t.identifier('container'), t.identifier('array'), t.identifier('changes'), t.identifier('config')],
+          t.blockStatement([
+            t.returnStatement(
+              t.callExpression(t.identifier('applyListChanges'), [
+                t.identifier('container'),
+                t.identifier('array'),
+                t.identifier('changes'),
+                t.identifier('config'),
+              ]),
+            ),
+          ]),
+        ),
+        t.classMethod(
+          'method',
+          t.identifier('$'),
+          [t.identifier('selector')],
+          t.blockStatement([
+            t.returnStatement(
+              t.conditionalExpression(
+                t.logicalExpression(
+                  '||',
+                  t.binaryExpression('===', t.identifier('selector'), t.stringLiteral(':scope')),
+                  t.binaryExpression('==', t.identifier('selector'), t.nullLiteral()),
+                ),
+                t.memberExpression(t.thisExpression(), t.identifier('root')),
+                t.callExpression(
+                  t.memberExpression(
+                    t.memberExpression(t.thisExpression(), t.identifier('root')),
+                    t.identifier('querySelector'),
+                  ),
+                  [t.identifier('selector')],
+                ),
+              ),
+            ),
+          ]),
+        ),
+        t.classMethod(
+          'method',
+          t.identifier(methodName),
+          [t.identifier('item')],
+          t.blockStatement([
+            t.returnStatement(
+              t.templateLiteral(
+                [
+                  t.templateElement({
+                    raw: '<li data-gea-item-id="',
+                    cooked: '<li data-gea-item-id="',
+                  }),
+                  t.templateElement({ raw: '">', cooked: '">' }),
+                  t.templateElement({ raw: '</li>', cooked: '</li>' }, true),
+                ],
+                [
+                  t.memberExpression(t.identifier('item'), t.identifier(arrayMap.itemIdProperty || 'id')),
+                  t.memberExpression(t.identifier('item'), t.identifier('label')),
+                ],
+              ),
+            ),
+          ]),
+        ),
+        ...extraMethods,
+        ...(generateEnsureArrayConfigsMethod([arrayMap]) ? [generateEnsureArrayConfigsMethod([arrayMap])!] : []),
+        ...methods,
+      ]),
+    ),
+  ])
+
+  const source = generate(classAst).code
+  const Harness = new Function('applyListChanges', `${source}; return Harness;`)(applyListChanges) as new () => {
+    root: HTMLElement
+  } & Record<string, any>
+
+  return new Harness()
+}
+
+export function renderInitialList(
+  harness: ReturnType<typeof createArrayObserverHarness>,
+  items: Array<{ [key: string]: unknown }>,
+) {
+  harness.root = document.createElement('ul')
+  harness[getObserveMethodName('todos')](items, [
+    {
+      type: 'update',
+      pathParts: ['todos'],
+      newValue: items,
+    },
+  ])
+}
+
+export function transformComponentSource(source: string, knownComponentImports?: Set<string>): string {
+  const parsed = parseSource(source)
+  assert.ok(parsed)
+  assert.ok(parsed.componentClassName)
+
+  const original = parseSource(source)
+  assert.ok(original)
+  const storeImports = new Map<string, string>()
+
+  parsed.imports.forEach((importSource, localName) => {
+    if (parsed.importKinds.get(localName) !== 'default') return
+    if (!/store/i.test(importSource)) return
+    storeImports.set(localName, importSource)
+  })
+
+  const transformed = transformComponentFile(
+    parsed.ast,
+    parsed.imports,
+    storeImports,
+    parsed.componentClassName,
+    '/virtual/test-component.jsx',
+    original.ast,
+    new Set(),
+    knownComponentImports,
+  )
+
+  assert.equal(transformed, true)
+  return generate(parsed.ast).code
+}
+
+export async function transformWithPlugin(source: string, id: string): Promise<string | null> {
+  const plugin = geaPlugin()
+  const transform = typeof plugin.transform === 'function' ? plugin.transform : plugin.transform?.handler
+  const result = await transform?.call({} as never, source, id)
+  if (!result) return null
+  return typeof result === 'string' ? result : result.code
+}
+
+export function createObserveHarness(methodSource: string, setupSource = '') {
+  const source = `
+    class Harness {
+      constructor() {
+        ${setupSource}
+      }
+      $(selector) {
+        return this.root.querySelector(selector)
+      }
+      ${methodSource}
+    }
+    return Harness;
+  `
+  const Harness = new Function(source)() as new () => {
+    root: HTMLElement
+    props?: Record<string, unknown>
+  } & Record<string, any>
+  return new Harness()
+}

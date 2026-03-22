@@ -19,7 +19,8 @@
     "skipLibCheck": true
   },
   "include": [
-    "./*.ts",
-    "./tests/**/*.ts"
+    "./src/**/*.ts",
+    "./tests/**/*.ts",
+    "gea-env.d.ts"
   ]
 }

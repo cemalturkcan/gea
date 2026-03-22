@@ -1,5 +1,5 @@
 import { defineConfig } from 'tsdown'
-import { geaPlugin } from '../vite-plugin-gea/index'
+import { geaPlugin } from '../vite-plugin-gea/src/index'
 import { copyFileSync } from 'node:fs'
 
 export default defineConfig({

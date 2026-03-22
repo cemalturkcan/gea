@@ -14,7 +14,7 @@ import test from 'node:test'
 
 import { JSDOM } from 'jsdom'
 
-import { geaPlugin } from '../index'
+import { geaPlugin } from '../src/index'
 
 function installDom() {
   const dom = new JSDOM('<!doctype html><html><body></body></html>')

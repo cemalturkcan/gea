@@ -14,7 +14,7 @@ export default class Projects extends Component {
         <h1>Projects</h1>
         <div class="project-list">
           {projects.map(p => (
-            <div class="project-card">
+            <div key={p.id} class="project-card">
               <div class="project-info">
                 <h3>{p.name}</h3>
                 <span class="project-status">{p.status}</span>

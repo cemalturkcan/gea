@@ -1,7 +1,7 @@
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
-import { geaPlugin } from '../../packages/vite-plugin-gea/index.ts'
+import { geaPlugin } from '../../packages/vite-plugin-gea/src/index.ts'
 import { mockApiMiddleware } from './mock-api.ts'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -20,7 +20,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@geajs/core': resolve(__dirname, '../../packages/gea/src'),
-      '@geajs/ui': resolve(__dirname, '../../packages/gea-ui/src/index.ts'),
+      '@geajs/ui': resolve(__dirname, '../../packages/gea-ui/src'),
     },
   },
   server: {

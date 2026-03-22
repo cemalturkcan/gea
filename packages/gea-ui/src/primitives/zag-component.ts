@@ -108,7 +108,14 @@ export default class ZagComponent extends Component {
         const nextProps = this._resolveProps(getter, el)
         if (!nextProps) continue
 
+        // Preserve compiled binding IDs: Zag's spreadProps overrides element
+        // IDs, but the compiler's observers rely on getElementById with binding
+        // IDs. Restore the original binding ID after applying spreads.
+        const bindingId = el.id
         const cleanup = spreadProps(el, nextProps)
+        if (bindingId && el.id !== bindingId) {
+          el.id = bindingId
+        }
         this._spreadCleanups.set(key, cleanup)
       }
     }

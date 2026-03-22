@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path'
 
 import { JSDOM } from 'jsdom'
 
-import { geaPlugin } from '../index'
+import { geaPlugin } from '../src/index'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 

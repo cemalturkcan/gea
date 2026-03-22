@@ -711,6 +711,14 @@ export class Store {
   private _createProxy(target: any, basePath: string, baseParts: string[] = []): any {
     if (!target || typeof target !== 'object') return target
 
+    // Return cached proxy if one already exists for this raw object.
+    // This ensures stable references for computed getters that traverse
+    // the same objects (e.g., store.activeConversation via .find()).
+    if (!Array.isArray(target)) {
+      const cached = this._proxyCache.get(target)
+      if (cached) return cached
+    }
+
     const store = this // eslint-disable-line @typescript-eslint/no-this-alias
     let cachedArrayMeta: { arrayPathParts: string[]; arrayIndex: number; baseTail: string[] } | null = null
     for (let i = baseParts.length - 1; i >= 0; i--) {
@@ -742,7 +750,7 @@ export class Store {
 
     const createProxy = (t: any, bp: string, bps: string[]) => store._createProxy(t, bp, bps)
 
-    return new Proxy(target, {
+    const proxy = new Proxy(target, {
       get(obj: any, prop: string | symbol) {
         if (typeof prop === 'symbol') return obj[prop]
         if (prop === '__getTarget') return obj
@@ -928,5 +936,13 @@ export class Store {
         return true
       },
     })
+
+    // Cache the proxy so subsequent accesses (e.g., via .find() in computed
+    // getters) return the same reference, enabling stable identity checks.
+    if (!Array.isArray(target)) {
+      this._proxyCache.set(target, proxy)
+    }
+
+    return proxy
   }
 }

@@ -19,7 +19,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 
 import { transformSync } from 'esbuild'
 import { JSDOM } from 'jsdom'
-import { geaPlugin } from '../../vite-plugin-gea/index'
+import { geaPlugin } from '../../vite-plugin-gea/src/index'
 
 // ── JSDOM setup ──────────────────────────────────────────────────────────
 

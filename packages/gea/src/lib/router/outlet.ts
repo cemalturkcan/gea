@@ -117,7 +117,7 @@ export default class Outlet extends Component {
       child.parentComponent = this
       child.render(this.el)
       if (child.element_) {
-        child.element_.setAttribute('data-gea-compiled-child-root', '')
+        ;(child.element_ as any).__geaCompiledChildRoot = true
       }
       this._currentChild = child
       this._currentComponentClass = item.component

@@ -1,0 +1,60 @@
+---
+description: How to run Playwright tests for example apps
+globs: examples/**,tests/e2e/**
+alwaysApply: true
+---
+
+# Running Playwright Tests
+
+**CRITICAL**: This is a monorepo. `npx playwright` resolves from the workspace root (`gea/node_modules/playwright`), NOT from the example directory you `cd` into. Running `cd examples/music-player && npx playwright test` will discover ALL spec files across the entire repo instead of just the example's tests.
+
+**Always use the `--config` flag pointing to the unified e2e config:**
+
+```bash
+# Correct - runs all e2e tests
+npx playwright test --config=tests/e2e/playwright.config.ts
+
+# Run a single example's tests
+npx playwright test --config=tests/e2e/playwright.config.ts --project=music-player
+
+# WRONG - discovers all spec files in the repo
+cd examples/music-player && npx playwright test
+```
+
+## Example ports and commands
+
+All e2e tests use a single config at `tests/e2e/playwright.config.ts`.
+
+| Example         | Port |
+| --------------- | ---- |
+| todo            | 5291 |
+| kanban          | 5292 |
+| router-simple   | 5293 |
+| router-v2       | 5294 |
+| jira-clone      | 5295 |
+| flight-checkin  | 5296 |
+| mobile-showcase | 5297 |
+| saas-dashboard  | 5298 |
+| ecommerce       | 5299 |
+| chat            | 5300 |
+| music-player    | 5301 |
+| finance         | 5302 |
+| email-client    | 5303 |
+| dashboard       | 5304 |
+| forms           | 5305 |
+| showcase        | 5306 |
+| docs            | 5307 |
+
+## Running a subset of examples
+
+```bash
+# Run a single project
+npx playwright test --config=tests/e2e/playwright.config.ts --project=music-player
+
+# Run multiple projects
+npx playwright test --config=tests/e2e/playwright.config.ts --project=todo --project=kanban --project=chat
+```
+
+## Do Not Modify Example App Code
+
+The example apps under `examples/` are integration tests for the framework. If tests fail, fix the framework code (compiler, runtime, reactivity system), not the example apps. The example code represents valid user patterns that the framework must support.

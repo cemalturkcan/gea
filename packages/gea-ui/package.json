@@ -38,12 +38,7 @@
   ],
   "scripts": {
     "build": "tsdown --config-loader unrun",
-    "dev:dashboard": "vite dev examples/dashboard",
-    "dev:docs": "vite dev examples/docs",
-    "dev:forms": "vite dev examples/forms",
-    "dev:showcase": "vite dev examples/showcase",
-    "dev:interactive": "vite dev examples/interactive",
-    "build:docs": "vite build --config examples/docs/vite.config.prod.ts"
+    "build:docs": "vite build --config ../../examples/docs/vite.config.prod.ts"
   },
   "publishConfig": {
     "access": "public"
@@ -88,6 +83,7 @@
     "tailwind-merge": "^3.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "autoprefixer": "^10.4.27",
     "postcss": "^8.5.8",
     "prismjs": "^1.30.0",

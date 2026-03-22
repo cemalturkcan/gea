@@ -4,8 +4,8 @@ import test from 'node:test'
 import babelGenerator from '@babel/generator'
 import { JSDOM } from 'jsdom'
 
-import { parseSource } from '../parse'
-import { transformComponentFile } from '../transform-component'
+import { parseSource } from '../src/parse'
+import { transformComponentFile } from '../src/transform-component'
 
 const generate = 'default' in babelGenerator ? babelGenerator.default : babelGenerator
 

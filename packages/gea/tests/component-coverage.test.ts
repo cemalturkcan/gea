@@ -1038,15 +1038,19 @@ describe('Component – instantiateChildComponents_', () => {
     assert.equal(parent.__childComponents.length, 0)
   })
 
-  it('skips elements with data-gea-compiled-child-root', () => {
+  it('skips elements with __geaCompiledChildRoot property', () => {
     class Parent extends Component {
       template() {
-        return '<div><child-x data-gea-compiled-child-root="true"></child-x></div>'
+        return '<div><child-x></child-x></div>'
       }
     }
     const parent = new Parent()
     const container = document.createElement('div')
     document.body.appendChild(container)
+    // Mark the child element before render to simulate compiled child
+    const el = parent.el
+    const childEl = el?.querySelector('child-x')
+    if (childEl) (childEl as any).__geaCompiledChildRoot = true
     parent.render(container)
     assert.equal(parent.__childComponents.length, 0)
   })

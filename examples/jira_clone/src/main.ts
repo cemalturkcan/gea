@@ -1,6 +1,6 @@
 import App from './App'
 import 'quill/dist/quill.snow.css'
-import '../../../packages/gea-ui/src/styles/theme.css'
+import '@geajs/ui/styles/theme.css'
 import './styles.css'
 
 const root = document.getElementById('app')

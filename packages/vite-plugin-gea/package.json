@@ -40,9 +40,10 @@
     "gea-env.d.ts"
   ],
   "scripts": {
-    "build": "tsup index.ts --format esm --dts --clean --external vite",
-    "test": "tsx --test tests/**/*.test.ts",
-    "test:coverage": "c8 --reporter=text --reporter=lcov tsx --test tests/**/*.test.ts"
+    "build": "tsup src/index.ts --format esm --dts --clean --external vite",
+    "test": "tsx --test 'tests/**/*.test.ts'",
+    "test:e2e": "npx playwright test --config=../../tests/e2e/playwright.config.ts",
+    "test:coverage": "c8 --reporter=text --reporter=lcov tsx --test 'tests/**/*.test.ts'"
   },
   "dependencies": {
     "@acemir/cssom": "^0.9.31",

@@ -9,6 +9,7 @@ export default class SettingsLayout extends Component {
         <div class="settings-tabs">
           {keys.map((key: string) => (
             <button
+              key={key}
               class={key === activeKey ? 'tab active' : 'tab'}
               click={() => navigate(key)}
             >
