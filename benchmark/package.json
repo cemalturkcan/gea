@@ -1,0 +1,16 @@
+{
+  "name": "js-framework-benchmark-keyed-gea",
+  "version": "1.0.0",
+  "type": "module",
+  "js-framework-benchmark": {
+    "frameworkVersion": "1.0.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build-prod": "vite build"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "vite": "^6.0.0"
+  }
+}
