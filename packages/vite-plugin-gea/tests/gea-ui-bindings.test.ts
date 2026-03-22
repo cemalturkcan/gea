@@ -1006,7 +1006,7 @@ test('radio-group map: callback + items refresh does not destroy item DOM', asyn
           return (
             <div class="radio-root">
               {items.map((item) => (
-                <label class="radio-item" data-value={item.value}>
+                <label class="radio-item" data-value={item.value} key={item.value}>
                   <span class="radio-label">{item.label}</span>
                 </label>
               ))}
