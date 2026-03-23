@@ -358,7 +358,11 @@ export class Store {
   private _notifyHandlers(node: ObserverNode, relevant: StoreChange[]): void {
     const value = getByPathParts(this, node.pathParts)
     for (const handler of node.handlers) {
-      handler(value, relevant)
+      try {
+        handler(value, relevant)
+      } catch (e) {
+        console.error('[Gea Store] Observer threw:', e)
+      }
     }
   }
 
@@ -439,10 +443,7 @@ export class Store {
       arrayNode.children.size === 0 &&
       arrayNode.handlers.size > 0
     ) {
-      const value = getByPathParts(this, arrayPathParts!)
-      for (const handler of arrayNode.handlers) {
-        handler(value, batch)
-      }
+      this._notifyHandlers(arrayNode, batch)
       return true
     }
 

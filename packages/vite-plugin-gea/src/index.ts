@@ -3,6 +3,7 @@ import { parseSource } from './parse.ts'
 import { injectHMR } from './hmr.ts'
 import { transformComponentFile, transformNonComponentJSX } from './transform-component.ts'
 import { convertFunctionalToClass } from './transform-functional.ts'
+import { isComponentTag } from './utils.ts'
 import { createRequire } from 'module'
 import { dirname, relative, resolve } from 'node:path'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
@@ -420,6 +421,11 @@ export function geaPlugin(): Plugin {
                     storeImports.set(spec.local.name, source)
                   } else if (!resolvedImport && source === '@geajs/core' && spec.local.name === 'router') {
                     storeImports.set(spec.local.name, source)
+                  }
+                  // Recognize PascalCase exports from @geajs/core as components
+                  const importedName = spec.imported?.name ?? spec.local.name
+                  if (source === '@geajs/core' && isComponentTag(importedName)) {
+                    knownComponentImports.add(spec.local.name)
                   }
                 }
               },
