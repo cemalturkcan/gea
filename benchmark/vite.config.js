@@ -15,20 +15,10 @@ export default defineConfig({
       fileName: () => 'main.js',
     },
     minify: 'esbuild',
-    rollupOptions: {
-      output: {
-        inlineDynamicImports: true,
-      },
-    },
   },
   resolve: {
     alias: {
       gea: resolve(geaRoot, 'packages/gea/src'),
-    },
-  },
-  optimizeDeps: {
-    esbuildOptions: {
-      loader: { '.js': 'jsx' },
     },
   },
 })
