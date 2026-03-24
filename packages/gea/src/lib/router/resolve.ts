@@ -186,6 +186,10 @@ function tryResolveEntry(
     // --- Path mode (default) ---
     const childResult = resolveRecursive(entry.children, prefixMatch.rest, search, nextResult)
     if (!childResult.component && !childResult.redirect && !childResult.isLazy) {
+      // Children didn't match — propagate accumulated guards/layouts
+      // so that sibling routes (e.g. wildcard) inherit them.
+      result.guards = nextResult.guards
+      result.layouts = nextResult.layouts
       return null
     }
     return childResult
