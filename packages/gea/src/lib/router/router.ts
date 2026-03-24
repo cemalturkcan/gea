@@ -116,7 +116,7 @@ export class Router<T extends RouteMap = RouteMap> extends Store {
   setRoutes(routes: RouteMap): void {
     this._routes = routes
     ;(this as any).routeConfig = routes
-    this._resolve()
+    if (typeof window !== 'undefined') this._resolve()
   }
 
   get page(): any {
@@ -136,15 +136,15 @@ export class Router<T extends RouteMap = RouteMap> extends Store {
   }
 
   back(): void {
-    window.history.back()
+    if (typeof window !== 'undefined') window.history.back()
   }
 
   forward(): void {
-    window.history.forward()
+    if (typeof window !== 'undefined') window.history.forward()
   }
 
   go(delta: number): void {
-    window.history.go(delta)
+    if (typeof window !== 'undefined') window.history.go(delta)
   }
 
   get layoutCount(): number {
@@ -208,6 +208,7 @@ export class Router<T extends RouteMap = RouteMap> extends Store {
   }
 
   private _navigate(target: string | NavigationTarget, method: 'push' | 'replace'): void {
+    if (typeof window === 'undefined') return
     const { path, search, hash } = buildUrl(target)
 
     // Prepend base for the history API URL
@@ -238,6 +239,7 @@ export class Router<T extends RouteMap = RouteMap> extends Store {
   }
 
   private _resolve(): void {
+    if (typeof window === 'undefined') return
     const base = this._options.base
     let currentPath = window.location.pathname
     const currentSearch = window.location.search
