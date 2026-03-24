@@ -1527,6 +1527,26 @@
 
       let showingCompiled = false
       let compiledModulesCache = {}
+      let formattedCache = {}
+
+      async function formatCompiled(code) {
+        if (!code || !playgroundModules) return code
+        if (formattedCache[code]) return formattedCache[code]
+        try {
+          const { prettier, prettierBabel, prettierEstree } = playgroundModules
+          const result = await prettier.format(code, {
+            parser: 'babel',
+            plugins: [prettierBabel, prettierEstree],
+            printWidth: 80,
+            singleQuote: true,
+            semi: true,
+          })
+          formattedCache[code] = result
+          return result
+        } catch {
+          return code
+        }
+      }
       let activeFile = ''
 
       function buildTabs(example) {
@@ -1555,8 +1575,10 @@
               tab.classList.toggle('compiled', showingCompiled)
               tab.querySelector('.tab-mode-toggle').textContent = showingCompiled ? 'compiled' : 'original'
               if (showingCompiled) {
-                editorInstance.showCompiled(compiledModulesCache[activeFile] || '')
-                editorInstance.setCompiledView()
+                formatCompiled(compiledModulesCache[activeFile] || '').then(formatted => {
+                  editorInstance.showCompiled(formatted)
+                  editorInstance.setCompiledView()
+                })
               } else {
                 editorInstance.setActiveFile(activeFile)
               }
@@ -1600,9 +1622,12 @@
           import('./playground/gea-compiler-browser.js'),
           import('./playground/editor.js'),
           import('./playground/preview.js'),
+          import('https://cdn.jsdelivr.net/npm/prettier@3/standalone.mjs'),
+          import('https://cdn.jsdelivr.net/npm/prettier@3/plugins/babel.mjs'),
+          import('https://cdn.jsdelivr.net/npm/prettier@3/plugins/estree.mjs'),
         ])
-          .then(([compiler, editor, preview]) => {
-            playgroundModules = { compiler, editor, preview }
+          .then(([compiler, editor, preview, prettier, prettierBabel, prettierEstree]) => {
+            playgroundModules = { compiler, editor, preview, prettier, prettierBabel, prettierEstree }
             playgroundReady = true
             activatePlayground()
           })
@@ -1645,8 +1670,11 @@
         const iframe = document.getElementById('playground-preview')
         const result = compiler.compileForBrowser(files)
         compiledModulesCache = result.compiledModules
+        formattedCache = {}
         if (editorInstance && showingCompiled) {
-          editorInstance.showCompiled(compiledModulesCache[activeFile] || '')
+          formatCompiled(compiledModulesCache[activeFile] || '').then(formatted => {
+            editorInstance.showCompiled(formatted)
+          })
         }
         const blobOrder = example.compileOrder || example.fileOrder
         preview.renderPreview(iframe, result.compiledModules, blobOrder, result.errors, example.previewCSS)
