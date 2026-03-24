@@ -149,9 +149,11 @@ export default function OptionStep({ options, onSelect }) {
       componentPath,
     )
     assert.ok(output)
-    assert.match(output, /_buildOptionsItems/)
-    assert.match(output, /__mountOptionsItems/)
-    assert.doesNotMatch(output, /this\._optionsItems\.join/, 'component items must not be stringified via join()')
+    assert.match(output, /this\._optionsItems\s*=\s*\(this\.props\.options\s*\?\?\s*\[\]\)\.map/, 'constructor should init _optionsItems with __child()')
+    assert.match(output, /this\.__child\(OptionItem/, 'constructor init should use __child()')
+    assert.doesNotMatch(output, /_buildOptionsItems/, 'build method should not exist')
+    assert.doesNotMatch(output, /__mountOptionsItems/, 'mount method should not exist')
+    assert.match(output, /this\._optionsItems\.join\(""\)/, 'template should use .join("")')
     assert.match(output, /this\.props\.onSelect/)
   } finally {
     await rm(dir, { recursive: true, force: true })
@@ -284,7 +286,7 @@ test('unresolved map getItems includes local template setup when template() has 
 
   // With store-alias resolution, project.items is a known imported path → array observer + list sync
   // (not an unresolved __geaRegisterMap getItems callback).
-  assert.match(output, /observe\(\["project",\s*"items"\]/, 'must observe project.items, not only project')
+  assert.match(output, /observe\(dataStore,\s*\["project",\s*"items"\]/, 'must observe project.items, not only project')
   assert.ok(
     /__applyListChanges/.test(output) && /__observe_.*project__items/.test(output),
     'project.items map should compile to array list observer',
@@ -344,8 +346,8 @@ test('hyphenated component names inside .map() produce correct opening tags', ()
     }
   `)
 
-  // Components in map callbacks should produce real JS instances, not HTML strings
-  assert.match(output, /new IssueCard\(/, 'map callback should produce new IssueCard() instance')
+  // Components in map callbacks should produce real JS instances via __child(), not HTML strings
+  assert.match(output, /this\.__child\(IssueCard/, 'map callback should produce __child(IssueCard) instance')
   assert.doesNotMatch(output, /<issue-card/, 'should not produce HTML string for component in map')
 })
 
@@ -596,25 +598,22 @@ test('store deps used in component array item props must route to __refreshXxxIt
     new Set(['IssueCard']),
   )
 
-  const projectObserver = output.match(/__observe_projectStore_project\b[^_]([\s\S]*?)\n  \}/)?.[0]
-  assert.ok(projectObserver, 'must generate __observe_projectStore_project')
-  assert.ok(
-    !projectObserver.includes('__geaRequestRender'),
-    '__observe_projectStore_project must NOT call __geaRequestRender (should call __refreshIssuesItems). Got: ' +
-      projectObserver,
-  )
-  assert.ok(
-    projectObserver.includes('__refreshIssuesItems'),
-    '__observe_projectStore_project must call __refreshIssuesItems. Got: ' + projectObserver,
+  // The refresh method should exist for non-store arrays with store deps
+  assert.match(output, /__refreshIssuesItems/, 'must generate __refreshIssuesItems method')
+
+  // The observer in createdHooks should reference __refreshIssuesItems, not __geaRequestRender
+  assert.doesNotMatch(
+    output,
+    /__geaRequestRender/,
+    'output must NOT contain __geaRequestRender — store deps should route to __refreshIssuesItems',
   )
 
-  const usersObserver = output.match(/__observe_projectStore_project__users([\s\S]*?)\n  \}/)?.[0]
-  if (usersObserver) {
-    assert.ok(
-      !usersObserver.includes('__geaRequestRender'),
-      '__observe_projectStore_project__users must NOT call __geaRequestRender. Got: ' + usersObserver,
-    )
-  }
+  // createdHooks should observe the store and reference __refreshIssuesItems
+  assert.match(
+    output,
+    /this\.__observe\(projectStore,\s*\[.*\],\s*this\.__refreshIssuesItems\)/,
+    'createdHooks must observe projectStore and call __refreshIssuesItems',
+  )
 })
 
 test('chained .filter().map() resolves store path for reactivity', async () => {

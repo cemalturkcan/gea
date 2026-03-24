@@ -1,9 +1,9 @@
 /**
- * Generate __syncArraySlot_X for unresolved maps with component children.
- * Creates component instances with full props (including functions) instead of serializing to HTML.
+ * Generate __itemProps_* method and constructor init for component array slots.
+ * The runtime's __observeList() handles mount, refresh, and reconciliation.
  */
 import * as t from '@babel/types'
-import { id, jsBlockBody, jsExpr, jsMethod } from 'eszter'
+import { id, jsMethod } from 'eszter'
 import type { NodePath } from '@babel/traverse'
 import type { UnresolvedMapInfo } from './ir.ts'
 import { ITEM_IS_KEY } from './analyze-helpers.ts'
@@ -50,6 +50,23 @@ export function getComponentArrayMountMethodName(arrayPropName: string): string 
   return `__mount${getArrayCapName(arrayPropName)}Items`
 }
 
+export interface ComponentArrayResult {
+  /** The __itemProps_* method */
+  itemPropsMethod: t.ClassMethod
+  /** Constructor init statement: this._todosItems = (store.todos ?? []).map(...) */
+  constructorInit: t.Statement
+  /** The component tag (constructor) name, e.g. 'TodoItem' */
+  componentTag: string
+  /** The container binding ID for __el() lookup (e.g. 'list') */
+  containerBindingId?: string
+  /** The item ID property name for keyed reconciliation (e.g. 'id') */
+  itemIdProperty?: string
+  /** The array access expression for the store path */
+  arrAccessExpr: t.Expression
+  /** Setup statements needed before accessing the array */
+  arrSetupStatements: t.Statement[]
+}
+
 export function generateComponentArrayMethods(
   um: UnresolvedMapInfo,
   arrayPropName: string,
@@ -60,11 +77,29 @@ export function generateComponentArrayMethods(
   wholeParamName?: string,
   templateSetupContext?: TemplateSetupContext,
 ): t.ClassMethod[] {
+  const result = generateComponentArrayResult(
+    um, arrayPropName, imports, propNames, _classBody,
+    storeArrayAccess, wholeParamName, templateSetupContext,
+  )
+  if (!result) return []
+  return [result.itemPropsMethod]
+}
+
+export function generateComponentArrayResult(
+  um: UnresolvedMapInfo,
+  arrayPropName: string,
+  imports: Map<string, string>,
+  propNames: Set<string>,
+  _classBody: t.ClassBody,
+  storeArrayAccess?: { storeVar: string; propName: string },
+  wholeParamName?: string,
+  templateSetupContext?: TemplateSetupContext,
+): ComponentArrayResult | null {
   const comp = isUnresolvedMapWithComponentChild(um, imports)
-  if (!comp) return []
+  if (!comp) return null
 
   const itemTemplate = um.itemTemplate
-  if (!itemTemplate || !t.isJSXElement(itemTemplate)) return []
+  if (!itemTemplate || !t.isJSXElement(itemTemplate)) return null
 
   const mapJsxCtx = {
     imports,
@@ -127,19 +162,6 @@ export function generateComponentArrayMethods(
   }
 
   const itemsName = getComponentArrayItemsName(arrayPropName)
-  const buildMethodName = getComponentArrayBuildMethodName(arrayPropName)
-  const refreshMethodName = getComponentArrayRefreshMethodName(arrayPropName)
-  const mountMethodName = `__mount${getArrayCapName(arrayPropName)}Items`
-  const containerName = `__${arrayPropName}ItemsContainer`
-  const containerLookupExpr = um.containerBindingId
-    ? t.callExpression(t.memberExpression(t.identifier('document'), t.identifier('getElementById')), [
-        t.binaryExpression(
-          '+',
-          t.memberExpression(t.thisExpression(), t.identifier('id')),
-          t.stringLiteral(`-${um.containerBindingId}`),
-        ),
-      ])
-    : (jsExpr`this.$(":scope")` as t.Expression)
 
   let arrAccessExpr: t.Expression
   let arrSetupStatements: t.Statement[] = []
@@ -184,167 +206,41 @@ export function generateComponentArrayMethods(
         ? t.callExpression(t.identifier('String'), [t.identifier('opt')])
         : t.binaryExpression('+', t.stringLiteral('__idx_'), t.identifier('__k'))
 
-  const buildMethod = jsMethod`${id(buildMethodName)}() {}`
-  buildMethod.body.body.push(
-    ...arrSetupStatements,
-    ...(itemIdProp
-      ? jsBlockBody`
-           const arr = ${arrAccessExpr} ?? [];
-           this.${id(itemsName)} = arr.map((opt, __k) => {
-             const item = new ${id(comp.componentTag)}(${t.cloneNode(itemPropsCall, true)});
-             item.parentComponent = this;
-             item.__geaCompiledChild = true;
-             item.__geaItemKey = ${t.cloneNode(keyExpr, true)};
-             return item;
-           });
-         `
-      : jsBlockBody`
-           const arr = ${arrAccessExpr} ?? [];
-           this.${id(itemsName)} = arr.map(opt => {
-             const item = new ${id(comp.componentTag)}(${t.cloneNode(itemPropsCall, true)});
-             item.parentComponent = this;
-             item.__geaCompiledChild = true;
-             return item;
-           });
-         `),
+  // Constructor init: this._todosItems = (store.todos ?? []).map((opt, __k) => this.__child(Ctor, this.__itemProps_todos(opt), key))
+  const mapParams: t.Identifier[] = [t.identifier('opt')]
+  if (indexVar || !itemIdProp) mapParams.push(t.identifier('__k'))
+  const childCall = t.callExpression(
+    t.memberExpression(t.thisExpression(), t.identifier('__child')),
+    [
+      t.identifier(comp.componentTag),
+      t.cloneNode(itemPropsCall, true),
+      t.cloneNode(keyExpr, true),
+    ],
+  )
+  const mapCallback = t.arrowFunctionExpression(mapParams, childCall)
+  const nullishCoalesce = t.logicalExpression('??', t.cloneNode(arrAccessExpr, true), t.arrayExpression([]))
+  const parenthesized = t.parenthesizedExpression
+    ? t.parenthesizedExpression(nullishCoalesce)
+    : nullishCoalesce
+  const mapCallExpr = t.callExpression(
+    t.memberExpression(parenthesized, t.identifier('map')),
+    [mapCallback],
+  )
+  const constructorInit = t.expressionStatement(
+    t.assignmentExpression(
+      '=',
+      t.memberExpression(t.thisExpression(), t.identifier(itemsName)),
+      mapCallExpr,
+    ),
   )
 
-  const mountMethod = jsMethod`${id(mountMethodName)}() {}`
-  mountMethod.body.body.push(
-    ...jsBlockBody`
-      if (!this.${id(containerName)} || !this.${id(containerName)}.isConnected) {
-        this.${id(containerName)} = ${containerLookupExpr};
-      }
-      if (!this.${id(containerName)}) return;
-      for (let i = 0; i < (this.${id(itemsName)}?.length ?? 0); i++) {
-        const item = this.${id(itemsName)}[i];
-        if (!item) continue;
-        if (!this.__childComponents.includes(item)) {
-          this.__childComponents.push(item);
-        }
-        item.render(this.${id(containerName)});
-      }
-    `,
-  )
-
-  const refreshMethod = jsMethod`${id(refreshMethodName)}() {}`
-  if (itemIdProp) {
-    refreshMethod.body.body.push(
-      ...arrSetupStatements.map((stmt) => t.cloneNode(stmt, true) as t.Statement),
-      ...jsBlockBody`
-         const arr = ${t.cloneNode(arrAccessExpr, true)} ?? [];
-         const __old = this.${id(itemsName)} ?? [];
-         const __keyMap = new Map();
-         for (let __k = 0; __k < __old.length; __k++) {
-           if (__old[__k].__geaItemKey != null) {
-             __keyMap.set(__old[__k].__geaItemKey, __old[__k]);
-           }
-         }
-         const __new = [];
-         for (let __k = 0; __k < arr.length; __k++) {
-           const opt = arr[__k];
-           const __key = ${t.cloneNode(keyExpr, true)};
-           const __existing = __keyMap.get(__key);
-           if (__existing) {
-             __existing.__geaUpdateProps(${t.cloneNode(itemPropsCall, true)});
-             __new.push(__existing);
-             __keyMap.delete(__key);
-           } else {
-             const __item = new ${id(comp.componentTag)}(${t.cloneNode(itemPropsCall, true)});
-             __item.parentComponent = this;
-             __item.__geaCompiledChild = true;
-             __item.__geaItemKey = __key;
-             __new.push(__item);
-           }
-         }
-         for (const [, __removed] of __keyMap) {
-           __removed.dispose?.();
-         }
-         if ((!this.${id(containerName)} || !this.${id(containerName)}.isConnected) && this.rendered_) {
-           this.${id(containerName)} = ${t.cloneNode(containerLookupExpr, true)};
-         }
-         const __container = this.${id(containerName)};
-         if (__container && this.rendered_) {
-           for (let __k = 0; __k < __new.length; __k++) {
-             if (!__new[__k].rendered_) {
-               if (!this.__childComponents.includes(__new[__k])) {
-                 this.__childComponents.push(__new[__k]);
-               }
-               __new[__k].render(__container);
-             }
-           }
-           let __cursor = __container.firstChild;
-           for (let __k = 0; __k < __new.length; __k++) {
-             let __el = __new[__k].element_;
-             if (!__el) continue;
-             while (__el.parentElement && __el.parentElement !== __container) __el = __el.parentElement;
-             if (__el !== __cursor) {
-               __container.insertBefore(__el, __cursor || null);
-             } else {
-               __cursor = __cursor.nextSibling;
-             }
-           }
-         }
-         this.${id(itemsName)} = __new;
-         this.__childComponents = (this.__childComponents || []).filter(
-           child => !__old.includes(child) || __new.includes(child)
-         );
-       `,
-    )
-  } else {
-    refreshMethod.body.body.push(
-      ...arrSetupStatements.map((stmt) => t.cloneNode(stmt, true) as t.Statement),
-      ...jsBlockBody`
-         const arr = ${t.cloneNode(arrAccessExpr, true)} ?? [];
-         const __old = this.${id(itemsName)} ?? [];
-         const __oldLen = __old.length;
-         const __newLen = arr.length;
-         if (__oldLen !== __newLen) {
-           if (__newLen > __oldLen) {
-             for (let __k = 0; __k < __oldLen; __k++) {
-               const opt = arr[__k];
-               __old[__k].__geaUpdateProps(${t.cloneNode(itemPropsCall, true)});
-             }
-             if ((!this.${id(containerName)} || !this.${id(containerName)}.isConnected) && this.rendered_) {
-               this.${id(containerName)} = ${t.cloneNode(containerLookupExpr, true)};
-             }
-             for (let __k = __oldLen; __k < __newLen; __k++) {
-               const opt = arr[__k];
-               const __item = new ${id(comp.componentTag)}(${t.cloneNode(itemPropsCall, true)});
-               __item.parentComponent = this;
-               __item.__geaCompiledChild = true;
-               this.${id(itemsName)}.push(__item);
-               if (!this.__childComponents.includes(__item)) {
-                 this.__childComponents.push(__item);
-               }
-               if (this.rendered_ && this.${id(containerName)}) {
-                 __item.render(this.${id(containerName)});
-               }
-             }
-             return;
-           }
-           if (__newLen < __oldLen) {
-             for (let __k = __newLen; __k < __oldLen; __k++) {
-               __old[__k]?.dispose?.();
-             }
-             this.${id(itemsName)}.length = __newLen;
-             this.__childComponents = (this.__childComponents || []).filter(
-               child => !__old.slice(__newLen).includes(child)
-             );
-             for (let __k = 0; __k < __newLen; __k++) {
-               const opt = arr[__k];
-               this.${id(itemsName)}[__k].__geaUpdateProps(${t.cloneNode(itemPropsCall, true)});
-             }
-             return;
-           }
-         }
-         for (let i = 0; i < arr.length; i++) {
-           const opt = arr[i];
-           this.${id(itemsName)}[i].__geaUpdateProps(${t.cloneNode(itemPropsCall, true)});
-         }
-       `,
-    )
+  return {
+    itemPropsMethod,
+    constructorInit,
+    componentTag: comp.componentTag,
+    containerBindingId: um.containerBindingId,
+    itemIdProperty: itemIdProp,
+    arrAccessExpr,
+    arrSetupStatements,
   }
-
-  return [itemPropsMethod, buildMethod, mountMethod, refreshMethod]
 }
