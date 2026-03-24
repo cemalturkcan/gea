@@ -193,6 +193,33 @@ describe('Component.__el', () => {
     // Second call returns cached
     assert.equal(comp.__el('info'), el)
   })
+
+  it('re-queries DOM when cached element is disconnected', async () => {
+    class MyComp extends Component {
+      template() { return `<div id="${this.id}"><p id="${this.id}-info">hi</p></div>` }
+    }
+    const comp = new MyComp()
+    document.body.innerHTML = ''
+    comp.render(document.body)
+    const el1 = comp.__el('info')
+    assert.ok(el1)
+
+    // Disconnect the cached element by removing it from the DOM
+    el1.remove()
+
+    // Insert a new element with the same ID
+    const newP = document.createElement('p')
+    newP.id = comp.id + '-info'
+    newP.textContent = 'replaced'
+    comp.__el('info') // should detect disconnected, re-query
+    // but the element is gone now, let's put it back first
+    document.getElementById(comp.id)!.appendChild(newP)
+
+    const el2 = comp.__el('info')
+    assert.ok(el2)
+    assert.notEqual(el2, el1)
+    assert.equal(el2.textContent, 'replaced')
+  })
 })
 
 describe('Component.__updateText', () => {
@@ -225,7 +252,9 @@ describe('Component.__updateText', () => {
       template() { return `<div id="${this.id}"></div>` }
     }
     const comp = new MyComp()
-    // Should not throw
+    document.body.innerHTML = ''
+    comp.render(document.body)
+    // Should not throw when suffix does not exist in the rendered output
     comp.__updateText('nonexistent', 'text')
   })
 })
