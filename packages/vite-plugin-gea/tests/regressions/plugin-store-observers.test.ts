@@ -401,8 +401,8 @@ export default class TodoStore extends Store {
     const methodSlice = output.slice(methodStart, methodStart + 300)
     assert.match(
       methodSlice,
-      /__refreshChildProps_todoFilters/,
-      'observer should call child prop refresh, not __geaRequestRender',
+      /this\._todoFilters\.__geaUpdateProps\(this\.__buildProps_todoFilters\(\)\)/,
+      'observer should call child prop update, not __geaRequestRender',
     )
     assert.doesNotMatch(methodSlice, /__geaRequestRender/, 'observer must not trigger a full re-render')
   } finally {
@@ -509,7 +509,7 @@ test('component getter reading this.props registers deps for this.getter in temp
   assert.match(output, /key === "options"/, 'getter reads this.props.options — options must trigger prop patch')
 })
 
-test('observer calls __refreshChildProps when guard-dependent props reference the store', () => {
+test('observer calls __geaUpdateProps when guard-dependent props reference the store', () => {
   const output = transformComponentSource(`
     import { Component } from '@geajs/core'
     import projectStore from './project-store'
@@ -535,8 +535,8 @@ test('observer calls __refreshChildProps when guard-dependent props reference th
 
   assert.match(
     observerMatch![0],
-    /__refreshChildProps_icon/,
-    'observer must call __refreshChildProps_icon to update the child when the guard dependency changes',
+    /this\._icon\.__geaUpdateProps\(this\.__buildProps_icon\(\)\)/,
+    'observer must call this._icon.__geaUpdateProps to update the child when the guard dependency changes',
   )
 })
 

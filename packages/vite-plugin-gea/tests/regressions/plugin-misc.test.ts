@@ -22,8 +22,8 @@ test('transform creates a distinct child instance for each self-closing componen
     }
   `)
 
-  assert.match(output, /this\._counter = new Counter\(/)
-  assert.match(output, /this\._counter2 = new Counter\(/)
+  assert.match(output, /this\._counter = this\.__child\(Counter/)
+  assert.match(output, /this\._counter2 = this\.__child\(Counter/)
 })
 
 test('component used only in render prop is registered when in knownComponentImports', () => {

@@ -243,30 +243,28 @@ function extractHtmlTemplatesFromConditional(expr: t.Expression): {
   return {}
 }
 
-function extractEnsureChildCall(
+function extractChildInstanceRef(
   expr: t.Expression,
-): { instanceVar: string; ensureMethod: string; guardExpr: t.Expression } | null {
+): { instanceVar: string; guardExpr: t.Expression } | null {
   if (!t.isLogicalExpression(expr) || expr.operator !== '&&') return null
   const right = expr.right
-  let ensureCallExpr: t.Expression | null = null
+  let memberExpr: t.MemberExpression | null = null
   if (t.isTemplateLiteral(right) && right.expressions.length === 1) {
-    ensureCallExpr = right.expressions[0] as t.Expression
-  } else if (t.isCallExpression(right)) {
-    ensureCallExpr = right
+    const inner = right.expressions[0] as t.Expression
+    if (t.isMemberExpression(inner)) memberExpr = inner
+  } else if (t.isMemberExpression(right)) {
+    memberExpr = right
   }
   if (
-    !ensureCallExpr ||
-    !t.isCallExpression(ensureCallExpr) ||
-    !t.isMemberExpression(ensureCallExpr.callee) ||
-    !t.isThisExpression(ensureCallExpr.callee.object) ||
-    !t.isIdentifier(ensureCallExpr.callee.property) ||
-    !ensureCallExpr.callee.property.name.startsWith('__ensureChild_')
+    !memberExpr ||
+    !t.isThisExpression(memberExpr.object) ||
+    !t.isIdentifier(memberExpr.property) ||
+    !memberExpr.property.name.startsWith('_')
   )
     return null
 
-  const ensureMethod = ensureCallExpr.callee.property.name
-  const instanceVar = '_' + ensureMethod.replace('__ensureChild_', '')
-  return { instanceVar, ensureMethod, guardExpr: expr.left as t.Expression }
+  const instanceVar = memberExpr.property.name
+  return { instanceVar, guardExpr: expr.left as t.Expression }
 }
 
 function expressionMayProduceJSXForCtx(expr: t.Expression): boolean {
@@ -437,7 +435,6 @@ export interface ConditionalSlotInfo {
 export interface StateChildSlot {
   markerId: string
   childInstanceVar: string
-  ensureMethodName: string
   /** The conditional guard expression (e.g. step === 1), untransformed */
   guardExpr: t.Expression
   dependencies: ObserveDependency[]
@@ -839,13 +836,7 @@ function processElement(node: t.JSXElement, parts: TemplatePart[], ctx: Ctx, ele
       pushString(parts, '')
       parts.push({
         type: 'expression',
-        value: t.callExpression(
-          t.memberExpression(
-            t.thisExpression(),
-            t.identifier(`__ensureChild_${instance.instanceVar.replace(/^_/, '')}`),
-          ),
-          [],
-        ),
+        value: t.memberExpression(t.thisExpression(), t.identifier(instance.instanceVar)),
       })
       return
     }
@@ -1246,7 +1237,7 @@ function processChildren(
         const stateSlots = ctx.stateChildSlots
         const stateCounter = ctx.stateChildSlotCounter
         const childCallInfo =
-          stateSlots && stateCounter && expressionMayBeFalsy(rawExpr) ? extractEnsureChildCall(expr) : null
+          stateSlots && stateCounter && expressionMayBeFalsy(rawExpr) ? extractChildInstanceRef(expr) : null
         if (childCallInfo && stateSlots && stateCounter) {
           const markerId = `sc${stateCounter.value}`
           stateCounter.value++
@@ -1254,7 +1245,6 @@ function processChildren(
           stateSlots.push({
             markerId,
             childInstanceVar: childCallInfo.instanceVar,
-            ensureMethodName: childCallInfo.ensureMethod,
             guardExpr: childCallInfo.guardExpr,
             dependencies: collectExpressionDependencies(childCallInfo.guardExpr, ctx.stateRefs, setupStatements),
           })

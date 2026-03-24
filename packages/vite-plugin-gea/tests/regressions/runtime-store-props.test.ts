@@ -313,23 +313,20 @@ export default class TodoStore extends Store {
 
     parentRerenders = 0
     childRerenders = 0
-    let childRefreshCalled = false
-    const refreshMethodName = Object.keys(view).find((k) => k.startsWith('__refreshChildProps_'))
-    if (refreshMethodName) {
-      const origRefresh = (view as any)[refreshMethodName].bind(view)
-      ;(view as any)[refreshMethodName] = () => {
-        childRefreshCalled = true
-        return origRefresh()
-      }
+    let childUpdatePropsCalled = false
+    const origUpdateProps = filtersChild.__geaUpdateProps.bind(filtersChild)
+    filtersChild.__geaUpdateProps = (...args: any[]) => {
+      childUpdatePropsCalled = true
+      return origUpdateProps(...args)
     }
 
     store.draft = 'some text'
     await flushMicrotasks()
 
     assert.equal(
-      childRefreshCalled,
+      childUpdatePropsCalled,
       false,
-      'draft mutation must NOT trigger __refreshChildProps (observer targets ["todos"], not root [])',
+      'draft mutation must NOT trigger __geaUpdateProps on child (observer targets ["todos"], not root [])',
     )
     assert.equal(parentRerenders, 0, 'draft mutation must NOT rerender parent')
     assert.equal(childRerenders, 0, 'draft mutation must NOT rerender child')

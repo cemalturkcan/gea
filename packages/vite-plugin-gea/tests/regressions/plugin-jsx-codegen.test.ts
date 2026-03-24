@@ -74,8 +74,8 @@ test('transform recognizes aliased named component imports', () => {
     }
   `)
 
-  assert.match(output, /this\._fancyCounter = new FancyCounter\(/)
-  assert.match(output, /this\._fancyCounter2 = new FancyCounter\(/)
+  assert.match(output, /this\._fancyCounter = this\.__child\(FancyCounter/)
+  assert.match(output, /this\._fancyCounter2 = this\.__child\(FancyCounter/)
 })
 
 test('prop patch methods use getElementById for element lookup', () => {

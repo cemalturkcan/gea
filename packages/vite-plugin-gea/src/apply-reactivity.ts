@@ -1093,7 +1093,7 @@ export function applyStaticReactivity(
           })
 
           // Collect observe keys that will be handled by resolved array map delegates.
-          // These keys should not trigger __refreshChildProps for wrapper components
+          // These keys should not trigger child props refresh for wrapper components
           // whose children contain the map, since the map handler updates in-place.
           const resolvedArrayMapDelegateKeys = new Set<string>()
           analysis.arrayMaps.forEach((arrayMap) => {
@@ -1347,7 +1347,7 @@ export function applyStaticReactivity(
           }
 
           // Identify compiled children whose `children` prop contains a resolved
-          // array map. Their __refreshChildProps calls should be skipped for
+          // array map. Their child props refresh calls should be skipped for
           // observe keys handled by the resolved array map delegates, because
           // innerHTML replacement would destroy in-place map items and lose
           // JS-object props that can't survive string serialisation.
@@ -1446,14 +1446,13 @@ export function applyStaticReactivity(
               }
             })
 
-            // Also strip map calls from __buildProps and __refreshChildProps methods
+            // Also strip map calls from __buildProps methods
             // that reference these children prop template literals.
             for (const member of classPath.node.body.body) {
               if (!t.isClassMethod(member) || !t.isIdentifier(member.key)) continue
               const methodName = member.key.name
               const isRelevant = childrenWithResolvedMap.size > 0 && (
-                methodName.startsWith('__buildProps_') ||
-                methodName.startsWith('__refreshChildProps_')
+                methodName.startsWith('__buildProps_')
               )
               if (!isRelevant) continue
               // Find template literals in the method body and strip map calls
@@ -1519,7 +1518,7 @@ export function applyStaticReactivity(
               const existing = addedMethods.get(observeKey)
               const calls = children
                 .filter((child) => {
-                  // Skip refreshChildProps for children with resolved array maps
+                  // Skip child props refresh for children with resolved array maps
                   // when the observe key is handled by the map delegate.
                   if (
                     resolvedArrayMapDelegateKeys.has(observeKey) &&
@@ -1533,15 +1532,25 @@ export function applyStaticReactivity(
                   t.expressionStatement(
                     t.callExpression(
                       t.memberExpression(
-                        t.thisExpression(),
-                        t.identifier(`__refreshChildProps_${child.instanceVar.replace(/^_/, '')}`),
+                        t.memberExpression(t.thisExpression(), t.identifier(child.instanceVar)),
+                        t.identifier('__geaUpdateProps'),
                       ),
-                      [],
+                      [
+                        t.callExpression(
+                          t.memberExpression(
+                            t.thisExpression(),
+                            t.identifier(`__buildProps_${child.instanceVar.replace(/^_/, '')}`),
+                          ),
+                          [],
+                        ),
+                      ],
                     ),
                   ),
                 )
               if (existing && t.isBlockStatement(existing.body)) {
-                existing.body.body.push(...calls)
+                // Prepend child props updates so they run before any __geaPatchCond
+                // calls that may early-return and render the child with stale props.
+                existing.body.body.unshift(...calls)
               } else {
                 const method = t.classMethod(
                   'method',
@@ -2752,32 +2761,55 @@ function ensureOnPropChangeMethod(
     }
   }
 
-  const childRefreshMethodNames = nonDirectChildren
+  const childRefreshEntries = nonDirectChildren
     .filter((child) => child.dependencies.some((dep) => !dep.storeVar && dep.pathParts[0] === 'props'))
-    .map((child) => `__refreshChildProps_${child.instanceVar.replace(/^_/, '')}`)
+    .map((child) => {
+      const depProps = new Set<string>()
+      for (const dep of child.dependencies) {
+        if (!dep.storeVar && dep.pathParts[0] === 'props' && dep.pathParts.length > 1) {
+          depProps.add(dep.pathParts[1])
+        }
+      }
+      return { child, depProps }
+    })
   const arrayRefreshMethodNames = arrayRefreshDeps.filter((d) => d.propNames.length > 0).map((d) => d.methodName)
-  const refreshMethodNames = [...new Set([...childRefreshMethodNames, ...arrayRefreshMethodNames])]
 
   const refreshPropDeps = new Map<string, Set<string>>()
-  for (const child of nonDirectChildren) {
-    const methodName = `__refreshChildProps_${child.instanceVar.replace(/^_/, '')}`
-    const depProps = new Set<string>()
-    for (const dep of child.dependencies) {
-      if (!dep.storeVar && dep.pathParts[0] === 'props' && dep.pathParts.length > 1) {
-        depProps.add(dep.pathParts[1])
-      }
-    }
-    if (depProps.size > 0) {
-      refreshPropDeps.set(methodName, depProps)
-    }
-  }
   for (const { methodName, propNames } of arrayRefreshDeps) {
     if (propNames.length > 0) {
       refreshPropDeps.set(methodName, new Set(propNames))
     }
   }
 
-  const refreshCalls: t.Statement[] = refreshMethodNames.map((name) => {
+  const childRefreshCalls: t.Statement[] = childRefreshEntries.map(({ child, depProps }) => {
+    const call = t.expressionStatement(
+      t.callExpression(
+        t.memberExpression(
+          t.memberExpression(t.thisExpression(), t.identifier(child.instanceVar)),
+          t.identifier('__geaUpdateProps'),
+        ),
+        [
+          t.callExpression(
+            t.memberExpression(
+              t.thisExpression(),
+              t.identifier(`__buildProps_${child.instanceVar.replace(/^_/, '')}`),
+            ),
+            [],
+          ),
+        ],
+      ),
+    )
+    if (depProps.size > 0) {
+      const guard = Array.from(depProps).reduce<t.Expression>((acc, prop) => {
+        const test = t.binaryExpression('===', t.identifier('key'), t.stringLiteral(prop))
+        return acc ? t.logicalExpression('||', acc, test) : test
+      }, undefined!)
+      return t.ifStatement(guard, call)
+    }
+    return call
+  })
+
+  const arrayRefreshCalls: t.Statement[] = arrayRefreshMethodNames.map((name) => {
     const deps = refreshPropDeps.get(name)
     const call = t.expressionStatement(t.callExpression(t.memberExpression(t.thisExpression(), t.identifier(name)), []))
     if (deps && deps.size > 0) {
@@ -2789,6 +2821,8 @@ function ensureOnPropChangeMethod(
     }
     return call
   })
+
+  const refreshCalls: t.Statement[] = [...childRefreshCalls, ...arrayRefreshCalls]
 
   const condPatchCalls: t.Statement[] = []
   if (conditionalSlots.length > 0) {
@@ -3564,6 +3598,30 @@ function generateStateChildSwapMethod(
     }
   }
 
+  // Update child props before swapping so the child renders with fresh data
+  const propsUpdateCalls: t.Statement[] = stateChildSlots.map((slot) => {
+    const buildPropsName = `__buildProps_${slot.childInstanceVar.replace(/^_/, '')}`
+    // Check if a __buildProps method exists for this child (it won't for no-props children)
+    const hasBuildProps = classBody.body.some(
+      (m) => t.isClassMethod(m) && t.isIdentifier(m.key) && m.key.name === buildPropsName,
+    )
+    if (!hasBuildProps) return null!
+    return t.expressionStatement(
+      t.callExpression(
+        t.memberExpression(
+          t.memberExpression(t.thisExpression(), t.identifier(slot.childInstanceVar)),
+          t.identifier('__geaUpdateProps'),
+        ),
+        [
+          t.callExpression(
+            t.memberExpression(t.thisExpression(), t.identifier(buildPropsName)),
+            [],
+          ),
+        ],
+      ),
+    )
+  }).filter(Boolean)
+
   const swapCalls = stateChildSlots.map((slot) => {
     const guardClone = t.cloneNode(slot.guardExpr, true)
     return t.expressionStatement(
@@ -3572,19 +3630,19 @@ function generateStateChildSwapMethod(
         t.logicalExpression(
           '&&',
           guardClone,
-          t.callExpression(t.memberExpression(t.thisExpression(), t.identifier(slot.ensureMethodName)), []),
+          t.memberExpression(t.thisExpression(), t.identifier(slot.childInstanceVar)),
         ),
       ]),
     )
   })
 
-  const filteredSetup = pruneUnusedSetupDestructuring(setupStatements, swapCalls)
+  const filteredSetup = pruneUnusedSetupDestructuring(setupStatements, [...propsUpdateCalls, ...swapCalls])
 
   const method = t.classMethod(
     'method',
     t.identifier('__geaSwapStateChildren'),
     [],
-    t.blockStatement([...filteredSetup, ...swapCalls]),
+    t.blockStatement([...filteredSetup, ...propsUpdateCalls, ...swapCalls]),
   )
   classBody.body.push(method)
 }

@@ -43,7 +43,7 @@ export function injectChildComponents(
 
   const childComponents = Array.from(componentInstances.values()).flat()
   const constructionOrder = [...childComponents].sort((a, b) => (b.dfsIndex ?? 0) - (a.dfsIndex ?? 0))
-  const instanceStatements = buildInstanceStatements(constructionOrder)
+  const instanceStatements = buildInstanceStatements(constructionOrder, directForwardingChildren)
 
   let injected = false
   traverse(ast, {
@@ -72,11 +72,8 @@ export function injectChildComponents(
         const hasPropsBuilder = !isDirect && !noProps
         if (hasPropsBuilder) {
           path.node.body.body.push(buildPropsBuilderMethod(child))
-          path.node.body.body.push(buildRefreshMethod(child))
         }
-        path.node.body.body.push(buildEnsureMethod(child, hasPropsBuilder))
       })
-      ensureDisposeMethod(path.node.body, childComponents)
     },
   })
 }
@@ -97,10 +94,50 @@ export function injectComponentRegistrations(ast: t.File, componentInstances: Ma
   })
 }
 
-function buildInstanceStatements(instances: ChildComponent[]): t.ExpressionStatement[] {
+function buildInstanceStatements(
+  instances: ChildComponent[],
+  directForwardingChildren?: Set<string>,
+): t.ExpressionStatement[] {
   const stmts: t.ExpressionStatement[] = []
   instances.forEach((child) => {
-    stmts.push(js`this.${id(child.instanceVar)} = null;` as t.ExpressionStatement)
+    let propsArg: t.Expression
+    const isDirect = directForwardingChildren?.has(child.instanceVar)
+    const noProps = childHasNoProps(child)
+    const hasPropsBuilder = !isDirect && !noProps
+
+    if (hasPropsBuilder) {
+      propsArg = t.callExpression(
+        t.memberExpression(t.thisExpression(), t.identifier(getPropsBuilderMethodName(child))),
+        [],
+      )
+    } else if (child.directMappings && child.directMappings.length > 0) {
+      propsArg = t.objectExpression(
+        child.directMappings.map((m) =>
+          t.objectProperty(
+            t.identifier(m.childPropName),
+            t.memberExpression(
+              t.memberExpression(t.thisExpression(), t.identifier('props')),
+              t.identifier(m.parentPropName),
+            ),
+          ),
+        ),
+      )
+    } else {
+      propsArg = t.objectExpression([])
+    }
+
+    stmts.push(
+      t.expressionStatement(
+        t.assignmentExpression(
+          '=',
+          t.memberExpression(t.thisExpression(), t.identifier(child.instanceVar)),
+          t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('__child')), [
+            t.identifier(child.tagName),
+            propsArg,
+          ]),
+        ),
+      ),
+    )
   })
   return stmts
 }
@@ -109,9 +146,6 @@ function getPropsBuilderMethodName(child: ChildComponent): string {
   return `__buildProps_${child.instanceVar.replace(/^_/, '')}`
 }
 
-function getEnsureChildMethodName(child: ChildComponent): string {
-  return `__ensureChild_${child.instanceVar.replace(/^_/, '')}`
-}
 
 function collectBindingNames(stmt: t.Statement): string[] {
   if (t.isVariableDeclaration(stmt)) {
@@ -207,102 +241,3 @@ function buildPropsBuilderMethod(child: ChildComponent): t.ClassMethod {
   return appendToBody(jsMethod`${id(getPropsBuilderMethodName(child))}() {}`, ...prunedSetup, returnStmt)
 }
 
-function buildEnsureMethod(child: ChildComponent, hasPropsBuilder: boolean = true): t.ClassMethod {
-  let propsArg: t.Expression
-  if (hasPropsBuilder && !childHasNoProps(child)) {
-    propsArg = t.callExpression(
-      t.memberExpression(t.thisExpression(), t.identifier(getPropsBuilderMethodName(child))),
-      [],
-    )
-  } else if (child.directMappings && child.directMappings.length > 0) {
-    propsArg = t.objectExpression(
-      child.directMappings.map((m) =>
-        t.objectProperty(
-          t.identifier(m.childPropName),
-          t.memberExpression(
-            t.memberExpression(t.thisExpression(), t.identifier('props')),
-            t.identifier(m.parentPropName),
-          ),
-        ),
-      ),
-    )
-  } else {
-    propsArg = t.objectExpression([])
-  }
-
-  const refreshPropsStmt =
-    hasPropsBuilder && !childHasNoProps(child)
-      ? t.expressionStatement(
-          t.callExpression(
-            t.memberExpression(
-              t.memberExpression(t.thisExpression(), t.identifier(child.instanceVar)),
-              t.identifier('__geaUpdateProps'),
-            ),
-            [
-              t.callExpression(
-                t.memberExpression(t.thisExpression(), t.identifier(getPropsBuilderMethodName(child))),
-                [],
-              ),
-            ],
-          ),
-        )
-      : null
-
-  return appendToBody(
-    jsMethod`${id(getEnsureChildMethodName(child))}() {}`,
-    t.ifStatement(
-      t.unaryExpression('!', t.memberExpression(t.thisExpression(), t.identifier(child.instanceVar))),
-      t.blockStatement([
-        t.expressionStatement(
-          t.assignmentExpression(
-            '=',
-            t.memberExpression(t.thisExpression(), t.identifier(child.instanceVar)),
-            t.newExpression(t.identifier(child.tagName), [propsArg]),
-          ),
-        ),
-        js`this.${id(child.instanceVar)}.parentComponent = this;` as t.ExpressionStatement,
-        js`this.${id(child.instanceVar)}.__geaCompiledChild = true;` as t.ExpressionStatement,
-      ]),
-      refreshPropsStmt ? t.blockStatement([refreshPropsStmt]) : undefined,
-    ),
-    t.returnStatement(t.memberExpression(t.thisExpression(), t.identifier(child.instanceVar))),
-  )
-}
-
-function buildRefreshMethod(child: ChildComponent): t.ClassMethod {
-  const method = jsMethod`${id(`__refreshChildProps_${child.instanceVar.replace(/^_/, '')}`)}() {}`
-  method.body.body.push(js`const child = this.${id(child.instanceVar)};` as t.VariableDeclaration)
-
-  if (child.lazy) {
-    method.body.body.push(
-      t.ifStatement(t.unaryExpression('!', t.identifier('child')), t.blockStatement([t.returnStatement()])),
-    )
-  } else {
-    method.body.body.push(
-      t.ifStatement(t.unaryExpression('!', t.identifier('child')), t.blockStatement([t.returnStatement()])),
-    )
-  }
-
-  method.body.body.push(
-    js`child.__geaUpdateProps(this.${id(getPropsBuilderMethodName(child))}());` as t.ExpressionStatement,
-  )
-
-  return method
-}
-
-function ensureDisposeMethod(classBody: t.ClassBody, children: ChildComponent[]): void {
-  const disposeCalls = children.map((child) => js`this.${id(child.instanceVar)}?.dispose?.();` as t.ExpressionStatement)
-
-  const existingDispose = classBody.body.find(
-    (member) => t.isClassMethod(member) && t.isIdentifier(member.key) && member.key.name === 'dispose',
-  ) as t.ClassMethod | undefined
-
-  if (existingDispose) {
-    existingDispose.body.body.unshift(...disposeCalls)
-    return
-  }
-
-  classBody.body.push(
-    appendToBody(jsMethod`${id('dispose')}() {}`, ...disposeCalls, js`super.dispose();` as t.ExpressionStatement),
-  )
-}
