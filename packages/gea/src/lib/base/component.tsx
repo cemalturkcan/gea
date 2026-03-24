@@ -307,6 +307,8 @@ export default class Component extends Store {
       this.__childComponents = []
     }
 
+    this.__elCache.clear()
+
     // Remove old element BEFORE calling template() so that getElementById
     // inside child __geaUpdateProps won't find stale DOM nodes.
     const placeholder = document.createComment('')
@@ -495,6 +497,23 @@ export default class Component extends Store {
       this.__childComponents.push(child)
     }
     return child
+  }
+
+  __elCache = new Map<string, HTMLElement>()
+
+  __el(suffix: string): HTMLElement | null {
+    let el = this.__elCache.get(suffix) ?? null
+    if (!el || !el.isConnected) {
+      el = document.getElementById(this.id_ + '-' + suffix)
+      if (el) this.__elCache.set(suffix, el)
+      else this.__elCache.delete(suffix)
+    }
+    return el
+  }
+
+  __updateText(suffix: string, text: string): void {
+    const el = this.__el(suffix)
+    if (el) el.textContent = text
   }
 
   __geaSwapChild(markerId: string, newChild: Component | false | null | undefined) {

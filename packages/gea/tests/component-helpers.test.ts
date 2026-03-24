@@ -165,3 +165,67 @@ describe('Component.__child', () => {
     assert.equal(child.__geaItemKey, undefined)
   })
 })
+
+describe('Component.__el', () => {
+  let restoreDom: () => void
+  let Component: Awaited<ReturnType<typeof loadModules>>['Component']
+
+  beforeEach(async () => {
+    restoreDom = installDom()
+    const mods = await loadModules()
+    Component = mods.Component
+  })
+
+  afterEach(() => {
+    restoreDom()
+  })
+
+  it('returns element by id suffix with caching', async () => {
+    class MyComp extends Component {
+      template() { return `<div id="${this.id}"><p id="${this.id}-info">hi</p></div>` }
+    }
+    const comp = new MyComp()
+    document.body.innerHTML = ''
+    comp.render(document.body)
+    const el = comp.__el('info')
+    assert.ok(el)
+    assert.equal(el.textContent, 'hi')
+    // Second call returns cached
+    assert.equal(comp.__el('info'), el)
+  })
+})
+
+describe('Component.__updateText', () => {
+  let restoreDom: () => void
+  let Component: Awaited<ReturnType<typeof loadModules>>['Component']
+
+  beforeEach(async () => {
+    restoreDom = installDom()
+    const mods = await loadModules()
+    Component = mods.Component
+  })
+
+  afterEach(() => {
+    restoreDom()
+  })
+
+  it('updates textContent of element by suffix', async () => {
+    class MyComp extends Component {
+      template() { return `<div id="${this.id}"><span id="${this.id}-msg">old</span></div>` }
+    }
+    const comp = new MyComp()
+    document.body.innerHTML = ''
+    comp.render(document.body)
+    comp.__updateText('msg', 'new')
+    assert.equal(document.getElementById(comp.id + '-msg')?.textContent, 'new')
+  })
+
+  it('does nothing if element not found', () => {
+    class MyComp extends Component {
+      template() { return `<div id="${this.id}"></div>` }
+    }
+    const comp = new MyComp()
+    // Should not throw
+    comp.__updateText('nonexistent', 'text')
+  })
+})
