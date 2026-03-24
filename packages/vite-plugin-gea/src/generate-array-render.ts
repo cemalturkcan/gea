@@ -127,7 +127,7 @@ export function buildPopulateItemHandlersMethod(
  * different objects). We inject a tiny helper and wrap comparison operands
  * so they're unwrapped before the comparison.
  */
-function buildValueUnwrapHelper(): t.VariableDeclaration {
+export function buildValueUnwrapHelper(): t.VariableDeclaration {
   return js`
     const __v = (v) =>
       v != null && typeof v === 'object'
@@ -187,9 +187,9 @@ export function generateRenderItemMethod(
   eventIdCounter?: { value: number },
   classBody?: t.ClassBody,
   templateSetupContext?: TemplateSetupContext,
-): { method: t.ClassMethod | null; handlers: EventHandler[]; handlerPropsInMap: HandlerPropInMap[] } {
+): { method: t.ClassMethod | null; handlers: EventHandler[]; handlerPropsInMap: HandlerPropInMap[]; needsUnwrapHelper: boolean } {
   const renderEventHandlers: EventHandler[] = []
-  if (!arrayMap.itemTemplate) return { method: null, handlers: renderEventHandlers, handlerPropsInMap: [] }
+  if (!arrayMap.itemTemplate) return { method: null, handlers: renderEventHandlers, handlerPropsInMap: [], needsUnwrapHelper: false }
   const arrayPath = pathPartsToString(arrayMap.arrayPathParts || normalizePathParts((arrayMap as any).arrayPath || ''))
 
   const modified = t.cloneNode(arrayMap.itemTemplate, true) as t.JSXElement | t.JSXFragment
@@ -284,7 +284,6 @@ export function generateRenderItemMethod(
   const method = appendToBody(
     baseMethod,
     ...rewrittenSetup,
-    ...(needsUnwrapHelper ? [buildValueUnwrapHelper()] : []),
     ...rewrittenCallbackBody,
     ...handlerRegStmts,
     returnStmt,
@@ -313,6 +312,6 @@ export function generateRenderItemMethod(
   })
 
   if (eventHandlers) renderEventHandlers.forEach((h) => eventHandlers.push(h))
-  return { method, handlers: renderEventHandlers, handlerPropsInMap }
+  return { method, handlers: renderEventHandlers, handlerPropsInMap, needsUnwrapHelper }
 }
 

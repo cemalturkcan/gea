@@ -196,6 +196,10 @@ function buildElementNavExpr(base: t.Expression, childPath: number[]): t.Express
   return expr
 }
 
+export function childPathRefName(path: number[]): string {
+  return `__ref_${path.join('_')}`
+}
+
 interface HoistedVar {
   varName: string
   expression: t.Expression
@@ -548,8 +552,30 @@ export function generateCreateItemMethod(
     body.push(t.variableDeclaration('var', [t.variableDeclarator(t.identifier(hoist.varName), hoist.expression)]))
   }
 
+  // Precompute and cache DOM element refs for childPaths used by propPatchers
+  const refMap = new Map<string, t.Expression>()
   for (const entry of patchedEntries) {
+    if (entry.childPath.length === 0) continue
+    const key = entry.childPath.join('_')
+    if (refMap.has(key)) continue
+    const refName = childPathRefName(entry.childPath)
     const navExpr = buildElementNavExpr(elVar, entry.childPath)
+    body.push(
+      t.expressionStatement(
+        t.assignmentExpression(
+          '=',
+          t.memberExpression(elVar, t.identifier(refName)),
+          navExpr,
+        ),
+      ),
+    )
+    refMap.set(key, t.memberExpression(elVar, t.identifier(refName)))
+  }
+
+  for (const entry of patchedEntries) {
+    const navExpr = entry.childPath.length > 0
+      ? (refMap.get(entry.childPath.join('_')) || buildElementNavExpr(elVar, entry.childPath))
+      : elVar
     switch (entry.type) {
       case 'className':
         body.push(

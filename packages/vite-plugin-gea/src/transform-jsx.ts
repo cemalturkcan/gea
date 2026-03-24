@@ -1124,8 +1124,7 @@ function processElement(node: t.JSXElement, parts: TemplatePart[], ctx: Ctx, ele
         parts.push({ type: 'string', value: html })
         const expr = transformJSXExpression(rawExpr, ctx)
         const skipCondition = buildAttrSkipCondition(expr, rawExpr)
-        const templateExpr =
-          propAttrName === 'class' ? t.callExpression(t.memberExpression(expr, t.identifier('trim')), []) : expr
+        const templateExpr = expr
         if (t.isBooleanLiteral(skipCondition) && !skipCondition.value) {
           // Attribute is always present — inline it without a conditional wrapper
           parts.push({ type: 'string', value: ` ${propAttrName}="` })

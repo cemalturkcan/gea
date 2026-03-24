@@ -2,7 +2,7 @@ import * as t from '@babel/types'
 import { appendToBody, id, js, jsBlockBody, jsExpr, jsMethod } from 'eszter'
 import type { ArrayMapBinding, ConditionalMapBinding, RelationalMapBinding } from './ir.ts'
 import { buildMemberChain, normalizePathParts, pathPartsToString, isComponentTag, getJSXTagName } from './utils.ts'
-import { collectPatchEntries } from './generate-array-patch.ts'
+import { collectPatchEntries, childPathRefName } from './generate-array-patch.ts'
 import type { NodePath } from '@babel/traverse'
 import { createRequire } from 'module'
 
@@ -200,23 +200,28 @@ function buildPatchEntryPropPatcher(entry: {
   const value = t.identifier('value')
   const item = t.identifier('item')
   const target = t.identifier('__target')
-  const targetExpr = buildChildAccessExpr(row, entry.childPath)
+  const targetExpr = entry.childPath.length > 0
+    ? t.memberExpression(row, t.identifier(childPathRefName(entry.childPath)))
+    : row
 
   if (entry.type === 'className') {
-    return t.arrowFunctionExpression(
-      [row, value, item],
-      t.blockStatement([
-        t.variableDeclaration('const', [t.variableDeclarator(target, targetExpr)]),
-        t.ifStatement(t.unaryExpression('!', target), t.returnStatement()),
-        t.expressionStatement(
-          t.assignmentExpression(
-            '=',
-            t.memberExpression(target, t.identifier('className')),
-            t.callExpression(t.memberExpression(t.cloneNode(entry.expression, true), t.identifier('trim')), []),
-          ),
+    const isRoot = entry.childPath.length === 0
+    const stmts: t.Statement[] = []
+    if (!isRoot) {
+      stmts.push(t.variableDeclaration('const', [t.variableDeclarator(target, targetExpr)]))
+      stmts.push(t.ifStatement(t.unaryExpression('!', target), t.returnStatement()))
+    }
+    const ref = isRoot ? row : target
+    stmts.push(
+      t.expressionStatement(
+        t.assignmentExpression(
+          '=',
+          t.memberExpression(ref, t.identifier('className')),
+          t.cloneNode(entry.expression, true),
         ),
-      ]),
+      ),
     )
+    return t.arrowFunctionExpression([row, value, item], t.blockStatement(stmts))
   }
 
   if (entry.type === 'attribute') {
@@ -286,32 +291,35 @@ function buildPatchEntryPropPatcher(entry: {
     )
   }
 
-  return t.arrowFunctionExpression(
-    [row, value, item],
-    t.blockStatement([
-      t.variableDeclaration('const', [t.variableDeclarator(target, targetExpr)]),
-      t.ifStatement(t.unaryExpression('!', target), t.returnStatement()),
-      t.expressionStatement(
+  const isRoot = entry.childPath.length === 0
+  const stmts: t.Statement[] = []
+  if (!isRoot) {
+    stmts.push(t.variableDeclaration('const', [t.variableDeclarator(target, targetExpr)]))
+    stmts.push(t.ifStatement(t.unaryExpression('!', target), t.returnStatement()))
+  }
+  const ref = isRoot ? row : target
+  stmts.push(
+    t.expressionStatement(
+      t.logicalExpression(
+        '||',
         t.logicalExpression(
-          '||',
-          t.logicalExpression(
-            '&&',
-            t.memberExpression(target, t.identifier('firstChild')),
-            t.assignmentExpression(
-              '=',
-              t.memberExpression(t.memberExpression(target, t.identifier('firstChild')), t.identifier('nodeValue')),
-              t.cloneNode(entry.expression, true),
-            ),
-          ),
+          '&&',
+          t.memberExpression(ref, t.identifier('firstChild')),
           t.assignmentExpression(
             '=',
-            t.memberExpression(target, t.identifier('textContent')),
+            t.memberExpression(t.memberExpression(ref, t.identifier('firstChild')), t.identifier('nodeValue')),
             t.cloneNode(entry.expression, true),
           ),
         ),
+        t.assignmentExpression(
+          '=',
+          t.memberExpression(ref, t.identifier('textContent')),
+          t.cloneNode(entry.expression, true),
+        ),
       ),
-    ]),
+    ),
   )
+  return t.arrowFunctionExpression([row, value, item], t.blockStatement(stmts))
 }
 
 function buildPropPatchersObject(arrayMap: ArrayMapBinding): t.ObjectExpression | null {
@@ -379,19 +387,22 @@ export function generateEnsureArrayConfigsMethod(arrayMaps: ArrayMapBinding[]): 
       ),
       t.objectProperty(
         t.identifier('render'),
-        t.arrowFunctionExpression(
-          renderLambdaParams,
-          t.callExpression(t.memberExpression(t.thisExpression(), t.identifier(renderMethodName)), renderCallArgs),
+        t.callExpression(
+          t.memberExpression(
+            t.memberExpression(t.thisExpression(), t.identifier(renderMethodName)),
+            t.identifier('bind'),
+          ),
+          [t.thisExpression()],
         ),
       ),
       t.objectProperty(
         t.identifier('create'),
-        t.arrowFunctionExpression(
-          renderLambdaParams.map((p) => t.cloneNode(p)),
-          t.callExpression(
+        t.callExpression(
+          t.memberExpression(
             t.memberExpression(t.thisExpression(), t.identifier(createMethodName)),
-            renderCallArgs.map((a) => t.cloneNode(a)),
+            t.identifier('bind'),
           ),
+          [t.thisExpression()],
         ),
       ),
     ]
@@ -658,15 +669,8 @@ export function generateArrayConditionalRerenderObserver(arrayMap: ArrayMapBindi
       t.ifStatement(
         t.unaryExpression('!', t.identifier('__skipArrayConditionalRerender')),
         t.blockStatement([
-          t.ifStatement(
-            t.binaryExpression(
-              '===',
-              t.unaryExpression('typeof', t.memberExpression(t.thisExpression(), t.identifier('__ensureArrayConfigs'))),
-              t.stringLiteral('function'),
-            ),
-            t.expressionStatement(
-              t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('__ensureArrayConfigs')), []),
-            ),
+          t.expressionStatement(
+            t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('__ensureArrayConfigs')), []),
           ),
           t.variableDeclaration('const', [
             t.variableDeclarator(
@@ -702,7 +706,7 @@ function buildConditionalPatchStatement(
     return js`${jsExpr`${target}.textContent`} = ${expression};`
   }
   if (binding.type === 'className') {
-    return js`${jsExpr`${target}.className`} = (${expression}).trim();`
+    return js`${jsExpr`${target}.className`} = ${expression};`
   }
   if (binding.attributeName === 'style') {
     return t.blockStatement(
@@ -749,21 +753,19 @@ function buildRelationalClassStatements(
   phase: string,
 ): t.Statement[] {
   return bindings.flatMap((binding, index) => {
-    const targetVar = `__target_${phase}_${index}`
     const enabled = binding.classWhenMatch ? isMatch : !isMatch
-    const targetExpr = binding.selector === ':scope' ? t.cloneNode(rowExpr, true) : t.cloneNode(rowExpr, true)
     if (binding.selector === ':scope') {
+      const expr = t.cloneNode(rowExpr, true)
       return jsBlockBody`
-        var ${id(targetVar)} = ${targetExpr};
-        if (${id(targetVar)}) {
-          if (${id(targetVar)}.className === '' || ${id(targetVar)}.className === ${binding.classToggleName}) {
-            ${id(targetVar)}.className = ${enabled ? binding.classToggleName : ''};
-          } else {
-            ${id(targetVar)}.classList.toggle(${binding.classToggleName}, ${enabled});
-          }
+        if (${expr}.className === '' || ${expr}.className === ${binding.classToggleName}) {
+          ${expr}.className = ${enabled ? binding.classToggleName : ''};
+        } else {
+          ${expr}.classList.toggle(${binding.classToggleName}, ${enabled});
         }
       `
     }
+    const targetVar = `__target_${phase}_${index}`
+    const targetExpr = t.cloneNode(rowExpr, true)
     return jsBlockBody`
       var ${id(targetVar)} = ${targetExpr};
       if (${id(targetVar)}) {
@@ -831,15 +833,8 @@ export function generateArrayHandlers(arrayMap: ArrayMapBinding, methodName: str
         t.returnStatement(),
       ]),
     ),
-    t.ifStatement(
-      t.binaryExpression(
-        '===',
-        t.unaryExpression('typeof', t.memberExpression(t.thisExpression(), t.identifier('__ensureArrayConfigs'))),
-        t.stringLiteral('function'),
-      ),
-      t.expressionStatement(
-        t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('__ensureArrayConfigs')), []),
-      ),
+    t.expressionStatement(
+      t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('__ensureArrayConfigs')), []),
     ),
     t.expressionStatement(
       t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('__applyListChanges')), [

@@ -13,7 +13,7 @@ import {
   generateArrayRelationalObserver,
   generateEnsureArrayConfigsMethod,
 } from './generate-array.ts'
-import { generateRenderItemMethod, buildPopulateItemHandlersMethod } from './generate-array-render.ts'
+import { generateRenderItemMethod, buildPopulateItemHandlersMethod, buildValueUnwrapHelper } from './generate-array-render.ts'
 import { generateCreateItemMethod } from './generate-array-patch.ts'
 import { ITEM_IS_KEY } from './analyze-helpers.ts'
 import {
@@ -83,7 +83,7 @@ function generateCreatedHooks(
     if (!this.__stores) { this.__stores = {}; }
     this.__observer_removers__.forEach(fn => fn());
     this.__observer_removers__ = [];
-    if (typeof this.__ensureArrayConfigs === 'function') { this.__ensureArrayConfigs(); }
+    if (this.__ensureArrayConfigs) { this.__ensureArrayConfigs(); }
   `
 
   for (const store of stores) {
@@ -118,7 +118,7 @@ function generateLocalStateObserverSetup(
 ): t.ClassMethod {
   const localStore = t.memberExpression(t.thisExpression(), t.identifier('__store'))
   const body: t.Statement[] = [
-    js`if (typeof this.__ensureArrayConfigs === 'function') { this.__ensureArrayConfigs(); }`,
+    js`if (this.__ensureArrayConfigs) { this.__ensureArrayConfigs(); }`,
     js`if (!${localStore}) { return; }`,
   ]
 
@@ -153,6 +153,7 @@ export function applyStaticReactivity(
   preTransformAnalysis?: Map<string, AnalysisResult>,
 ): boolean {
   let applied = false
+  let needsModuleLevelUnwrapHelper = false
 
   const astToTraverse = preTransformAnalysis?.has(className) ? ast : originalAST
   const getAnalysis = (clsName: string, origPath: NodePath<ClassMethod>): AnalysisResult | null => {
@@ -347,13 +348,7 @@ export function applyStaticReactivity(
                     t.identifier('__newClass'),
                     t.conditionalExpression(
                       t.binaryExpression('!=', valueExpr, t.nullLiteral()),
-                      t.callExpression(
-                        t.memberExpression(
-                          t.callExpression(t.identifier('String'), [t.cloneNode(valueExpr, true)]),
-                          t.identifier('trim'),
-                        ),
-                        [],
-                      ),
+                      t.callExpression(t.identifier('String'), [t.cloneNode(valueExpr, true)]),
                       t.stringLiteral(''),
                     ),
                   ),
@@ -878,7 +873,7 @@ export function applyStaticReactivity(
             }
             unresolvedBindings.push({ info: um, binding: syntheticBinding })
             const prevEventLen = unresolvedEventHandlers.length
-            const { method, handlerPropsInMap } = generateRenderItemMethod(
+            const { method, handlerPropsInMap, needsUnwrapHelper } = generateRenderItemMethod(
               syntheticBinding,
               imports,
               unresolvedEventHandlers,
@@ -886,6 +881,7 @@ export function applyStaticReactivity(
               classPath.node.body,
               tmplSetupCtx,
             )
+            if (needsUnwrapHelper) needsModuleLevelUnwrapHelper = true
             const newHandlers = unresolvedEventHandlers.slice(prevEventLen)
             const tokenMatch = newHandlers[0]?.selector?.match(/data-gea-event="([^"]+)"/)
             mapItemAttrInfos.push({
@@ -1755,7 +1751,7 @@ export function applyStaticReactivity(
 
           const renderEventHandlers: EventHandler[] = []
           htmlArrayMaps.forEach((arrayMap) => {
-            const { method } = generateRenderItemMethod(
+            const { method, needsUnwrapHelper } = generateRenderItemMethod(
               arrayMap,
               imports,
               renderEventHandlers,
@@ -1763,6 +1759,7 @@ export function applyStaticReactivity(
               classPath.node.body,
               tmplSetupCtx,
             )
+            if (needsUnwrapHelper) needsModuleLevelUnwrapHelper = true
             if (method) {
               classPath.node.body.body.push(method)
               applied = true
@@ -2176,6 +2173,17 @@ export function applyStaticReactivity(
       })
     },
   })
+
+  if (needsModuleLevelUnwrapHelper) {
+    const alreadyHas = ast.program.body.some(
+      (stmt) =>
+        t.isVariableDeclaration(stmt) &&
+        stmt.declarations.some((d) => t.isIdentifier(d.id) && d.id.name === '__v'),
+    )
+    if (!alreadyHas) {
+      ast.program.body.unshift(buildValueUnwrapHelper())
+    }
+  }
 
   return applied
 }

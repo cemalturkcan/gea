@@ -69,12 +69,18 @@ function ensureMapItemHelper(
     if (ctx.arrayPathParts.length === 0) return base
     const [, ...rest] = ctx.arrayPathParts
     const isIndex = /^\d+$/.test(first)
-    const optionalFirst = t.optionalMemberExpression(
-      base,
-      isIndex ? t.numericLiteral(Number(first)) : t.identifier(first),
-      isIndex,
-      true,
-    )
+    const optionalFirst = ctx.isImportedState
+      ? t.memberExpression(
+          base,
+          isIndex ? t.numericLiteral(Number(first)) : t.identifier(first),
+          isIndex,
+        )
+      : t.optionalMemberExpression(
+          base,
+          isIndex ? t.numericLiteral(Number(first)) : t.identifier(first),
+          isIndex,
+          true,
+        )
     return rest.length > 0 ? buildMemberChainFromParts(optionalFirst, rest) : optionalFirst
   })()
 
