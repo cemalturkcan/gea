@@ -84,8 +84,8 @@ export function geaSSG(options: SSGPluginOptions = {}): Plugin[] {
               onAfterRender: options.onAfterRender,
               onRenderError: options.onRenderError,
               concurrency: options.concurrency,
+              hydrate: options.hydrate,
             }
-
             if (options.routes && options.app) {
               ssgOpts.routes = options.routes
               ssgOpts.app = options.app

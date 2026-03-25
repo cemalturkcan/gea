@@ -15,6 +15,8 @@ export interface SSGOptions {
   contentDir?: string
   /** Base path for assets (default: '/') */
   base?: string
+  /** Component class names to hydrate on the client (enables MPA mode) */
+  hydrate?: string[]
   sitemap?: SitemapOptions | boolean
   robots?: boolean | RobotsOptions
   minify?: boolean
