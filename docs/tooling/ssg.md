@@ -161,6 +161,21 @@ export const routes = {
 }
 ```
 
+## Client-Only Routes
+
+Some routes should not be pre-rendered — for example, pages that require authentication or depend entirely on client-side state. Mark them with `client: true`:
+
+```tsx
+export const routes = {
+  '/': Home,
+  '/about': About,
+  '/dashboard': { component: Dashboard, client: true },
+  '/settings': { component: Settings, client: true },
+}
+```
+
+These routes are skipped during static generation and only rendered by the client-side router at runtime.
+
 ## Layouts
 
 Route groups with `layout` components work automatically. The SSG renders layouts wrapping page content through `Outlet`, just like client-side rendering:

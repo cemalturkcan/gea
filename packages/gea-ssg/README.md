@@ -119,6 +119,18 @@ export const routes = {
 }
 ```
 
+### Client-Only Routes
+
+Mark routes that should not be pre-rendered with `client: true`. These routes are skipped during SSG and only rendered client-side:
+
+```tsx
+export const routes = {
+  '/': Home,
+  '/about': About,
+  '/dashboard': { component: Dashboard, client: true },
+}
+```
+
 ### Layouts and Outlets
 
 Route groups with `layout` components are rendered with proper nesting — the layout wraps the page content through `Outlet`.
