@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/dashersw/gea/blob/master/LICENSE)
 
-Static site generation plugin for [Gea](https://www.npmjs.com/package/@geajs/core). Pre-renders your routes to static HTML at build time — zero client JavaScript, instant page loads, SEO-friendly output.
+Static site generation plugin for [Gea](https://www.npmjs.com/package/@geajs/core). Pre-renders your routes to static HTML at build time — instant first paint, full SEO, and client-side interactivity after JS loads.
 
 ## Installation
 
@@ -201,7 +201,7 @@ class Dashboard extends Component {
 }
 ```
 
-During SSG the `<Client>` section becomes an empty placeholder. In dev mode (`vite dev`) the child components render normally.
+During SSG the `<Client>` section becomes an empty placeholder in the pre-rendered HTML. Once JavaScript loads, the child components mount and become interactive — ideal for heavy libraries like Three.js or interactive widgets that don't need to be in the initial HTML.
 
 ### Layouts and Outlets
 

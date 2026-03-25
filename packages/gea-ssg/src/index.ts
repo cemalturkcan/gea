@@ -5,7 +5,7 @@ export { crawlRoutes } from './crawl'
 
 export { generate } from './generate'
 
-export { parseShell, injectIntoShell, stripScripts } from './shell'
+export { parseShell, injectIntoShell } from './shell'
 export type { ShellParts } from './shell'
 
 export { ssg, preloadContent, clearContentCache, serializeContentCache, getContentSlugs } from './content'

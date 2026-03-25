@@ -1,4 +1,5 @@
 import { Component, Head, Client } from '@geajs/core'
+import Counter from './Counter'
 import LiveClock from './LiveClock'
 
 export default class Contact extends Component {
@@ -19,6 +20,11 @@ export default class Contact extends Component {
         <div class="card">
           <h2>Email</h2>
           <p>hello@geajs.dev</p>
+        </div>
+        <div class="card">
+          <h2>Reactive Counter</h2>
+          <p>This counter works after JS loads — SSG renders the initial state.</p>
+          <Counter />
         </div>
         <Client>
           <LiveClock />
