@@ -1,4 +1,4 @@
-import { Component, Head, Client } from '@geajs/core'
+import { Component, Head } from '@geajs/core'
 import Counter from './Counter'
 import LiveClock from './LiveClock'
 
@@ -26,9 +26,7 @@ export default class Contact extends Component {
           <p>This counter works after JS loads — SSG renders the initial state.</p>
           <Counter />
         </div>
-        <Client>
-          <LiveClock />
-        </Client>
+        <LiveClock />
       </div>
     )
   }
