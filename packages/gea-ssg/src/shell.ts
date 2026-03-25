@@ -1,7 +1,6 @@
 export interface ShellParts {
   before: string
   after: string
-  headEnd: number
 }
 
 export function parseShell(html: string, appElementId: string = 'app'): ShellParts {
@@ -22,15 +21,13 @@ export function parseShell(html: string, appElementId: string = 'app'): ShellPar
   const before = html.slice(0, openTagEnd)
   const after = html.slice(closeIndex)
 
-  const headEnd = html.toLowerCase().indexOf('</head>')
-
-  return { before, after, headEnd }
+  return { before, after }
 }
 
 export function injectIntoShell(shell: ShellParts, renderedHtml: string, headTags?: string): string {
   let result = shell.before + renderedHtml + shell.after
 
-  if (headTags && shell.headEnd !== -1) {
+  if (headTags) {
     const headInsertPos = result.toLowerCase().indexOf('</head>')
     if (headInsertPos !== -1) {
       result = result.slice(0, headInsertPos) + headTags + result.slice(headInsertPos)
@@ -38,17 +35,4 @@ export function injectIntoShell(shell: ShellParts, renderedHtml: string, headTag
   }
 
   return result
-}
-
-export function stripScripts(html: string): string {
-  return html.replace(/<script\b([^>]*)>[\s\S]*?<\/script>/gi, (_match, attrs: string) => {
-    const typeMatch = attrs.match(/type\s*=\s*["']([^"']+)["']/i)
-    if (typeMatch) {
-      const type = typeMatch[1].toLowerCase()
-      if (type !== 'module' && type !== 'text/javascript' && type !== 'application/javascript') {
-        return _match
-      }
-    }
-    return ''
-  })
 }

@@ -92,8 +92,8 @@ export async function generate(options: SSGOptions): Promise<GenerateResult> {
         let fullHtml = injectIntoShell(shellParts, html)
 
         if (options.contentDir) {
-          const base = options.base || '/'
-          fullHtml = fullHtml.replace('</head>', `<script src="${base}_ssg/content.js"></script>\n</head>`)
+          const base = (options.base || '/').replace(/\/?$/, '/')
+          fullHtml = fullHtml.replace(/(<head[^>]*>)/i, `$1\n<script defer src="${base}_ssg/content.js"></script>`)
         }
 
         if (Head._current) {
@@ -120,7 +120,7 @@ export async function generate(options: SSGOptions): Promise<GenerateResult> {
             },
             fullHtml,
           )
-          if (transformed) fullHtml = transformed
+          if (transformed !== undefined) fullHtml = transformed
         }
 
         if (minify) {

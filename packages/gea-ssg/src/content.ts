@@ -1,11 +1,7 @@
-const cache = new Map<string, ContentFile[]>()
+import type { ContentFile } from './types'
+export type { ContentFile } from './types'
 
-export interface ContentFile<T = Record<string, any>> {
-  slug: string
-  frontmatter: T
-  content: string
-  html: string
-}
+const cache = new Map<string, ContentFile[]>()
 
 export async function preloadContent(rootDir: string): Promise<void> {
   const { readdir, readFile } = await import('node:fs/promises')

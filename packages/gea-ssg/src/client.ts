@@ -1,10 +1,10 @@
-export interface ContentFile<T = Record<string, any>> {
-  slug: string
-  frontmatter: T
-  /** Raw markdown — available during SSR, omitted in client bundle */
-  content?: string
-  html: string
-}
+/**
+ * Lightweight browser-only module.
+ * vite-plugin aliases `@geajs/ssg` to this file for client builds.
+ * Reads content from `window.__SSG_CONTENT__` injected by the SSG build.
+ */
+import type { ContentFile } from './types'
+export type { ContentFile } from './types'
 
 function getData(): Record<string, ContentFile[]> {
   const g = globalThis as any

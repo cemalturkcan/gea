@@ -16,7 +16,7 @@ export {
   serializeContentCacheForClient,
   getContentSlugs,
 } from './content'
-export type { ContentFile } from './content'
+export type { ContentFile } from './types'
 
 export { buildHeadTags, replaceTitle, minifyHtml } from './head'
 export type { HeadConfig } from './head'
