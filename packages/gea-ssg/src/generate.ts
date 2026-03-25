@@ -83,7 +83,7 @@ export async function generate(options: SSGOptions): Promise<GenerateResult> {
             params: route.params,
           }
           Link._ssgCurrentPath = route.path
-          html = renderToString(options.app, undefined, { seed: index })
+          html = renderToString(options.app, undefined, { seed: index, hydrate: options.hydrate })
         } finally {
           RouterView._ssgRoute = null
           Link._ssgCurrentPath = null
@@ -91,7 +91,7 @@ export async function generate(options: SSGOptions): Promise<GenerateResult> {
 
         let fullHtml = injectIntoShell(shellParts, html)
 
-        if (options.contentDir) {
+        if (options.contentDir && !options.hydrate) {
           const base = (options.base || '/').replace(/\/?$/, '/')
           fullHtml = fullHtml.replace(/(<head[^>]*>)/i, `$1\n<script defer src="${base}_ssg/content.js"></script>`)
         }
@@ -123,6 +123,11 @@ export async function generate(options: SSGOptions): Promise<GenerateResult> {
           if (transformed !== undefined) fullHtml = transformed
         }
 
+        if (options.hydrate && !fullHtml.includes('data-gea=')) {
+          fullHtml = fullHtml.replace(/<script type="module"[^>]*><\/script>/g, '')
+          fullHtml = fullHtml.replace(/<link[^>]*rel="modulepreload"[^>]*\/?>/g, '')
+        }
+
         if (minify) {
           fullHtml = minifyHtml(fullHtml)
         }
@@ -149,7 +154,7 @@ export async function generate(options: SSGOptions): Promise<GenerateResult> {
 
     await runWithConcurrency(staticRoutes, renderRoute, concurrency)
 
-    if (options.contentDir) {
+    if (options.contentDir && !options.hydrate) {
       const ssgDir = join(outDir, '_ssg')
       await mkdir(ssgDir, { recursive: true })
       const clientJson = serializeContentCacheForClient().replace(/<\//g, '<\\/')

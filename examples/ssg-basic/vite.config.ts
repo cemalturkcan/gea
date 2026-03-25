@@ -8,6 +8,7 @@ export default defineConfig({
     geaPlugin(),
     ...geaSSG({
       contentDir: 'src/content',
+      hydrate: ['Counter', 'LiveClock'],
       sitemap: {
         hostname: 'https://gea-ssg-example.com',
       },
