@@ -119,17 +119,29 @@ export const routes = {
 }
 ```
 
-### Client-Only Routes
+### Client-Only Content
 
-Mark routes that should not be pre-rendered with `client: true`. These routes are skipped during SSG and only rendered client-side:
+Wrap parts of a template with the `<Client>` tag to exclude them from static output. The wrapped content only renders in the browser:
 
 ```tsx
-export const routes = {
-  '/': Home,
-  '/about': About,
-  '/dashboard': { component: Dashboard, client: true },
+import { Component, Client } from '@geajs/core'
+
+class Dashboard extends Component {
+  template() {
+    return (
+      <div>
+        <h1>Dashboard</h1>
+        <Client>
+          <LiveChart />
+          <UserActivity />
+        </Client>
+      </div>
+    )
+  }
 }
 ```
+
+During SSG the `<Client>` section becomes an empty placeholder. At runtime the child components mount normally.
 
 ### Layouts and Outlets
 

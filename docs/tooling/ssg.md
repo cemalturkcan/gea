@@ -161,20 +161,29 @@ export const routes = {
 }
 ```
 
-## Client-Only Routes
+## Client-Only Content
 
-Some routes should not be pre-rendered — for example, pages that require authentication or depend entirely on client-side state. Mark them with `client: true`:
+Wrap parts of a component's template with `<Client>` to exclude them from static output. The wrapped content renders only in the browser:
 
 ```tsx
-export const routes = {
-  '/': Home,
-  '/about': About,
-  '/dashboard': { component: Dashboard, client: true },
-  '/settings': { component: Settings, client: true },
+import { Component, Client } from '@geajs/core'
+
+class Dashboard extends Component {
+  template() {
+    return (
+      <div>
+        <h1>Dashboard</h1>
+        <Client>
+          <LiveChart />
+          <UserActivity />
+        </Client>
+      </div>
+    )
+  }
 }
 ```
 
-These routes are skipped during static generation and only rendered by the client-side router at runtime.
+During SSG the `<Client>` section becomes an empty placeholder. At runtime the child components mount normally. This lets you pre-render the page shell (nav, layout, headings) while deferring interactive parts to the client.
 
 ## Layouts
 
