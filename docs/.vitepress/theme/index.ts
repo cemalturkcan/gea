@@ -1,6 +1,6 @@
 import DefaultTheme from 'vitepress/theme'
 import { onMounted, h } from 'vue'
-import CopyPageButton from './CopyPageButton.vue'
+import CopyOrDownloadAsMarkdownButtons from 'vitepress-plugin-llms/vitepress-components/CopyOrDownloadAsMarkdownButtons.vue'
 import './custom.css'
 
 function initStarfield() {
@@ -81,10 +81,8 @@ function initStarfield() {
 
 export default {
   extends: DefaultTheme,
-  Layout() {
-    return h(DefaultTheme.Layout, null, {
-      'doc-before': () => h(CopyPageButton),
-    })
+  enhanceApp({ app }) {
+    app.component('CopyOrDownloadAsMarkdownButtons', CopyOrDownloadAsMarkdownButtons)
   },
   setup() {
     onMounted(() => {

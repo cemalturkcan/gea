@@ -1,6 +1,15 @@
 import { defineConfig } from 'vitepress'
+import llmstxt, { copyOrDownloadAsMarkdownButtons } from 'vitepress-plugin-llms'
 
 export default defineConfig({
+  vite: {
+    plugins: [llmstxt() as any],
+  },
+  markdown: {
+    config(md) {
+      md.use(copyOrDownloadAsMarkdownButtons)
+    },
+  },
   title: 'Gea',
   description: 'A lightweight, reactive JavaScript UI framework with compile-time JSX and proxy-based stores.',
   base: '/docs/',
