@@ -14,6 +14,7 @@ export type {
   RouteMap,
   RouteEntry,
   RouteGroupConfig,
+  SSGRouteConfig,
   ResolvedRoute,
   RouterOptions,
   GuardFn,
