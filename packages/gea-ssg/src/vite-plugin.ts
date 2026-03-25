@@ -19,10 +19,8 @@ export function geaSSG(options: SSGPluginOptions = {}): Plugin[] {
 
       config() {
         return {
-          build: {
-            rollupOptions: {
-              external: ['@geajs/ssg'],
-            },
+          resolve: {
+            alias: { '@geajs/ssg': SSG_SRC_DIR + '/client.ts' },
           },
         }
       },
