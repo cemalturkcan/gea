@@ -91,6 +91,10 @@ export async function generate(options: SSGOptions): Promise<GenerateResult> {
 
         let fullHtml = injectIntoShell(shellParts, html)
 
+        // In MPA/hydrate mode content is baked into SSG HTML at build time —
+        // no global content.js is generated, so ssg.content() / ssg.file()
+        // will return empty results on the client.  Content access should
+        // happen through the pre-rendered HTML instead.
         if (options.contentDir && !options.hydrate) {
           const base = (options.base || '/').replace(/\/?$/, '/')
           fullHtml = fullHtml.replace(/(<head[^>]*>)/i, `$1\n<script defer src="${base}_ssg/content.js"></script>`)
@@ -154,6 +158,7 @@ export async function generate(options: SSGOptions): Promise<GenerateResult> {
 
     await runWithConcurrency(staticRoutes, renderRoute, concurrency)
 
+    // In MPA/hydrate mode content.js is intentionally skipped — see note above.
     if (options.contentDir && !options.hydrate) {
       const ssgDir = join(outDir, '_ssg')
       await mkdir(ssgDir, { recursive: true })
@@ -163,6 +168,11 @@ export async function generate(options: SSGOptions): Promise<GenerateResult> {
 
     if (sitemap) {
       const sitemapOpts = typeof sitemap === 'boolean' ? { hostname: 'https://example.com' } : sitemap
+      if (typeof sitemap === 'boolean') {
+        console.warn(
+          '[gea-ssg] sitemap: true uses placeholder hostname "https://example.com". Pass { hostname: "https://your-site.com" } for production.',
+        )
+      }
       await generateSitemap(pages, sitemapOpts, outDir, headConfigs, trailingSlash)
     }
 

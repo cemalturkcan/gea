@@ -10,6 +10,7 @@ export interface HeadConfig {
   link?: Array<Record<string, string>>
 }
 
+/** Build `<meta>`, `<link>`, and JSON-LD `<script>` tags from a HeadConfig. */
 export function buildHeadTags(config: HeadConfig): string {
   const tags: string[] = []
 
@@ -60,10 +61,12 @@ export function buildHeadTags(config: HeadConfig): string {
   return tags.length ? '\n' + tags.join('\n') : ''
 }
 
+/** Replace the `<title>` content in an HTML string. */
 export function replaceTitle(html: string, title: string): string {
   return html.replace(/<title>[^<]*<\/title>/i, `<title>${escHtml(title)}</title>`)
 }
 
+/** Minify HTML by collapsing whitespace, preserving `<pre>`, `<code>`, `<script>`, `<style>`, and `<textarea>` content. */
 export function minifyHtml(html: string): string {
   const preserved: string[] = []
   let result = html.replace(/<(pre|code|script|style|textarea)\b[^>]*>[\s\S]*?<\/\1>/gi, (match) => {

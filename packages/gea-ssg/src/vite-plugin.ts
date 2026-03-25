@@ -104,8 +104,12 @@ export function geaSSG(options: SSGPluginOptions = {}): Plugin[] {
           } finally {
             await viteServer.close()
           }
-          // Vite's middlewareMode leaks internal handles after close.
-          // This timer only fires if leaked handles keep the event loop alive.
+          // Vite's middlewareMode leaks internal handles after close() —
+          // setTimeout + unref ensures the process exits only if those leaked
+          // handles are the sole remaining work.  The timer is un-reffed so it
+          // never *prevents* a natural exit; it only forces one when Vite's
+          // stale handles keep the event loop alive after SSG is done.
+          // TODO: Remove once Vite fixes handle cleanup in middlewareMode.
           setTimeout(() => process.exit(0), 0).unref()
         } catch (error) {
           console.error('[gea-ssg] SSG error:', error)

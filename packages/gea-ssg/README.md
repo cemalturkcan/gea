@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/dashersw/gea/blob/master/LICENSE)
 
-Static site generation plugin for [Gea](https://www.npmjs.com/package/@geajs/core). Pre-renders your routes to static HTML at build time — instant first paint, full SEO, and client-side interactivity after JS loads.
+Static site generation plugin for [Gea](https://www.npmjs.com/package/@geajs/core). Pre-renders your routes to static HTML at build time — instant first paint, full SEO, and selective client-side hydration. Pages without interactive components ship zero JavaScript.
 
 ## Installation
 
@@ -121,7 +121,7 @@ class Blog extends Component {
 }
 ```
 
-Each file has: `slug`, `frontmatter`, `content` (raw md), `html` (rendered).
+Each file has: `slug`, `frontmatter`, `html` (rendered), and optionally `content` (raw markdown — available at build time, omitted in client payload to reduce size).
 
 ### Dynamic Routes with Content
 
@@ -235,9 +235,43 @@ Affects output paths, sitemap URLs, and preview server routing.
 
 `Link` components automatically get `data-active` attributes in static output, matching the current route — no client JavaScript needed.
 
+### MPA Hydration (Zero JS on Static Pages)
+
+By default, the SSG build bundles your entire app as a single-page application. With the `hydrate` option, you can switch to **MPA mode**: only pages that contain interactive components get JavaScript — everything else is pure HTML with zero JS.
+
+```ts
+// vite.config.ts
+geaSSG({
+  contentDir: 'src/content',
+  hydrate: ['Counter', 'LiveClock'],
+})
+```
+
+```ts
+// src/main.ts
+import { hydrate } from '@geajs/ssg'
+import Counter from './views/Counter'
+import LiveClock from './views/LiveClock'
+import './styles.css'
+
+hydrate({ Counter, LiveClock })
+```
+
+**How it works:**
+
+1. During build, the SSG renderer tracks which components from the `hydrate` list appear on each page and marks them with `data-gea` attributes.
+2. Pages **without** any hydrated components have their `<script type="module">` tags stripped — zero JavaScript.
+3. Pages **with** hydrated components keep their JS. On load, `hydrate()` finds each `data-gea` element, creates the component instance with a matching ID, and attaches reactive bindings and event handlers to the existing SSG DOM — no re-render, no flash.
+
+**Content API in MPA mode:** When `hydrate` is set, no global `_ssg/content.js` file is generated. `ssg.content()` and `ssg.file()` will return empty results on the client. This is by design — in MPA mode content is baked into the SSG HTML at build time. If you need client-side content access, use the default SPA mode (omit `hydrate`).
+
+**When to use MPA mode:** Sites where most pages are static content (blogs, docs, marketing) and only a few pages need interactivity (forms, counters, live data).
+
 ### Dev Mode
 
 In dev mode (`vite dev`), content is preloaded and injected into the page so `ssg.content()` and `ssg.file()` work without a build step. Content file changes trigger automatic page reload.
+
+When using MPA mode with `hydrate`, the dev server falls back to full SPA rendering (Router + all views) so you can navigate and develop normally. The MPA behavior only applies to production builds.
 
 ## Plugin Options
 
@@ -252,6 +286,8 @@ In dev mode (`vite dev`), content is preloaded and injected into the page so `ss
 | `appElementId` | `string` | `'app'` | Mount element id in index.html |
 | `routes` | `RouteMap` | — | Override routes (default: from entry file) |
 | `app` | `Component` | — | Override app component (default: from entry file) |
+| `hydrate` | `string[]` | — | Component class names to hydrate on client (enables MPA mode) |
+| `base` | `string` | `'/'` | Base path for asset URLs |
 | `concurrency` | `number` | `4` | Max concurrent page renders |
 | `onBeforeRender` | `function` | — | Hook called before each page render |
 | `onAfterRender` | `function` | — | Hook called after render, can transform HTML |
@@ -260,10 +296,14 @@ In dev mode (`vite dev`), content is preloaded and injected into the page so `ss
 ## Programmatic API
 
 ```ts
+// Build-time / server-side
 import { ssg, generate, renderToString, crawlRoutes, parseShell, preloadContent } from '@geajs/ssg'
+
+// Client-side (browser)
+import { hydrate, ssg } from '@geajs/ssg' // aliased to client module by vite-plugin
 ```
 
-All exports are available from the main entry point for custom build pipelines.
+All build-time exports are available from the main entry point for custom pipelines. The `hydrate` function is only available from the client entry (`@geajs/ssg/client`), which the Vite plugin aliases automatically.
 
 ## Related Packages
 

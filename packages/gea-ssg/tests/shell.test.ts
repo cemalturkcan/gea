@@ -42,6 +42,18 @@ describe('parseShell', () => {
     assert.ok(parts.before.endsWith('<div id="app">'))
     assert.ok(parts.after.startsWith('</div>'))
   })
+
+  it('handles nested divs inside app div', () => {
+    const html =
+      '<html><body><div id="app"><div class="spinner"><div>inner</div></div></div><footer>f</footer></body></html>'
+    const parts = parseShell(html)
+    assert.ok(parts.before.endsWith('<div id="app">'))
+    assert.ok(parts.after.startsWith('</div>'))
+    assert.ok(parts.after.includes('<footer>f</footer>'))
+    // Ensure the nested content is NOT included in "before" or "after"
+    assert.ok(!parts.before.includes('spinner'))
+    assert.ok(!parts.after.includes('spinner'))
+  })
 })
 
 describe('injectIntoShell', () => {
