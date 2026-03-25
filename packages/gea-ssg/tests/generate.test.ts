@@ -313,7 +313,7 @@ describe('generate', () => {
     assert.ok(html.includes('<footer>SSG</footer>'))
   })
 
-  it('strips module scripts from output', async () => {
+  it('keeps scripts in output for client-side takeover', async () => {
     await generate({
       routes: { '/': HomePage } as any,
       app: MockApp as any,
@@ -322,7 +322,7 @@ describe('generate', () => {
     })
 
     const html = await readFile(join(tempDir, 'index.html'), 'utf-8')
-    assert.ok(!html.includes('main.js'))
+    assert.ok(html.includes('main.js'))
   })
 
   it('preserves non-JS scripts like JSON-LD', async () => {
@@ -341,7 +341,7 @@ describe('generate', () => {
 
     const html = await readFile(join(tempDir, 'index.html'), 'utf-8')
     assert.ok(html.includes('application/ld+json'))
-    assert.ok(!html.includes('main.js'))
+    assert.ok(html.includes('main.js'))
   })
 
   it('generates sitemap when enabled', async () => {

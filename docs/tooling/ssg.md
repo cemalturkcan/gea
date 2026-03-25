@@ -1,6 +1,6 @@
 # Static Site Generation
 
-`@geajs/ssg` pre-renders your Gea application to static HTML at build time. Every route becomes an HTML file with zero client JavaScript — instant loads, full SEO, and no runtime overhead.
+`@geajs/ssg` pre-renders your Gea application to static HTML at build time. Every route becomes an HTML file — instant first paint, full SEO, and client-side interactivity after JS loads.
 
 ## Installation
 
@@ -284,7 +284,7 @@ class Dashboard extends Component {
 }
 ```
 
-During SSG the `<Client>` section becomes an empty placeholder. In dev mode (`vite dev`) the child components render normally. This lets you pre-render the page shell while keeping interactive parts visible during development.
+During SSG the `<Client>` section becomes an empty placeholder in the pre-rendered HTML. Once JavaScript loads, the child components mount and become interactive. This is ideal for heavy libraries (Three.js, chart libraries) or interactive widgets that don't need to be in the initial HTML.
 
 ## Layouts
 

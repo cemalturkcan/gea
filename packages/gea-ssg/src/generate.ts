@@ -4,7 +4,7 @@ import { join, dirname, resolve, relative } from 'node:path'
 import { RouterView, Link, Head } from '@geajs/core'
 import { renderToString } from './render'
 import { crawlRoutes } from './crawl'
-import { parseShell, injectIntoShell, stripScripts } from './shell'
+import { parseShell, injectIntoShell } from './shell'
 import { preloadContent, clearContentCache, serializeContentCache } from './content'
 import { buildHeadTags, replaceTitle, minifyHtml } from './head'
 import type { HeadConfig } from './head'
@@ -91,6 +91,11 @@ export async function generate(options: SSGOptions): Promise<GenerateResult> {
 
         let fullHtml = injectIntoShell(shellParts, html)
 
+        if (options.contentDir) {
+          const contentJson = serializeContentCache().replace(/<\//g, '<\\/')
+          fullHtml = fullHtml.replace('</head>', `<script>window.__SSG_CONTENT__=${contentJson}</script>\n</head>`)
+        }
+
         if (Head._current) {
           const headConfig = { ...Head._current } as HeadConfig
           headConfigs.set(route.path, headConfig)
@@ -117,8 +122,6 @@ export async function generate(options: SSGOptions): Promise<GenerateResult> {
           )
           if (transformed) fullHtml = transformed
         }
-
-        fullHtml = stripScripts(fullHtml)
 
         if (minify) {
           fullHtml = minifyHtml(fullHtml)
