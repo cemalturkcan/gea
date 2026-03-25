@@ -47,6 +47,40 @@ export class Head extends Component {
       }
       el.href = props.url
     }
+
+    if (props.meta) {
+      for (const tag of props.meta) {
+        const key = tag.property || tag.name
+        if (key) this._setMeta(key, tag.content)
+      }
+    }
+
+    if (props.link) {
+      for (const attrs of props.link) {
+        const selector = attrs.rel ? `link[rel="${attrs.rel}"]` : null
+        let el = selector ? (document.querySelector(selector) as HTMLLinkElement) : null
+        if (!el) {
+          el = document.createElement('link')
+          document.head.appendChild(el)
+        }
+        for (const [k, v] of Object.entries(attrs)) {
+          el.setAttribute(k, v as string)
+        }
+      }
+    }
+
+    if (props.jsonld) {
+      let el = document.querySelector('script[data-head-jsonld]') as HTMLScriptElement
+      if (!el) {
+        el = document.createElement('script')
+        el.type = 'application/ld+json'
+        el.setAttribute('data-head-jsonld', '')
+        document.head.appendChild(el)
+      }
+      const data = Array.isArray(props.jsonld) ? props.jsonld : [props.jsonld]
+      const items = data.map((d: any) => ({ '@context': 'https://schema.org', ...d }))
+      el.textContent = JSON.stringify(items.length === 1 ? items[0] : items)
+    }
   }
 
   _setMeta(nameOrProperty: string, content?: string) {

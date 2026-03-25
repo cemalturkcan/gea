@@ -1,4 +1,5 @@
-import { Component, Head } from '@geajs/core'
+import { Component, Head, Client } from '@geajs/core'
+import LiveClock from './LiveClock'
 
 export default class Contact extends Component {
   template() {
@@ -19,6 +20,9 @@ export default class Contact extends Component {
           <h2>Email</h2>
           <p>hello@geajs.dev</p>
         </div>
+        <Client>
+          <LiveClock />
+        </Client>
       </div>
     )
   }
