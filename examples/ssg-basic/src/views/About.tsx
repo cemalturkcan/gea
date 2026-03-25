@@ -1,0 +1,56 @@
+import { Component } from '@geajs/core'
+import { ssg } from '@geajs/ssg'
+
+const features = [
+  { name: 'Compile-time JSX', description: 'No runtime template parsing — JSX is compiled at build time' },
+  { name: 'Proxy-based Stores', description: 'Surgical DOM updates without virtual DOM diffing' },
+  { name: 'Tiny Footprint', description: '~13kb gzipped — minimal overhead for maximum performance' },
+  { name: 'SSG Support', description: 'Pre-render pages at build time for instant loads' },
+]
+
+export default class About extends Component {
+  template() {
+    const changelog = ssg.content('changelog', {
+      sort: (a, b) => new Date(b.frontmatter.date).getTime() - new Date(a.frontmatter.date).getTime(),
+    })
+
+    return (
+      <div class="view">
+        <h1>About</h1>
+        <p>
+          Gea is a lightweight reactive UI framework that compiles JSX at build time and uses proxy-based stores for
+          surgical DOM updates — all without a virtual DOM.
+        </p>
+
+        <h2>Features</h2>
+        <div class="feature-grid">
+          {features
+            .map(
+              (f) => `
+              <div class="card">
+                <h3>${f.name}</h3>
+                <p>${f.description}</p>
+              </div>
+            `,
+            )
+            .join('')}
+        </div>
+
+        <h2>Changelog</h2>
+        {changelog
+          .map(
+            (c) => `
+            <div class="card changelog-entry">
+              <div class="changelog-header">
+                <strong>v${c.frontmatter.version}</strong>
+                <time>${new Date(c.frontmatter.date).toISOString().split('T')[0]}</time>
+              </div>
+              <div class="changelog-body">${c.html}</div>
+            </div>
+          `,
+          )
+          .join('')}
+      </div>
+    )
+  }
+}

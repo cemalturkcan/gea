@@ -10,3 +10,5 @@ docs/.vitepress/cache
 docs/public/gea-ui-showcase
 website/docs
 .worktrees
+.idea
+.data

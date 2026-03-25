@@ -136,6 +136,10 @@ interface ComponentLike {
 }
 
 const createElement = (() => {
+  if (typeof document === 'undefined') {
+    return (htmlString: string): HTMLElement => htmlString as any
+  }
+
   const template = document.createElement('template')
 
   return (htmlString: string): HTMLElement => {
@@ -163,8 +167,10 @@ export default class ComponentManager {
   constructor() {
     this.boundHandleEvent_ = this.handleEvent.bind(this)
 
-    if (document.body) this.onLoad()
-    else document.addEventListener('DOMContentLoaded', () => this.onLoad())
+    if (typeof document !== 'undefined') {
+      if (document.body) this.onLoad()
+      else document.addEventListener('DOMContentLoaded', () => this.onLoad())
+    }
 
     this.getUid = getUid
     this.createElement = createElement

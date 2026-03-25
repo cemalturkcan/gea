@@ -6,6 +6,7 @@ import type { ListConfig } from './list'
 
 export default class Component extends Store {
   static __componentClasses: Map<string, Function> = new Map()
+  static _ssgMode = false
 
   id_: string
   element_: HTMLElement | null
@@ -56,10 +57,13 @@ export default class Component extends Store {
     ComponentManager.getInstance().setComponent(this)
 
     this.created(this.props)
-    this.createdHooks(this.props)
 
-    if (typeof (this as any).__setupLocalStateObservers === 'function') {
-      ;(this as any).__setupLocalStateObservers()
+    if (!Component._ssgMode) {
+      this.createdHooks(this.props)
+
+      if (typeof (this as any).__setupLocalStateObservers === 'function') {
+        ;(this as any).__setupLocalStateObservers()
+      }
     }
   }
 
@@ -630,9 +634,7 @@ export default class Component extends Store {
     this.__reorderChildren(container, next)
 
     // Clean up __childComponents
-    this.__childComponents = this.__childComponents.filter(
-      child => !oldItems.includes(child) || next.includes(child)
-    )
+    this.__childComponents = this.__childComponents.filter((child) => !oldItems.includes(child) || next.includes(child))
 
     return next
   }

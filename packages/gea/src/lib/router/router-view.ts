@@ -1,8 +1,16 @@
 import Component from '../base/component'
-import type { Router } from './router'
+import { Router } from './router'
 import Outlet from './outlet'
 
+export interface SSGRoute {
+  component: any
+  layouts: any[]
+  params: Record<string, string>
+}
+
 export default class RouterView extends Component {
+  static _ssgRoute: SSGRoute | null = null
+
   __isRouterOutlet = true
   _routerDepth = 0
 
@@ -14,6 +22,30 @@ export default class RouterView extends Component {
   private _routesApplied = false
 
   template() {
+    if (RouterView._ssgRoute) {
+      const { component, layouts, params } = RouterView._ssgRoute
+
+      if (!layouts.length) {
+        const child = new component(params)
+        const html = String(child.template(child.props)).trim()
+        if (typeof child.dispose === 'function') child.dispose()
+        return `<div id="${this.id}">${html}</div>` as any
+      }
+
+      const leaf = new component(params)
+      let innerHtml = String(leaf.template(leaf.props)).trim()
+      if (typeof leaf.dispose === 'function') leaf.dispose()
+
+      for (let i = layouts.length - 1; i >= 0; i--) {
+        Outlet._ssgHtml = innerHtml
+        const layout = new layouts[i]({ ...params })
+        innerHtml = String(layout.template(layout.props)).trim()
+        if (typeof layout.dispose === 'function') layout.dispose()
+        Outlet._ssgHtml = null
+      }
+
+      return `<div id="${this.id}">${innerHtml}</div>` as any
+    }
     return `<div id="${this.id}"></div>` as any
   }
 
@@ -35,7 +67,17 @@ export default class RouterView extends Component {
   }
 
   onAfterRender() {
-    const router = this._getRouter()
+    let router = this._getRouter()
+
+    if (!router && this.props?.routes) {
+      router = new Router(this.props.routes)
+      this._router = router
+      this._routesApplied = true
+      this._rebindRouter(router)
+      this._updateView()
+      return
+    }
+
     if (!router) return
 
     if (this.props?.routes && !this._routesApplied) {
