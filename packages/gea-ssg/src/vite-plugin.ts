@@ -180,27 +180,23 @@ export function geaSSG(options: SSGPluginOptions = {}): Plugin[] {
         const ts = options.trailingSlash !== false
 
         server.middlewares.use((req, res, next) => {
-          if (req.url && !extname(req.url)) {
-            const url = req.url.split('?')[0]
+          if (!req.url || extname(req.url) || req.url === '/') return next()
 
-            if (url !== '/') {
-              const testPath = ts
-                ? join(config.build.outDir, url, 'index.html')
-                : join(config.build.outDir, url + '.html')
+          const url = req.url.split('?')[0]
+          const testPath = ts ? join(config.build.outDir, url, 'index.html') : join(config.build.outDir, url + '.html')
 
-              if (existsSync(testPath)) {
-                req.url = ts ? (url.endsWith('/') ? url + 'index.html' : url + '/index.html') : url + '.html'
-                return next()
-              }
-            }
-
-            const notFoundPath = join(config.build.outDir, '404.html')
-            if (existsSync(notFoundPath)) {
-              res.statusCode = 404
-              createReadStream(notFoundPath).pipe(res)
-              return
-            }
+          if (existsSync(testPath)) {
+            req.url = ts ? (url.endsWith('/') ? url + 'index.html' : url + '/index.html') : url + '.html'
+            return next()
           }
+
+          const notFoundPath = join(config.build.outDir, '404.html')
+          if (existsSync(notFoundPath)) {
+            res.statusCode = 404
+            createReadStream(notFoundPath).pipe(res)
+            return
+          }
+
           next()
         })
       },
