@@ -1,0 +1,164 @@
+import { dirname, join, extname, resolve } from 'node:path'
+import { existsSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import type { Plugin, ResolvedConfig } from 'vite'
+import type { SSGPluginOptions } from './types'
+
+// Resolve to src/ directory — import.meta.url may point to dist/ at runtime
+const __dir = dirname(fileURLToPath(import.meta.url))
+const SSG_SRC_DIR = __dir.endsWith('/dist') || __dir.endsWith('\\dist') ? join(__dir, '..', 'src') : __dir
+
+export function geaSSG(options: SSGPluginOptions = {}): Plugin[] {
+  let config: ResolvedConfig
+  let contentLoaded = false
+  let cachedContentJson = '{}'
+
+  return [
+    {
+      name: 'gea-ssg',
+      apply: 'build',
+
+      config() {
+        return {
+          build: {
+            rollupOptions: {
+              external: ['@geajs/ssg'],
+            },
+          },
+        }
+      },
+
+      configResolved(resolvedConfig) {
+        config = resolvedConfig
+      },
+
+      async closeBundle() {
+        console.log('[gea-ssg] Starting static page generation...')
+
+        try {
+          const { createServer } = await import('vite')
+          const viteServer = await createServer({
+            configFile: config.configFile,
+            server: { middlewareMode: true },
+            appType: 'custom',
+            resolve: {
+              alias: { '@geajs/ssg': SSG_SRC_DIR + '/index.ts' },
+            },
+          })
+
+          try {
+            const { generate } = await viteServer.ssrLoadModule(`${SSG_SRC_DIR}/generate.ts`)
+
+            const ssgOpts: Record<string, any> = {
+              shell: `${config.build.outDir}/index.html`,
+              outDir: config.build.outDir,
+              appElementId: options.appElementId || 'app',
+              contentDir: options.contentDir ? resolve(config.root, options.contentDir) : undefined,
+              sitemap: options.sitemap,
+              onBeforeRender: options.onBeforeRender,
+              onAfterRender: options.onAfterRender,
+              onRenderError: options.onRenderError,
+              concurrency: options.concurrency,
+            }
+
+            if (options.routes && options.app) {
+              ssgOpts.routes = options.routes
+              ssgOpts.app = options.app
+            } else {
+              const entry = options.entry || 'src/App.tsx'
+              const ssgEntry = await viteServer.ssrLoadModule(entry)
+              ssgOpts.routes = ssgEntry.routes
+              ssgOpts.app = ssgEntry.App || ssgEntry.default
+
+              if (!ssgOpts.routes || !ssgOpts.app) {
+                throw new Error(`[gea-ssg] ${entry} must export "routes" and "App" (or default).`)
+              }
+            }
+
+            await generate(ssgOpts)
+          } finally {
+            await viteServer.close()
+          }
+        } catch (error) {
+          console.error('[gea-ssg] SSG error:', error)
+          throw error
+        }
+      },
+    },
+
+    {
+      name: 'gea-ssg:dev',
+      apply: 'serve',
+
+      config() {
+        return {
+          resolve: {
+            alias: { '@geajs/ssg': SSG_SRC_DIR + '/client.ts' },
+          },
+        }
+      },
+
+      configResolved(resolvedConfig) {
+        config = resolvedConfig
+      },
+
+      async transformIndexHtml(_html, ctx) {
+        if (!options.contentDir || !ctx.server) return
+
+        if (!contentLoaded) {
+          const mod = await ctx.server.ssrLoadModule(`${SSG_SRC_DIR}/content.ts`)
+          await mod.preloadContent(resolve(config.root, options.contentDir))
+          cachedContentJson = mod.serializeContentCache()
+          contentLoaded = true
+        }
+
+        const safeJson = cachedContentJson.replace(/<\//g, '<\\/')
+        return [
+          {
+            tag: 'script',
+            children: `window.__SSG_CONTENT__=${safeJson}`,
+            injectTo: 'head-prepend' as const,
+          },
+        ]
+      },
+
+      configureServer(server) {
+        if (!options.contentDir) return
+
+        const contentDir = resolve(config.root, options.contentDir)
+
+        server.watcher.add(contentDir)
+        const invalidate = (file: string) => {
+          if (file.startsWith(contentDir) && file.endsWith('.md')) {
+            contentLoaded = false
+            server.ws.send({ type: 'full-reload' })
+          }
+        }
+        server.watcher.on('change', invalidate)
+        server.watcher.on('add', invalidate)
+        server.watcher.on('unlink', invalidate)
+      },
+    },
+
+    {
+      name: 'gea-ssg:preview',
+
+      configResolved(resolvedConfig) {
+        config = resolvedConfig
+      },
+
+      configurePreviewServer(server) {
+        server.middlewares.use((req, _res, next) => {
+          if (req.url && !extname(req.url)) {
+            const url = req.url.split('?')[0]
+            const indexPath = join(config.build.outDir, url, 'index.html')
+            if (url !== '/' && existsSync(indexPath)) {
+              req.url = url.endsWith('/') ? url + 'index.html' : url + '/index.html'
+            }
+          }
+          next()
+        })
+      },
+    },
+  ]
+}

@@ -15,6 +15,7 @@ export default class Component<P = Record<string, any>> extends Store {
   declare setState: (...args: any[]) => void
   declare forceUpdate: (...args: any[]) => void
   static __componentClasses: Map<string, Function> = new Map()
+  static _ssgMode = false
 
   id_: string
   element_: HTMLElement | null
@@ -78,10 +79,13 @@ export default class Component<P = Record<string, any>> extends Store {
     ComponentManager.getInstance().setComponent(this)
 
     this.created(this.props)
-    this.createdHooks(this.props)
 
-    if (typeof (this as any).__setupLocalStateObservers === 'function') {
-      ;(this as any).__setupLocalStateObservers()
+    if (!Component._ssgMode) {
+      this.createdHooks(this.props)
+
+      if (typeof (this as any).__setupLocalStateObservers === 'function') {
+        ;(this as any).__setupLocalStateObservers()
+      }
     }
   }
 

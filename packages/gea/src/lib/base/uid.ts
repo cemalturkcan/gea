@@ -38,4 +38,8 @@ export function clearUidProvider(): void {
   resetProvider = null
 }
 
+export function resetUidCounter(seed: number = 0): void {
+  counter = seed
+}
+
 export default getUid

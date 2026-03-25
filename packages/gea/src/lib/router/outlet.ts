@@ -3,6 +3,7 @@ import type { Router } from './router'
 
 export default class Outlet extends Component<{ router?: Router | null }> {
   static _router: Router | null = null
+  static _ssgHtml: string | null = null
 
   __isRouterOutlet = true
   _routerDepth = -1
@@ -14,6 +15,9 @@ export default class Outlet extends Component<{ router?: Router | null }> {
   private _observerRemovers: Array<() => void> = []
 
   template() {
+    if (Outlet._ssgHtml) {
+      return `<div id="${this.id}">${Outlet._ssgHtml}</div>` as any
+    }
     return `<div id="${this.id}"></div>` as any
   }
 
