@@ -284,7 +284,7 @@ class Dashboard extends Component {
 }
 ```
 
-During SSG the `<Client>` section becomes an empty placeholder. At runtime the child components mount normally. This lets you pre-render the page shell (nav, layout, headings) while deferring interactive parts to the client.
+During SSG the `<Client>` section becomes an empty placeholder. In dev mode (`vite dev`) the child components render normally. This lets you pre-render the page shell while keeping interactive parts visible during development.
 
 ## Layouts
 
@@ -350,7 +350,7 @@ geaSSG({
   robots: {
     disallow: ['/admin', '/private'],
     allow: ['/public'],
-    sitemap: 'https://example.com/sitemap.xml',
+    sitemap: false,
   },
 })
 ```

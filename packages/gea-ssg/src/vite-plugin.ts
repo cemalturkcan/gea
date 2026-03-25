@@ -80,6 +80,9 @@ export function geaSSG(options: SSGPluginOptions = {}): Plugin[] {
             await generate(ssgOpts)
           } finally {
             await viteServer.close()
+            // Vite middleware-mode server can leave lingering handles.
+            // All files are already written — schedule clean exit as fallback.
+            setTimeout(() => process.exit(0), 1500).unref()
           }
         } catch (error) {
           console.error('[gea-ssg] SSG error:', error)
