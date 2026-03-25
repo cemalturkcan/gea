@@ -262,30 +262,6 @@ class NotFound extends Component {
 
 The preview server automatically serves `404.html` for unmatched routes.
 
-## Client-Only Content
-
-Wrap parts of a component's template with `<Client>` to exclude them from static output. The wrapped content renders only in the browser:
-
-```tsx
-import { Component, Client } from '@geajs/core'
-
-class Dashboard extends Component {
-  template() {
-    return (
-      <div>
-        <h1>Dashboard</h1>
-        <Client>
-          <LiveChart />
-          <UserActivity />
-        </Client>
-      </div>
-    )
-  }
-}
-```
-
-During SSG the `<Client>` section becomes an empty placeholder in the pre-rendered HTML. Once JavaScript loads, the child components mount and become interactive. This is ideal for heavy libraries (Three.js, chart libraries) or interactive widgets that don't need to be in the initial HTML.
-
 ## Layouts
 
 Route groups with `layout` components work automatically. The SSG renders layouts wrapping page content through `Outlet`, just like client-side rendering:
