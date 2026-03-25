@@ -154,16 +154,4 @@ describe('crawlRoutes', () => {
     const result = await crawlRoutes(routes as any)
     assert.equal(result.length, 0)
   })
-
-  it('skips routes with client: true', async () => {
-    const routes = {
-      '/': HomePage,
-      '/dashboard': { component: AboutPage, client: true },
-      '/about': AboutPage,
-    }
-    const result = await crawlRoutes(routes as any)
-    assert.equal(result.length, 2)
-    assert.equal(result[0].path, '/')
-    assert.equal(result[1].path, '/about')
-  })
 })

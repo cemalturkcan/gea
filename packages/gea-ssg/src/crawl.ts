@@ -35,8 +35,6 @@ async function collectPaths(
   }
 
   if (isSSGRouteConfig(entry)) {
-    if ((entry as any).client === true) return
-
     const component = (entry as any).component
 
     if ((entry as any).content) {
