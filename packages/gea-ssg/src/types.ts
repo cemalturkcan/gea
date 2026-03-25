@@ -1,3 +1,11 @@
+export interface ContentFile<T = Record<string, any>> {
+  slug: string
+  frontmatter: T
+  /** Raw markdown — available during build, omitted in client payload */
+  content?: string
+  html: string
+}
+
 export interface SSGOptions {
   routes: Record<string, any>
   app: new (props?: any) => any

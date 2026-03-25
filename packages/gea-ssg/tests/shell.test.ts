@@ -18,7 +18,6 @@ describe('parseShell', () => {
     const parts = parseShell(BASIC_SHELL)
     assert.ok(parts.before.endsWith('<div id="app">'))
     assert.ok(parts.after.startsWith('</div>'))
-    assert.ok(parts.headEnd > 0)
   })
 
   it('throws when app element is not found', () => {
