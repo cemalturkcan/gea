@@ -25,6 +25,9 @@ export class Head extends Component {
 
   _updateHead() {
     const props = this.props || {}
+
+    this._removeStale(props)
+
     if (props.title) document.title = props.title
 
     this._setMeta('description', props.description)
@@ -80,7 +83,34 @@ export class Head extends Component {
       const data = Array.isArray(props.jsonld) ? props.jsonld : [props.jsonld]
       const items = data.map((d: any) => ({ '@context': 'https://schema.org', ...d }))
       el.textContent = JSON.stringify(items.length === 1 ? items[0] : items)
+    } else {
+      const el = document.querySelector('script[data-head-jsonld]')
+      if (el) el.remove()
     }
+  }
+
+  _removeStale(props: Record<string, any>) {
+    if (!props.url) {
+      const el = document.querySelector('link[rel="canonical"]')
+      if (el) el.remove()
+    }
+    if (!props.image) {
+      this._removeMeta('og:image')
+      this._removeMeta('twitter:image')
+      this._removeMeta('twitter:card')
+    }
+    if (!props.description) {
+      this._removeMeta('description')
+      this._removeMeta('og:description')
+      this._removeMeta('twitter:description')
+    }
+  }
+
+  _removeMeta(nameOrProperty: string) {
+    const isOg = nameOrProperty.startsWith('og:') || nameOrProperty.startsWith('twitter:')
+    const attr = isOg ? 'property' : 'name'
+    const el = document.querySelector(`meta[${attr}="${nameOrProperty}"]`)
+    if (el) el.remove()
   }
 
   _setMeta(nameOrProperty: string, content?: string) {

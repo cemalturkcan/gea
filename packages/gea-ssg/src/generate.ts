@@ -89,7 +89,7 @@ export async function generate(options: SSGOptions): Promise<GenerateResult> {
           Link._ssgCurrentPath = null
         }
 
-        let fullHtml = stripScripts(injectIntoShell(shellParts, html))
+        let fullHtml = injectIntoShell(shellParts, html)
 
         if (Head._current) {
           const headConfig = { ...Head._current } as HeadConfig
@@ -117,6 +117,8 @@ export async function generate(options: SSGOptions): Promise<GenerateResult> {
           )
           if (transformed) fullHtml = transformed
         }
+
+        fullHtml = stripScripts(fullHtml)
 
         if (minify) {
           fullHtml = minifyHtml(fullHtml)
@@ -207,7 +209,8 @@ async function generateSitemap(
 ): Promise<void> {
   const { hostname, changefreq = 'weekly', priority = 0.8, exclude = [] } = options
 
-  const urls = pages
+  const urls = [...pages]
+    .sort((a, b) => a.path.localeCompare(b.path))
     .filter((p) => !exclude.includes(p.path) && p.path !== '/404')
     .map((p) => {
       const head = headConfigs.get(p.path)

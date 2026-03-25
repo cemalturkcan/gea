@@ -1,5 +1,5 @@
 import { dirname, join, extname, resolve } from 'node:path'
-import { existsSync } from 'node:fs'
+import { existsSync, createReadStream } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { Plugin, ResolvedConfig } from 'vite'
 import type { SSGPluginOptions } from './types'
@@ -35,13 +35,37 @@ export function geaSSG(options: SSGPluginOptions = {}): Plugin[] {
         console.log('[gea-ssg] Starting static page generation...')
 
         try {
-          const { createServer } = await import('vite')
+          const { createServer, loadConfigFromFile } = await import('vite')
+
+          let userPlugins: any[] = []
+          let userAlias: Record<string, string> = {}
+
+          if (config.configFile) {
+            const loaded = await loadConfigFromFile(
+              { command: 'serve', mode: config.mode },
+              config.configFile,
+              config.root,
+            )
+            if (loaded?.config) {
+              userPlugins = ((loaded.config.plugins || []) as any[])
+                .flat(Infinity)
+                .filter((p: any) => p && typeof p === 'object' && 'name' in p && !p.name.startsWith('gea-ssg'))
+              const alias = loaded.config.resolve?.alias
+              if (alias && typeof alias === 'object' && !Array.isArray(alias)) {
+                userAlias = alias as Record<string, string>
+              }
+            }
+          }
+
           const viteServer = await createServer({
-            configFile: config.configFile,
-            server: { middlewareMode: true },
+            configFile: false,
+            root: config.root,
+            server: { middlewareMode: true, hmr: false, watch: null },
             appType: 'custom',
+            plugins: userPlugins,
+            optimizeDeps: { noDiscovery: true, include: [] },
             resolve: {
-              alias: { '@geajs/ssg': SSG_SRC_DIR + '/index.ts' },
+              alias: { ...userAlias, '@geajs/ssg': SSG_SRC_DIR + '/index.ts' },
             },
           })
 
@@ -80,10 +104,10 @@ export function geaSSG(options: SSGPluginOptions = {}): Plugin[] {
             await generate(ssgOpts)
           } finally {
             await viteServer.close()
-            // Vite middleware-mode server can leave lingering handles.
-            // All files are already written — schedule clean exit as fallback.
-            setTimeout(() => process.exit(0), 1500).unref()
           }
+          // Vite's middlewareMode leaks internal handles after close.
+          // This timer only fires if leaked handles keep the event loop alive.
+          setTimeout(() => process.exit(0), 0).unref()
         } catch (error) {
           console.error('[gea-ssg] SSG error:', error)
           throw error
@@ -173,7 +197,6 @@ export function geaSSG(options: SSGPluginOptions = {}): Plugin[] {
             const notFoundPath = join(config.build.outDir, '404.html')
             if (existsSync(notFoundPath)) {
               res.statusCode = 404
-              const { createReadStream } = require('fs')
               createReadStream(notFoundPath).pipe(res)
               return
             }
