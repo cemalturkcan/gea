@@ -201,7 +201,7 @@ class Dashboard extends Component {
 }
 ```
 
-During SSG the `<Client>` section becomes an empty placeholder. At runtime the child components mount normally.
+During SSG the `<Client>` section becomes an empty placeholder. In dev mode (`vite dev`) the child components render normally.
 
 ### Layouts and Outlets
 
@@ -229,7 +229,7 @@ geaSSG({
   robots: {
     disallow: ['/admin', '/private'],
     allow: ['/public'],
-    sitemap: 'https://example.com/sitemap.xml',
+    sitemap: false,
   },
 })
 ```
