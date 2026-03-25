@@ -3,6 +3,11 @@ export type { ContentFile } from './types'
 
 const cache = new Map<string, ContentFile[]>()
 
+/**
+ * Recursively load all markdown files from subdirectories of `rootDir`.
+ * Each subdirectory becomes a content collection accessible via `ssg.content(name)`.
+ * Markdown is parsed with `gray-matter` (frontmatter) and `marked` (HTML).
+ */
 export async function preloadContent(rootDir: string): Promise<void> {
   const { readdir, readFile } = await import('node:fs/promises')
   const { join, basename, extname } = await import('node:path')
@@ -43,10 +48,12 @@ export async function preloadContent(rootDir: string): Promise<void> {
   }
 }
 
+/** Clear the in-memory content cache (called automatically after SSG generation). */
 export function clearContentCache(): void {
   cache.clear()
 }
 
+/** Serialize the full content cache including raw markdown `content` field. */
 export function serializeContentCache(): string {
   const obj: Record<string, ContentFile[]> = {}
   for (const [key, value] of cache) {
@@ -64,6 +71,7 @@ export function serializeContentCacheForClient(): string {
   return JSON.stringify(obj)
 }
 
+/** Return all slugs in a content subdirectory (used for dynamic route generation). */
 export function getContentSlugs(subdir: string): string[] {
   return (cache.get(subdir) || []).map((f) => f.slug)
 }

@@ -7,6 +7,14 @@ export interface RenderOptions {
   onRenderError?: (error: Error) => void
 }
 
+/**
+ * Render a Gea component tree to an HTML string for SSG output.
+ *
+ * When `hydrate` is provided, components whose class name matches the list
+ * are tracked during instantiation.  Their root elements receive `data-gea`
+ * and (if applicable) `data-gea-props` attributes so the client-side
+ * `hydrate()` function can reattach JS behaviour without re-rendering.
+ */
 export function renderToString(
   ComponentClass: new (props?: any) => any,
   props?: Record<string, any>,
@@ -18,14 +26,30 @@ export function renderToString(
   Component._ssgMode = true
 
   const cm = ComponentManager.getInstance()
-  const tracked: Array<{ id: string; className: string }> = []
+  const tracked: Array<{ id: string; className: string; props?: Record<string, any> }> = []
+
+  // Save original so we can always restore it — never rely on prototype-chain
+  // delete tricks which break if ComponentManager defines an own-property later.
+  const originalSetComponent = cm.setComponent
 
   if (hydrate.length) {
-    const original = cm.setComponent.bind(cm)
     ;(cm as any).setComponent = function (comp: any) {
-      original(comp)
+      originalSetComponent.call(cm, comp)
       if (hydrate.includes(comp.constructor.name)) {
-        tracked.push({ id: comp.id, className: comp.constructor.name })
+        const entry: { id: string; className: string; props?: Record<string, any> } = {
+          id: comp.id,
+          className: comp.constructor.name,
+        }
+        // Capture JSON-serialisable props for client-side reconstruction
+        if (comp.props && typeof comp.props === 'object' && Object.keys(comp.props).length) {
+          try {
+            JSON.stringify(comp.props) // test serializability
+            entry.props = comp.props
+          } catch {
+            // non-serialisable props (functions, circular refs) — skip
+          }
+        }
+        tracked.push(entry)
       }
     }
   }
@@ -36,8 +60,9 @@ export function renderToString(
     instance = new ComponentClass(props)
     let html = String(instance.template(instance.props)).trim()
 
-    for (const { id, className } of tracked) {
-      html = html.replace(` id="${id}"`, ` data-gea="${className}" id="${id}"`)
+    for (const { id, className, props: cProps } of tracked) {
+      const propsAttr = cProps ? ` data-gea-props="${escAttr(JSON.stringify(cProps))}"` : ''
+      html = html.replace(` id="${id}"`, ` data-gea="${className}"${propsAttr} id="${id}"`)
     }
 
     return html
@@ -50,7 +75,7 @@ export function renderToString(
   } finally {
     Component._ssgMode = false
     if (hydrate.length) {
-      delete (cm as any).setComponent
+      ;(cm as any).setComponent = originalSetComponent
     }
     if (instance && typeof instance.dispose === 'function') {
       try {
@@ -58,4 +83,8 @@ export function renderToString(
       } catch {}
     }
   }
+}
+
+function escAttr(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
