@@ -13,6 +13,7 @@ import {
 } from './transform-jsx.ts'
 import { appendCompiledEventMethods } from './generate-events.ts'
 import { injectChildComponents, injectComponentRegistrations, getDirectPropMappings } from './generate-components.ts'
+import { getTemplateParamBinding } from './template-param-utils.ts'
 import { pruneUnusedSetupDestructuring } from './utils.ts'
 import type { DirectPropMapping } from './generate-components.ts'
 import { applyStaticReactivity } from './apply-reactivity.ts'
@@ -260,9 +261,9 @@ export function transformComponentFile(
 
       if (componentInstances.size > 0) {
         const templateParamNames = new Set<string>()
-        const firstParam = path.node.params[0]
-        if (firstParam && t.isObjectPattern(firstParam)) {
-          firstParam.properties.forEach((p) => {
+        const binding = getTemplateParamBinding(path.node.params[0])
+        if (binding && t.isObjectPattern(binding)) {
+          binding.properties.forEach((p) => {
             if (t.isObjectProperty(p) && t.isIdentifier(p.key)) templateParamNames.add(p.key.name)
           })
         }
