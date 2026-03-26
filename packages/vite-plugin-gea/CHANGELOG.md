@@ -1,5 +1,11 @@
 # @geajs/vite-plugin
 
+## 1.0.7
+
+### Patch Changes
+
+- [`d9400f9`](https://github.com/dashersw/gea/commit/d9400f9ae31ce24ca767fc5ab671aabab59a925a) Thanks [@dashersw](https://github.com/dashersw)! - Improve keyed list update performance by patching same-key replacements in place and reducing store overhead for repeated array item property writes.
+
 ## 1.0.6
 
 ### Patch Changes
