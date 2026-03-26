@@ -4,6 +4,8 @@ export interface ListConfig {
   arrayPathParts: string[]
   create: (item: any, index?: number) => HTMLElement
   propPatchers?: Record<string, Array<(row: HTMLElement, value: any, item: any) => void>>
+  patchRow?: (row: HTMLElement, item: any, prevItem: any, index?: number) => void
+  getKey?: (item: any, index?: number) => string
   hasComponentItems?: boolean
 }
 
@@ -114,6 +116,34 @@ function applyPropChanges(container: HTMLElement, items: any[], changes: StoreCh
   return handledAny
 }
 
+function applyRootReplacementPatch(
+  container: HTMLElement,
+  items: any[],
+  change: StoreChange,
+  config: ListConfig,
+): boolean {
+  if (!config.patchRow || !config.getKey || !Array.isArray(change.previousValue)) return false
+
+  const prevItems = change.previousValue
+  if (prevItems.length !== items.length || container.children.length !== items.length) return false
+
+  for (let index = 0; index < items.length; index++) {
+    const row = container.children[index] as HTMLElement | undefined
+    if (!row) return false
+    const domKey = row.getAttribute('data-gea-item-id')
+    const prevKey = config.getKey(prevItems[index], index)
+    const nextKey = config.getKey(items[index], index)
+    if (domKey == null || domKey !== prevKey || domKey !== nextKey) return false
+  }
+
+  for (let index = 0; index < items.length; index++) {
+    const row = container.children[index] as HTMLElement
+    config.patchRow(row, items[index], prevItems[index], index)
+  }
+
+  return true
+}
+
 export function applyListChanges(
   container: HTMLElement,
   array: any[],
@@ -162,6 +192,9 @@ export function applyListChanges(
     (firstChange?.type === 'update' || firstChange?.type === 'add') &&
     samePathParts(firstChange.pathParts, config.arrayPathParts)
   ) {
+    if (applyRootReplacementPatch(container, items, firstChange, config)) {
+      return
+    }
     rebuildList(container, items, config.create)
     return
   }

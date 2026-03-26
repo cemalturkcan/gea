@@ -1,0 +1,21 @@
+---
+description: Restore the shared benchmark report after filtered benchmark runs
+alwaysApply: true
+---
+
+# Restore Shared Benchmark Report
+
+When a benchmark run uses `--framework` to narrow the report, treat that as a temporary filtered view.
+
+After any filtered benchmark/report command, immediately restore the normal shared comparison report with:
+
+```bash
+node scripts/update-js-framework-benchmark-report.mjs
+```
+
+Do this automatically unless the user explicitly says they want to keep the filtered report.
+
+Examples:
+
+- If running `node scripts/update-js-framework-benchmark-report.mjs --run --rebuild --framework keyed/gea`, rerun `node scripts/update-js-framework-benchmark-report.mjs` afterward.
+- Do not ask whether to restore the shared report unless the user gave conflicting instructions.

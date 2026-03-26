@@ -553,6 +553,48 @@ test('benchmark proxy: disjoint keyed replace recreates rows without per-row mov
   }
 })
 
+test('benchmark proxy: same-key replace preserves row identity and avoids structural churn', async () => {
+  const restoreDom = installDom()
+  const spy = createDomOperationSpy()
+
+  try {
+    const { store, view } = await renderBenchmarkTable(`proxy-${Date.now()}-same-key-replace`)
+    store.data = buildRows(1000)
+    await flushMicrotasks()
+
+    const tbody = getTableBody(view)
+    const rowsBefore = getRows(tbody)
+
+    spy.trackContainer(tbody)
+    spy.reset()
+
+    await timed(
+      'replace 1k rows with same keys',
+      async () => {
+        store.data = buildRows(1000).map((row) => ({ ...row, label: `updated ${row.id}` }))
+        await flushMicrotasks()
+      },
+      300,
+    )
+
+    const rowsAfter = getRows(tbody)
+    assert.equal(rowsAfter.length, 1000)
+    for (let index = 0; index < rowsAfter.length; index++) {
+      assert.equal(rowsAfter[index], rowsBefore[index])
+    }
+    assert.equal(rowsAfter[0]?.children[1]?.textContent, 'updated 1')
+    assert.equal(rowsAfter[999]?.children[1]?.textContent, 'updated 1000')
+    assert.equal(spy.counts.containerAppendChildCalls, 0)
+    assert.equal(spy.counts.containerInsertBeforeCalls, 0)
+    assert.equal(spy.counts.containerRemoveChildCalls, 0)
+    assert.equal(spy.counts.containerInnerHTMLSetCalls, 0)
+    assert.equal(spy.counts.containerTextContentSetCalls, 0)
+  } finally {
+    spy.restore()
+    restoreDom()
+  }
+})
+
 test('benchmark proxy: clear uses container clear path without structural churn', async () => {
   const restoreDom = installDom()
   const spy = createDomOperationSpy()

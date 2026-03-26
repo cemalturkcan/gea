@@ -1,6 +1,7 @@
 import * as t from '@babel/types'
 import { appendToBody, id, js, jsBlockBody, jsExpr, jsMethod } from 'eszter'
 import type { ArrayMapBinding, ConditionalMapBinding, RelationalMapBinding } from './ir.ts'
+import { ITEM_IS_KEY } from './analyze-helpers.ts'
 import {
   buildMemberChain,
   buildTrimmedClassValueExpression,
@@ -40,6 +41,10 @@ function getArrayCreateMethodName(arrayMap: ArrayMapBinding): string {
 
 function getArrayRenderMethodName(arrayMap: ArrayMapBinding): string {
   return `render${getArrayCapName(arrayMap)}Item`
+}
+
+function getArrayPatchMethodName(arrayMap: ArrayMapBinding): string {
+  return `patch${getArrayCapName(arrayMap)}Item`
 }
 
 function getPropPatcherTargetExpr(
@@ -408,6 +413,7 @@ export function generateEnsureArrayConfigsMethod(arrayMaps: ArrayMapBinding[]): 
     const configProp = t.memberExpression(t.thisExpression(), t.identifier(getArrayConfigPropName(arrayMap)))
     const renderMethodName = getArrayRenderMethodName(arrayMap)
     const createMethodName = getArrayCreateMethodName(arrayMap)
+    const patchMethodName = getArrayPatchMethodName(arrayMap)
     const propPatchers = buildPropPatchersObject(arrayMap)
     const hasIndex = !!arrayMap.indexVariable
     const renderLambdaParams: t.Identifier[] = [t.identifier('item')]
@@ -441,7 +447,49 @@ export function generateEnsureArrayConfigsMethod(arrayMaps: ArrayMapBinding[]): 
           [t.thisExpression()],
         ),
       ),
+      t.objectProperty(
+        t.identifier('patchRow'),
+        t.logicalExpression(
+          '&&',
+          t.memberExpression(t.thisExpression(), t.identifier(patchMethodName)),
+          t.callExpression(
+            t.memberExpression(
+              t.memberExpression(t.thisExpression(), t.identifier(patchMethodName)),
+              t.identifier('bind'),
+            ),
+            [t.thisExpression()],
+          ),
+        ),
+      ),
     ]
+
+    if (arrayMap.itemIdProperty === ITEM_IS_KEY) {
+      properties.push(
+        t.objectProperty(
+          t.identifier('getKey'),
+          t.arrowFunctionExpression(
+            [t.identifier('item')],
+            t.callExpression(t.identifier('String'), [t.identifier('item')]),
+          ),
+        ),
+      )
+    } else if (arrayMap.itemIdProperty) {
+      properties.push(
+        t.objectProperty(
+          t.identifier('getKey'),
+          t.arrowFunctionExpression(
+            [t.identifier('item')],
+            t.callExpression(t.identifier('String'), [
+              t.logicalExpression(
+                '??',
+                t.optionalMemberExpression(t.identifier('item'), t.identifier(arrayMap.itemIdProperty), false, true),
+                t.identifier('item'),
+              ),
+            ]),
+          ),
+        ),
+      )
+    }
 
     if (propPatchers) {
       properties.push(t.objectProperty(t.identifier('propPatchers'), propPatchers))

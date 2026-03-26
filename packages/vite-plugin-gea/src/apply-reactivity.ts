@@ -21,7 +21,7 @@ import {
   buildPopulateItemHandlersMethod,
   buildValueUnwrapHelper,
 } from './generate-array-render.ts'
-import { generateCreateItemMethod } from './generate-array-patch.ts'
+import { generateCreateItemMethod, generatePatchItemMethod } from './generate-array-patch.ts'
 import { ITEM_IS_KEY } from './analyze-helpers.ts'
 import { buildTrimmedClassJoinedExpression, buildTrimmedClassValueExpression } from './utils.ts'
 import {
@@ -1197,6 +1197,13 @@ export function applyStaticReactivity(
               tmplSetupCtx,
             )
             if (createMethod) classPath.node.body.body.push(createMethod)
+            const patchMethod = generatePatchItemMethod(
+              syntheticBinding,
+              getTemplatePropNames(classPath.node.body),
+              getTemplateParamIdentifier(classPath.node.body),
+              tmplSetupCtx,
+            )
+            if (patchMethod) classPath.node.body.body.push(patchMethod)
             if (handlerPropsInMap.length > 0 && um.computationExpr) {
               if (arrayPropName) {
                 const propNames = getTemplatePropNames(classPath.node.body)
@@ -2257,6 +2264,15 @@ export function applyStaticReactivity(
             )
             if (createMethod) {
               classPath.node.body.body.push(createMethod)
+            }
+            const patchMethod = generatePatchItemMethod(
+              arrayMap,
+              getTemplatePropNames(classPath.node.body),
+              getTemplateParamIdentifier(classPath.node.body),
+              tmplSetupCtx,
+            )
+            if (patchMethod) {
+              classPath.node.body.body.push(patchMethod)
             }
             generateArrayHandlers(arrayMap, arrayHandlerMethodName).forEach((h) => {
               mergeObserveMethod(observeKey, h)

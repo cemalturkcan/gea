@@ -314,6 +314,57 @@ describe('applyListChanges', () => {
       applyListChanges(container, ['x', 'y'], changes, makeConfig())
       assert.deepEqual(getTexts(container), ['x', 'y'])
     })
+
+    it('patches rows in place for same-key root replacements when patchRow/getKey are available', () => {
+      const container = document.createElement('div')
+      const firstRow = document.createElement('div')
+      firstRow.setAttribute('data-gea-item-id', '1')
+      firstRow.textContent = 'row 1'
+      const secondRow = document.createElement('div')
+      secondRow.setAttribute('data-gea-item-id', '2')
+      secondRow.textContent = 'row 2'
+      container.appendChild(firstRow)
+      container.appendChild(secondRow)
+
+      const nextItems = [
+        { id: 1, label: 'updated 1' },
+        { id: 2, label: 'updated 2' },
+      ]
+      const prevItems = [
+        { id: 1, label: 'row 1' },
+        { id: 2, label: 'row 2' },
+      ]
+      const changes: StoreChange[] = [
+        {
+          type: 'update',
+          property: 'items',
+          target: {},
+          pathParts: ['items'],
+          newValue: nextItems,
+          previousValue: prevItems,
+        },
+      ]
+
+      const config: ListConfig = {
+        arrayPathParts: ['items'],
+        create: (item: { id: number; label: string }) => {
+          const el = document.createElement('div')
+          el.setAttribute('data-gea-item-id', String(item.id))
+          el.textContent = item.label
+          return el
+        },
+        getKey: (item: { id: number }) => String(item.id),
+        patchRow: (row, item) => {
+          row.textContent = item.label
+          row.setAttribute('data-gea-item-id', String(item.id))
+        },
+      }
+
+      applyListChanges(container, nextItems, changes, config)
+      assert.equal(container.children[0], firstRow)
+      assert.equal(container.children[1], secondRow)
+      assert.deepEqual(getTexts(container), ['updated 1', 'updated 2'])
+    })
   })
 
   describe('non-array input', () => {

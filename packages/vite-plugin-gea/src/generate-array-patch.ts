@@ -110,9 +110,255 @@ function buildDummyFromTree(tree: DummyPropTree, keyProp: string | null): t.Obje
   return t.objectExpression(props)
 }
 
-export function generatePatchItemMethod(arrayMap: ArrayMapBinding): t.ClassMethod | null {
-  void arrayMap
-  return null
+export function generatePatchItemMethod(
+  arrayMap: ArrayMapBinding,
+  templatePropNames?: Set<string>,
+  wholeParamName?: string,
+  templateSetupContext?: { params: Array<t.Identifier | t.Pattern | t.RestElement>; statements: t.Statement[] },
+): t.ClassMethod | null {
+  if (!arrayMap.itemTemplate) return null
+  const arrayPath = pathPartsToString(arrayMap.arrayPathParts || normalizePathParts((arrayMap as any).arrayPath || ''))
+  const arrayName = arrayPath.replace(/\./g, '')
+  const capName = arrayName.charAt(0).toUpperCase() + arrayName.slice(1)
+  const methodName = `patch${capName}Item`
+  const containerProp = `__${arrayPath.replace(/\./g, '_')}_container`
+  const itemIdProperty = arrayMap.itemIdProperty
+
+  const itemTemplateRootIsComponent =
+    t.isJSXElement(arrayMap.itemTemplate) && isComponentTag(getJSXTagName(arrayMap.itemTemplate.openingElement.name))
+  if (itemTemplateRootIsComponent) return null
+
+  let { entries, requiresRerender } = collectPatchEntries(arrayMap)
+  if (arrayMap.callbackBodyStatements?.length) requiresRerender = true
+
+  if (!requiresRerender && templateSetupContext && templateSetupContext.statements.length > 0) {
+    const setupVarNames = new Set<string>()
+    for (const stmt of templateSetupContext.statements) {
+      if (!t.isVariableDeclaration(stmt)) continue
+      for (const decl of stmt.declarations) {
+        if (t.isIdentifier(decl.id)) setupVarNames.add(decl.id.name)
+        else if (t.isObjectPattern(decl.id)) {
+          for (const prop of decl.id.properties) {
+            if (t.isObjectProperty(prop) && t.isIdentifier(prop.value)) setupVarNames.add(prop.value.name)
+            else if (t.isRestElement(prop) && t.isIdentifier(prop.argument)) setupVarNames.add(prop.argument.name)
+          }
+        }
+      }
+    }
+    if (setupVarNames.size > 0) {
+      const freeVars = new Set<string>()
+      for (const entry of entries) {
+        traverse(t.expressionStatement(t.cloneNode(entry.expression, true)), {
+          noScope: true,
+          Identifier(p: NodePath<t.Identifier>) {
+            if (t.isMemberExpression(p.parent) && p.parent.property === p.node && !p.parent.computed) return
+            freeVars.add(p.node.name)
+          },
+        })
+      }
+      for (const name of setupVarNames) {
+        if (freeVars.has(name)) {
+          requiresRerender = true
+          break
+        }
+      }
+    }
+  }
+
+  if (requiresRerender || entries.length === 0) return null
+
+  const propNames = templatePropNames ?? new Set<string>()
+  if (propNames.size > 0 || wholeParamName) {
+    entries = entries.map((e) => ({
+      ...e,
+      expression: replacePropRefsInExpression(
+        t.cloneNode(e.expression, true) as t.Expression,
+        propNames,
+        wholeParamName,
+      ),
+    }))
+  }
+
+  const { hoists, patchedEntries } = hoistStoreReads(entries, arrayMap.storeVar)
+  const elVar = t.identifier('row')
+  const body: t.Statement[] = [t.ifStatement(t.unaryExpression('!', elVar), t.returnStatement())]
+
+  for (const hoist of hoists) {
+    body.push(t.variableDeclaration('var', [t.variableDeclarator(t.identifier(hoist.varName), hoist.expression)]))
+  }
+
+  const refMap = new Map<string, t.Expression>()
+  for (const entry of patchedEntries) {
+    if (entry.childPath.length === 0) continue
+    const key = entry.childPath.join('_')
+    if (refMap.has(key)) continue
+    const refName = childPathRefName(entry.childPath)
+    const refExpr = t.memberExpression(elVar, t.identifier(refName))
+    const navExpr = buildElementNavExpr(elVar, entry.childPath)
+    body.push(
+      t.ifStatement(
+        t.unaryExpression('!', refExpr),
+        t.expressionStatement(t.assignmentExpression('=', refExpr, navExpr)),
+      ),
+    )
+    refMap.set(key, refExpr)
+  }
+
+  for (const entry of patchedEntries) {
+    const navExpr =
+      entry.childPath.length > 0
+        ? refMap.get(entry.childPath.join('_')) || buildElementNavExpr(elVar, entry.childPath)
+        : elVar
+    switch (entry.type) {
+      case 'className':
+        body.push(
+          t.expressionStatement(
+            t.assignmentExpression(
+              '=',
+              t.memberExpression(navExpr, t.identifier('className')),
+              buildTrimmedClassValueExpression(t.cloneNode(entry.expression, true) as t.Expression),
+            ),
+          ),
+        )
+        break
+      case 'text':
+        body.push(
+          t.expressionStatement(
+            t.assignmentExpression('=', t.memberExpression(navExpr, t.identifier('textContent')), entry.expression),
+          ),
+        )
+        break
+      case 'attribute': {
+        const attrVal = t.identifier('__av')
+        if (entry.attributeName === 'style') {
+          body.push(
+            t.variableDeclaration('var', [t.variableDeclarator(attrVal, entry.expression)]),
+            t.ifStatement(
+              t.logicalExpression(
+                '||',
+                t.binaryExpression('==', attrVal, t.nullLiteral()),
+                t.binaryExpression('===', attrVal, t.booleanLiteral(false)),
+              ),
+              t.expressionStatement(
+                t.callExpression(t.memberExpression(navExpr, t.identifier('removeAttribute')), [
+                  t.stringLiteral('style'),
+                ]),
+              ),
+              t.expressionStatement(
+                t.assignmentExpression(
+                  '=',
+                  t.memberExpression(t.memberExpression(navExpr, t.identifier('style')), t.identifier('cssText')),
+                  t.conditionalExpression(
+                    t.binaryExpression('===', t.unaryExpression('typeof', attrVal), t.stringLiteral('object')),
+                    t.callExpression(
+                      t.memberExpression(
+                        t.callExpression(
+                          t.memberExpression(
+                            t.callExpression(t.memberExpression(t.identifier('Object'), t.identifier('entries')), [
+                              attrVal,
+                            ]),
+                            t.identifier('map'),
+                          ),
+                          [
+                            t.arrowFunctionExpression(
+                              [t.arrayPattern([t.identifier('k'), t.identifier('v')])],
+                              t.binaryExpression(
+                                '+',
+                                t.binaryExpression(
+                                  '+',
+                                  t.callExpression(t.memberExpression(t.identifier('k'), t.identifier('replace')), [
+                                    t.regExpLiteral('[A-Z]', 'g'),
+                                    t.stringLiteral('-$&'),
+                                  ]),
+                                  t.stringLiteral(': '),
+                                ),
+                                t.identifier('v'),
+                              ),
+                            ),
+                          ],
+                        ),
+                        t.identifier('join'),
+                      ),
+                      [t.stringLiteral('; ')],
+                    ),
+                    t.callExpression(t.identifier('String'), [attrVal]),
+                  ),
+                ),
+              ),
+            ),
+          )
+        } else {
+          body.push(
+            t.variableDeclaration('var', [t.variableDeclarator(attrVal, entry.expression)]),
+            t.ifStatement(
+              t.logicalExpression(
+                '||',
+                t.binaryExpression('==', attrVal, t.nullLiteral()),
+                t.binaryExpression('===', attrVal, t.booleanLiteral(false)),
+              ),
+              t.expressionStatement(
+                t.callExpression(t.memberExpression(navExpr, t.identifier('removeAttribute')), [
+                  t.stringLiteral(entry.attributeName!),
+                ]),
+              ),
+              t.expressionStatement(
+                t.callExpression(t.memberExpression(navExpr, t.identifier('setAttribute')), [
+                  t.stringLiteral(entry.attributeName!),
+                  t.callExpression(t.identifier('String'), [attrVal]),
+                ]),
+              ),
+            ),
+          )
+        }
+        break
+      }
+    }
+  }
+
+  const itemIdExpr =
+    itemIdProperty && itemIdProperty !== ITEM_IS_KEY
+      ? t.memberExpression(t.identifier('item'), t.identifier(itemIdProperty))
+      : t.callExpression(t.identifier('String'), [t.identifier('item')])
+  body.push(
+    t.expressionStatement(
+      t.callExpression(t.memberExpression(elVar, t.identifier('setAttribute')), [
+        t.stringLiteral('data-gea-item-id'),
+        itemIdExpr,
+      ]),
+    ),
+  )
+
+  if (arrayMap.containerBindingId) {
+    body.push(
+      t.variableDeclaration('var', [
+        t.variableDeclarator(t.identifier('__c'), t.memberExpression(t.thisExpression(), t.identifier(containerProp))),
+      ]),
+      t.ifStatement(
+        t.logicalExpression(
+          '&&',
+          t.identifier('__c'),
+          t.memberExpression(t.identifier('__c'), t.identifier('__geaIdPfx')),
+        ),
+        t.expressionStatement(
+          t.assignmentExpression(
+            '=',
+            t.memberExpression(elVar, t.identifier('id')),
+            t.binaryExpression('+', t.memberExpression(t.identifier('__c'), t.identifier('__geaIdPfx')), itemIdExpr),
+          ),
+        ),
+      ),
+    )
+  }
+
+  body.push(
+    t.expressionStatement(
+      t.assignmentExpression('=', t.memberExpression(elVar, t.identifier('__geaItem')), t.identifier('item')),
+    ),
+  )
+
+  const params: t.Identifier[] = [t.identifier('row'), t.identifier('item'), t.identifier('__prevItem')]
+  if (arrayMap.indexVariable) params.push(t.identifier('__idx'))
+  return t.classMethod('method', t.identifier(methodName), params, t.blockStatement(body))
 }
 
 export function collectPatchEntries(arrayMap: ArrayMapBinding): PatchPlan {
