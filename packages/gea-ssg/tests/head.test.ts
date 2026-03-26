@@ -98,6 +98,15 @@ describe('replaceTitle', () => {
     assert.ok(result.includes('&lt;b'))
     assert.ok(!result.includes('<b>bold</b>'))
   })
+
+  it('inserts title when none exists in shell', () => {
+    const html = '<html><head><meta charset="utf-8"></head><body></body></html>'
+    const result = replaceTitle(html, 'Injected Title')
+    assert.ok(result.includes('<title>Injected Title</title>'))
+    // Should be inside <head>
+    const headContent = result.slice(result.indexOf('<head>'), result.indexOf('</head>'))
+    assert.ok(headContent.includes('<title>'))
+  })
 })
 
 describe('minifyHtml', () => {

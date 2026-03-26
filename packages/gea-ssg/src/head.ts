@@ -61,9 +61,14 @@ export function buildHeadTags(config: HeadConfig): string {
   return tags.length ? '\n' + tags.join('\n') : ''
 }
 
-/** Replace the `<title>` content in an HTML string. */
+/** Replace the `<title>` content in an HTML string. If no `<title>` exists, inserts one after `<head>`. */
 export function replaceTitle(html: string, title: string): string {
-  return html.replace(/<title>[^<]*<\/title>/i, `<title>${escHtml(title)}</title>`)
+  const escaped = `<title>${escHtml(title)}</title>`
+  if (/<title>[^<]*<\/title>/i.test(html)) {
+    return html.replace(/<title>[^<]*<\/title>/i, escaped)
+  }
+  // No existing <title> — insert after <head...>
+  return html.replace(/(<head[^>]*>)/i, `$1\n${escaped}`)
 }
 
 /** Minify HTML by collapsing whitespace, preserving `<pre>`, `<code>`, `<script>`, `<style>`, and `<textarea>` content. */

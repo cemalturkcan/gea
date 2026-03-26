@@ -43,6 +43,13 @@ describe('parseShell', () => {
     assert.ok(parts.after.startsWith('</div>'))
   })
 
+  it('escapes regex metacharacters in appElementId', () => {
+    const html = '<html><body><div id="app.main"></div></body></html>'
+    const parts = parseShell(html, 'app.main')
+    assert.ok(parts.before.endsWith('<div id="app.main">'))
+    assert.ok(parts.after.startsWith('</div>'))
+  })
+
   it('handles nested divs inside app div', () => {
     const html =
       '<html><body><div id="app"><div class="spinner"><div>inner</div></div></div><footer>f</footer></body></html>'

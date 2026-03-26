@@ -15,11 +15,17 @@ export interface RenderOptions {
  * and (if applicable) `data-gea-props` attributes so the client-side
  * `hydrate()` function can reattach JS behaviour without re-rendering.
  */
+export interface RenderResult {
+  html: string
+  /** `true` when at least one component was marked with `data-gea` for client hydration. */
+  hasHydrationMarkers: boolean
+}
+
 export function renderToString(
   ComponentClass: new (props?: any) => any,
   props?: Record<string, any>,
   options: RenderOptions = {},
-): string {
+): RenderResult {
   const { seed = 0, hydrate = [], onRenderError } = options
 
   resetUidCounter(seed)
@@ -40,13 +46,31 @@ export function renderToString(
           id: comp.id,
           className: comp.constructor.name,
         }
-        // Capture JSON-serialisable props for client-side reconstruction
+        // Capture JSON-serialisable props for client-side reconstruction.
+        // Warn on silent data loss (Date→string, undefined→dropped, etc.)
         if (comp.props && typeof comp.props === 'object' && Object.keys(comp.props).length) {
           try {
-            JSON.stringify(comp.props) // test serializability
+            const serialized = JSON.stringify(comp.props)
+            const roundTripped = JSON.parse(serialized)
+            // Detect lossy conversion: keys that changed type or disappeared
+            for (const key of Object.keys(comp.props)) {
+              const orig = comp.props[key]
+              const rt = roundTripped[key]
+              if (orig !== undefined && rt === undefined) {
+                console.warn(
+                  `[gea-ssg] hydrate: prop "${key}" on ${comp.constructor.name} was dropped during serialization (functions/symbols are not serialisable).`,
+                )
+              } else if (orig instanceof Date && typeof rt === 'string') {
+                console.warn(
+                  `[gea-ssg] hydrate: prop "${key}" on ${comp.constructor.name} is a Date — it will become a string on the client.`,
+                )
+              }
+            }
             entry.props = comp.props
           } catch {
-            // non-serialisable props (functions, circular refs) — skip
+            console.warn(
+              `[gea-ssg] hydrate: props on ${comp.constructor.name} are not JSON-serialisable — skipping prop transfer.`,
+            )
           }
         }
         tracked.push(entry)
@@ -65,11 +89,11 @@ export function renderToString(
       html = html.replace(` id="${id}"`, ` data-gea="${className}"${propsAttr} id="${id}"`)
     }
 
-    return html
+    return { html, hasHydrationMarkers: tracked.length > 0 }
   } catch (error) {
     if (onRenderError) {
       onRenderError(error as Error)
-      return ''
+      return { html: '', hasHydrationMarkers: false }
     }
     throw error
   } finally {

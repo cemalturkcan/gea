@@ -76,6 +76,7 @@ export async function generate(options: SSGOptions): Promise<GenerateResult> {
 
         Head._current = null
         let html: string
+        let hasHydrationMarkers = false
         try {
           RouterView._ssgRoute = {
             component: route.component,
@@ -83,7 +84,9 @@ export async function generate(options: SSGOptions): Promise<GenerateResult> {
             params: route.params,
           }
           Link._ssgCurrentPath = route.path
-          html = renderToString(options.app, undefined, { seed: index, hydrate: options.hydrate })
+          const result = renderToString(options.app, undefined, { seed: index, hydrate: options.hydrate })
+          html = result.html
+          hasHydrationMarkers = result.hasHydrationMarkers
         } finally {
           RouterView._ssgRoute = null
           Link._ssgCurrentPath = null
@@ -127,7 +130,11 @@ export async function generate(options: SSGOptions): Promise<GenerateResult> {
           if (transformed !== undefined) fullHtml = transformed
         }
 
-        if (options.hydrate && !fullHtml.includes('data-gea=')) {
+        // Strip client JS from pages that have no interactive components.
+        // Uses the explicit flag from renderToString instead of scanning the
+        // HTML text — avoids false positives when article content mentions
+        // "data-gea" in code samples or prose.
+        if (options.hydrate && !hasHydrationMarkers) {
           fullHtml = fullHtml.replace(/<script type="module"[^>]*><\/script>/g, '')
           fullHtml = fullHtml.replace(/<link[^>]*rel="modulepreload"[^>]*\/?>/g, '')
         }

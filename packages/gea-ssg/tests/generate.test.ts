@@ -414,7 +414,7 @@ describe('generate', () => {
     const notFoundPage = result.pages.find((p) => p.path === '/404')
     assert.ok(notFoundPage)
 
-    const html = await readFile(join(tempDir, '404.html'), 'utf-8')
+    const html = await readFile(join(tempDir, '404', 'index.html'), 'utf-8')
     assert.ok(html.includes('<h1>Not Found</h1>'))
   })
 

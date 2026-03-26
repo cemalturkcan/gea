@@ -104,13 +104,18 @@ export function geaSSG(options: SSGPluginOptions = {}): Plugin[] {
           } finally {
             await viteServer.close()
           }
-          // Vite's middlewareMode leaks internal handles after close() —
-          // setTimeout + unref ensures the process exits only if those leaked
-          // handles are the sole remaining work.  The timer is un-reffed so it
-          // never *prevents* a natural exit; it only forces one when Vite's
-          // stale handles keep the event loop alive after SSG is done.
+          // Vite's middlewareMode leaks internal handles (HTTP servers,
+          // file watchers) that prevent Node from exiting naturally after
+          // close().  We give other Vite/Rollup plugins a grace period to
+          // finish their own closeBundle hooks before forcing an exit.
+          // The timer is un-reffed so it never *prevents* a natural exit;
+          // it only forces one when stale handles are the sole remaining work.
           // TODO: Remove once Vite fixes handle cleanup in middlewareMode.
-          setTimeout(() => process.exit(0), 0).unref()
+          const EXIT_GRACE_MS = 500
+          setTimeout(() => {
+            console.warn('[gea-ssg] Force-exiting — Vite leaked handles preventing natural shutdown.')
+            process.exit(0)
+          }, EXIT_GRACE_MS).unref()
         } catch (error) {
           console.error('[gea-ssg] SSG error:', error)
           throw error
@@ -193,10 +198,11 @@ export function geaSSG(options: SSGPluginOptions = {}): Plugin[] {
             return next()
           }
 
-          const notFoundPath = join(config.build.outDir, '404.html')
-          if (existsSync(notFoundPath)) {
+          // Try trailingSlash-style first, then flat-file fallback
+          const notFound = ts ? join(config.build.outDir, '404', 'index.html') : join(config.build.outDir, '404.html')
+          if (existsSync(notFound)) {
             res.statusCode = 404
-            createReadStream(notFoundPath).pipe(res)
+            createReadStream(notFound).pipe(res)
             return
           }
 

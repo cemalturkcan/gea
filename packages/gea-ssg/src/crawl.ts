@@ -82,6 +82,13 @@ async function collectPaths(
       return
     }
 
+    // Guard: skip routes with unresolved :param segments — they need
+    // either `content` or `paths` to resolve parameters.
+    if (fullPath.includes(':')) {
+      console.warn(`[gea-ssg] Route "${fullPath}" has unresolved params — provide "content" or "paths". Skipping.`)
+      return
+    }
+
     result.push({ path: fullPath, component, layouts: parentLayouts, params: {} })
     return
   }

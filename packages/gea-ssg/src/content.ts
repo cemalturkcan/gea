@@ -4,9 +4,12 @@ export type { ContentFile } from './types'
 const cache = new Map<string, ContentFile[]>()
 
 /**
- * Recursively load all markdown files from subdirectories of `rootDir`.
+ * Load markdown files from immediate subdirectories of `rootDir`.
  * Each subdirectory becomes a content collection accessible via `ssg.content(name)`.
  * Markdown is parsed with `gray-matter` (frontmatter) and `marked` (HTML).
+ *
+ * Note: only one level of subdirectories is scanned — nested subdirectories
+ * within a collection are not traversed.
  */
 export async function preloadContent(rootDir: string): Promise<void> {
   const { readdir, readFile } = await import('node:fs/promises')

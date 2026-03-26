@@ -35,18 +35,19 @@ class ThrowingComponent {
 
 describe('renderToString', () => {
   it('renders a simple component to HTML', () => {
-    const html = renderToString(MockComponent)
-    assert.equal(html, '<div>Hello World</div>')
+    const result = renderToString(MockComponent)
+    assert.equal(result.html, '<div>Hello World</div>')
+    assert.equal(result.hasHydrationMarkers, false)
   })
 
   it('passes props to the component', () => {
-    const html = renderToString(MockComponentWithProps, { title: 'SSG Test' })
-    assert.equal(html, '<h1>SSG Test</h1>')
+    const result = renderToString(MockComponentWithProps, { title: 'SSG Test' })
+    assert.equal(result.html, '<h1>SSG Test</h1>')
   })
 
   it('uses default props when none provided', () => {
-    const html = renderToString(MockComponentWithProps)
-    assert.equal(html, '<h1>default</h1>')
+    const result = renderToString(MockComponentWithProps)
+    assert.equal(result.html, '<h1>default</h1>')
   })
 
   it('trims whitespace from output', () => {
@@ -59,8 +60,8 @@ describe('renderToString', () => {
         return '  <div>spaced</div>  '
       }
     }
-    const html = renderToString(SpaceyComponent)
-    assert.equal(html, '<div>spaced</div>')
+    const result = renderToString(SpaceyComponent)
+    assert.equal(result.html, '<div>spaced</div>')
   })
 
   it('throws on render error by default', () => {
@@ -69,19 +70,20 @@ describe('renderToString', () => {
 
   it('catches errors when onRenderError is provided', () => {
     let capturedError: Error | null = null
-    const html = renderToString(ThrowingComponent, undefined, {
+    const result = renderToString(ThrowingComponent, undefined, {
       onRenderError: (err) => {
         capturedError = err
       },
     })
-    assert.equal(html, '')
+    assert.equal(result.html, '')
+    assert.equal(result.hasHydrationMarkers, false)
     assert.ok(capturedError)
     assert.equal((capturedError as Error).message, 'Component init failed')
   })
 
   it('produces deterministic output with same seed', () => {
-    const html1 = renderToString(MockComponent, undefined, { seed: 42 })
-    const html2 = renderToString(MockComponent, undefined, { seed: 42 })
-    assert.equal(html1, html2)
+    const r1 = renderToString(MockComponent, undefined, { seed: 42 })
+    const r2 = renderToString(MockComponent, undefined, { seed: 42 })
+    assert.equal(r1.html, r2.html)
   })
 })

@@ -11,7 +11,9 @@ export interface ShellParts {
  * not just the first one.
  */
 export function parseShell(html: string, appElementId: string = 'app'): ShellParts {
-  const openTagRegex = new RegExp(`(<\\s*div[^>]*\\bid\\s*=\\s*["']${appElementId}["'][^>]*>)`, 'i')
+  // Escape regex metacharacters in the ID so values like "app.main" work correctly.
+  const safeId = appElementId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const openTagRegex = new RegExp(`(<\\s*div[^>]*\\bid\\s*=\\s*["']${safeId}["'][^>]*>)`, 'i')
   const match = html.match(openTagRegex)
 
   if (!match || match.index === undefined) {

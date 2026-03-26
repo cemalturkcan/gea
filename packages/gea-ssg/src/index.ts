@@ -1,5 +1,5 @@
 export { renderToString } from './render'
-export type { RenderOptions } from './render'
+export type { RenderOptions, RenderResult } from './render'
 
 export { crawlRoutes } from './crawl'
 
