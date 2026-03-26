@@ -3,7 +3,16 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import test from 'node:test'
 import { tmpdir } from 'node:os'
-import { transformComponentSource, transformWithPlugin, withDom, createArrayObserverHarness, renderInitialList, generate, getObserveMethodName, t } from './plugin-helpers'
+import {
+  transformComponentSource,
+  transformWithPlugin,
+  withDom,
+  createArrayObserverHarness,
+  renderInitialList,
+  generate,
+  getObserveMethodName,
+  t,
+} from './plugin-helpers'
 import type { ArrayMapBinding } from './plugin-helpers'
 import { generateCreateItemMethod } from '../../src/generate-array-patch'
 import { generateEnsureArrayConfigsMethod } from '../../src/generate-array'
@@ -149,7 +158,11 @@ export default function OptionStep({ options, onSelect }) {
       componentPath,
     )
     assert.ok(output)
-    assert.match(output, /this\._optionsItems\s*=\s*\(this\.props\.options\s*\?\?\s*\[\]\)\.map/, 'constructor should init _optionsItems with __child()')
+    assert.match(
+      output,
+      /this\._optionsItems\s*=\s*\(this\.props\.options\s*\?\?\s*\[\]\)\.map/,
+      'constructor should init _optionsItems with __child()',
+    )
     assert.match(output, /this\.__child\(OptionItem/, 'constructor init should use __child()')
     assert.doesNotMatch(output, /_buildOptionsItems/, 'build method should not exist')
     assert.doesNotMatch(output, /__mountOptionsItems/, 'mount method should not exist')
@@ -217,9 +230,10 @@ test('identity-based imported map conditionals patch rows without rerender metho
     }
   `)
 
-  assert.match(output, /__v\(store\.selectedId\) === __v\(todo\.id\)/)
+  assert.match(output, /store\.selectedId === todo\.id/)
   assert.match(output, /data-gea-item-id/)
-  assert.match(output, /class="\$\{__v\(store\.selectedId\) === __v\(todo\.id\) \? 'danger' : ''\}"/)
+  assert.match(output, /class="\$\{\(\(store\.selectedId === todo\.id \? 'danger' : ''\)/)
+  assert.match(output, /\.trim\(\)\}/)
   assert.doesNotMatch(output, /render(?:__unresolved_0|Todos)Item[\s\S]*replaceWith/)
   assert.doesNotMatch(output, /__idMap/)
 })
@@ -442,7 +456,7 @@ export default class ProjectStore extends Store {
 
     assert.ok(output)
 
-    const itemPropsMatch = output.match(/__itemProps_\w+\([^)]*\)\s*\{[\s\S]*?\n  \}/)
+    const itemPropsMatch = output.match(/__itemProps_\w+\([^)]*\)\s*\{[\s\S]*?\n {2}\}/)
     assert.ok(itemPropsMatch, '__itemProps method should be generated')
 
     const body = itemPropsMatch![0]

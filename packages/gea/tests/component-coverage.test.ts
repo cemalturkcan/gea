@@ -575,7 +575,7 @@ describe('Component – __geaRegisterMap and __geaSyncMap', () => {
   })
 
   it('re-resolves map container after DOM replacement so sync targets the live tree', () => {
-    let data = ['a', 'b']
+    const data = ['a', 'b']
     class M extends Component {
       template() {
         return '<div><ul id="map-' + this.id_ + '"></ul></div>'
@@ -729,6 +729,34 @@ describe('Component – __geaSyncItems', () => {
     list.appendChild(mkItem('y'))
     s.__geaSyncItems(list, ['x', 'y'], mkItem)
     assert.equal((list as any).__geaPrev.length, 2)
+  })
+
+  it('after empty-list placeholder, growing from zero removes placeholder and does not leave extra siblings', () => {
+    class S extends Component {
+      template() {
+        return '<div></div>'
+      }
+    }
+    const s = new S()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    s.render(container)
+    const list = document.createElement('div')
+    s.element_!.appendChild(list)
+    const empty = document.createElement('div')
+    empty.className = 'list-empty'
+    empty.textContent = 'No items'
+    list.appendChild(empty)
+    ;(list as any).__geaPrev = []
+    ;(list as any).__geaCount = 0
+    s.__geaSyncItems(list, ['a', 'b', 'c'], mkItem)
+    assert.equal(list.querySelectorAll('[data-gea-item-id]').length, 3)
+    assert.equal(
+      list.querySelectorAll('.list-empty').length,
+      0,
+      'ternary empty branch must not remain when items appear',
+    )
+    assert.equal(list.children.length, 3)
   })
 })
 
@@ -954,6 +982,39 @@ describe('Component – __geaRegisterCond and __geaPatchCond', () => {
     c.__geaRegisterCond(4, 'cond4', () => true, null, null)
     const changed = c.__geaPatchCond(4)
     assert.equal(changed, true)
+  })
+
+  it('empty falsy reinjection removes placeholder but keeps keyed list rows between markers', () => {
+    class C extends Component {
+      template() {
+        return '<div><!--' + this.id_ + '-cond5--><p class="ph">empty</p><!--' + this.id_ + '-cond5-end--></div>'
+      }
+    }
+    const c = new C()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    c.render(container)
+    const root = c.element_ as HTMLElement
+    const endWalker = document.createTreeWalker(root, NodeFilter.SHOW_COMMENT)
+    let endMarker: Comment | null = null
+    let n: Comment | null = endWalker.nextNode() as Comment | null
+    while (n) {
+      if (n.nodeValue === c.id_ + '-cond5-end') {
+        endMarker = n
+        break
+      }
+      n = endWalker.nextNode() as Comment | null
+    }
+    assert.ok(endMarker)
+    const row = document.createElement('div')
+    row.setAttribute('data-gea-item-id', '1')
+    row.textContent = 'row'
+    root.insertBefore(row, endMarker)
+    c.__geaRegisterCond(5, 'cond5', () => false, () => '<span>t</span>', () => '')
+    ;(c as any).__geaCond_5 = true
+    c.__geaPatchCond(5)
+    assert.ok(root.querySelector('[data-gea-item-id="1"]'))
+    assert.equal(root.querySelector('.ph'), null)
   })
 })
 

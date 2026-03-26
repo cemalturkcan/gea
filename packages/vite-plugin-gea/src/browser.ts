@@ -7,30 +7,18 @@ import { isComponentTag } from './utils.ts'
 import { clearCaches as clearStoreCaches } from './store-getter-analysis.ts'
 import { clearCaches as clearEventCaches } from './component-event-helpers.ts'
 
-const traverse = typeof (babelTraverse as any).default === 'function'
-  ? (babelTraverse as any).default
-  : babelTraverse
-const generate = typeof (babelGenerator as any).default === 'function'
-  ? (babelGenerator as any).default
-  : babelGenerator
+const traverse = typeof (babelTraverse as any).default === 'function' ? (babelTraverse as any).default : babelTraverse
+const generate =
+  typeof (babelGenerator as any).default === 'function' ? (babelGenerator as any).default : babelGenerator
 
 interface CompileResult {
   compiledModules: Record<string, string>
   errors: Array<{ file: string; message: string }>
 }
 
-function resolveVirtualFile(
-  source: string,
-  files: Record<string, string>,
-): string | null {
+function resolveVirtualFile(source: string, files: Record<string, string>): string | null {
   const base = source.replace(/^\.\//, '')
-  const candidates = [
-    base,
-    `${base}.ts`,
-    `${base}.tsx`,
-    `${base}.js`,
-    `${base}.jsx`,
-  ]
+  const candidates = [base, `${base}.ts`, `${base}.tsx`, `${base}.js`, `${base}.jsx`]
   for (const c of candidates) {
     if (c in files) return c
   }
@@ -49,7 +37,6 @@ export function compileForBrowser(files: Record<string, string>): CompileResult 
 
   clearStoreCaches()
   clearEventCaches()
-
   ;(globalThis as any).__geaPlaygroundFiles = files
   ;(globalThis as any).__geaResolveFile = (filePath: string): string | null => {
     const name = filePath.replace(/^\/virtual\//, '')
@@ -76,8 +63,9 @@ export function compileForBrowser(files: Record<string, string>): CompileResult 
         continue
       }
 
-      let { ast, componentClassName, imports } = parsed
-      let { componentClassNames, functionalComponentInfo, hasJSX } = parsed
+      let { ast, imports } = parsed
+      let { componentClassNames } = parsed
+      const { functionalComponentInfo, hasJSX } = parsed
 
       if (!hasJSX) {
         const output = generate(ast)
@@ -87,7 +75,6 @@ export function compileForBrowser(files: Record<string, string>): CompileResult 
 
       if (functionalComponentInfo) {
         convertFunctionalToClass(ast, functionalComponentInfo, imports)
-        componentClassName = functionalComponentInfo.name
         componentClassNames = [functionalComponentInfo.name]
         const freshCode = generate(ast).code
         const freshParsed = parseSource(freshCode)
@@ -108,9 +95,7 @@ export function compileForBrowser(files: Record<string, string>): CompileResult 
           const source = path.node.source.value
           if (!isComponentImportSource(source)) return
 
-          const resolvedName = source.startsWith('.')
-            ? resolveVirtualFile(source, files)
-            : null
+          const resolvedName = source.startsWith('.') ? resolveVirtualFile(source, files) : null
           const resolvedPath = resolvedName ? `/virtual/${resolvedName}` : null
           const isComp = resolvedPath ? componentModules.has(resolvedPath) : false
 
@@ -133,7 +118,11 @@ export function compileForBrowser(files: Record<string, string>): CompileResult 
               }
               const importedName = spec.imported?.name ?? spec.local.name
               const geaCoreBaseClasses = ['Component', 'Store']
-              if (source === '@geajs/core' && isComponentTag(importedName) && !geaCoreBaseClasses.includes(importedName)) {
+              if (
+                source === '@geajs/core' &&
+                isComponentTag(importedName) &&
+                !geaCoreBaseClasses.includes(importedName)
+              ) {
                 knownComponentImports.add(spec.local.name)
               }
             }

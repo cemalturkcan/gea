@@ -5,12 +5,6 @@ import OverviewView from './overview-view'
 import UsersView from './users-view'
 import SettingsView from './settings-view'
 
-const viewToPath: Record<string, string> = {
-  overview: '/',
-  users: '/users',
-  settings: '/settings',
-}
-
 const pathToView: Record<string, string> = {
   '/': 'overview',
   '/users': 'users',
@@ -47,13 +41,34 @@ export default class App extends Component {
             <span class="logo-text">Acme Corp</span>
           </div>
           <nav class="sidebar-nav">
-            <button class={`nav-item ${store.currentView === 'overview' ? 'active' : ''}`} click={() => { store.navigate('overview'); router.push('/') }} data-view="overview">
+            <button
+              class={`nav-item ${store.currentView === 'overview' ? 'active' : ''}`}
+              click={() => {
+                store.navigate('overview')
+                router.push('/')
+              }}
+              data-view="overview"
+            >
               <span class="nav-icon">⊞</span>Overview
             </button>
-            <button class={`nav-item ${store.currentView === 'users' ? 'active' : ''}`} click={() => { store.navigate('users'); router.push('/users') }} data-view="users">
+            <button
+              class={`nav-item ${store.currentView === 'users' ? 'active' : ''}`}
+              click={() => {
+                store.navigate('users')
+                router.push('/users')
+              }}
+              data-view="users"
+            >
               <span class="nav-icon">👥</span>Users
             </button>
-            <button class={`nav-item ${store.currentView === 'settings' ? 'active' : ''}`} click={() => { store.navigate('settings'); router.push('/settings') }} data-view="settings">
+            <button
+              class={`nav-item ${store.currentView === 'settings' ? 'active' : ''}`}
+              click={() => {
+                store.navigate('settings')
+                router.push('/settings')
+              }}
+              data-view="settings"
+            >
               <span class="nav-icon">⚙</span>Settings
             </button>
           </nav>

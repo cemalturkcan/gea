@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import test from 'node:test'
 import { tmpdir } from 'node:os'
@@ -129,9 +129,7 @@ test('generated selectors distinguish repeated sibling bindings', () => {
   const bindingIds = Array.from(output.matchAll(/getElementById\([^+]*\+\s*["']-([^"']+)["']\)/g)).map(
     (match) => match[1],
   )
-  const updateTextIds = Array.from(output.matchAll(/this\.__updateText\('([^']+)'/g)).map(
-    (match) => match[1],
-  )
+  const updateTextIds = Array.from(output.matchAll(/this\.__updateText\('([^']+)'/g)).map((match) => match[1])
   assert.equal(new Set(selectors).size >= 2 || new Set(bindingIds).size >= 2 || new Set(updateTextIds).size >= 2, true)
 })
 

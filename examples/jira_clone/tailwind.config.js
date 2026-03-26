@@ -1,3 +1,8 @@
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+
 /** Mirrors @geajs/ui tailwind preset (see packages/gea-ui/src/tailwind-preset.ts) */
 const geaPreset = {
   darkMode: 'class',
@@ -50,5 +55,11 @@ const geaPreset = {
 /** @type {import('tailwindcss').Config} */
 export default {
   presets: [geaPreset],
-  content: ['./index.html', './src/**/*.{ts,tsx}', '../../packages/gea-ui/src/**/*.{ts,tsx}'],
+  // Absolute paths: Tailwind resolves relative globs from process.cwd(), so
+  // `npm run example:jira-clone` (cwd = monorepo root) would otherwise scan the wrong trees.
+  content: [
+    resolve(__dirname, 'index.html'),
+    resolve(__dirname, 'src/**/*.{ts,tsx}'),
+    resolve(__dirname, '../../packages/gea-ui/src/**/*.{ts,tsx}'),
+  ],
 }

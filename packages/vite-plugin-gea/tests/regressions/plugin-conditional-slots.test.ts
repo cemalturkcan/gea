@@ -83,7 +83,7 @@ test('generated observer and buildProps methods include early-return guard from 
     }
   `)
 
-  const buildPropsMatch = output.match(/__buildProps_\w+\([^)]*\)\s*\{[\s\S]*?\n  \}/)
+  const buildPropsMatch = output.match(/__buildProps_\w+\([^)]*\)\s*\{[\s\S]*?\n {2}\}/)
 
   assert.ok(buildPropsMatch, '__buildProps method should be generated')
   assert.match(buildPropsMatch![0], /issue/, 'buildProps method should reference issue')
@@ -115,7 +115,7 @@ test('early-return guard in __buildProps re-derives template-local variable from
     }
   `)
 
-  const buildPropsMatch = output.match(/__buildProps_\w+\([^)]*\)\s*\{[\s\S]*?\n  \}/)
+  const buildPropsMatch = output.match(/__buildProps_\w+\([^)]*\)\s*\{[\s\S]*?\n {2}\}/)
   assert.ok(buildPropsMatch, '__buildProps method should be generated')
 
   const body = buildPropsMatch![0]
@@ -152,7 +152,7 @@ test('early-return guard works with destructured store variables in __buildProps
     }
   `)
 
-  const buildPropsMatch = output.match(/__buildProps_\w+\([^)]*\)\s*\{[\s\S]*?\n  \}/)
+  const buildPropsMatch = output.match(/__buildProps_\w+\([^)]*\)\s*\{[\s\S]*?\n {2}\}/)
   assert.ok(buildPropsMatch, '__buildProps method should be generated')
 
   const body = buildPropsMatch![0]
@@ -186,7 +186,7 @@ test('__buildProps_* omits early-return guard when props do not reference guard 
     }
   `)
 
-  const buildPropsMatch = output.match(/__buildProps_\w+\([^)]*\)\s*\{[\s\S]*?\n  \}/)
+  const buildPropsMatch = output.match(/__buildProps_\w+\([^)]*\)\s*\{[\s\S]*?\n {2}\}/)
   assert.ok(buildPropsMatch, '__buildProps method should be generated')
 
   const body = buildPropsMatch![0]
@@ -226,11 +226,57 @@ test('constructor-inlined conditional slot init is guarded when template has ear
 
   assert.match(output, /__geaRegisterCond/, 'should generate __geaRegisterCond calls')
 
+  const ctorStart = output.indexOf('constructor(')
+  const templateStart = output.indexOf('  template()')
+  assert.ok(ctorStart >= 0 && templateStart > ctorStart, 'expected constructor before template()')
+  const ctorBody = output.slice(ctorStart, templateStart)
   assert.match(
-    output,
-    /try\s*\{/,
-    'constructor-inlined setup for conditional slots must be wrapped in try-catch ' +
-      'to survive null store values before template early-return guard runs',
+    ctorBody,
+    /issue\?\.description/,
+    'constructor-inlined cond-slot setup must optionalize store reads that precede the template early-return guard',
+  )
+  assert.doesNotMatch(
+    ctorBody,
+    /\btry\s*\{/,
+    'constructor must not swallow init errors with try/catch; use safe reads instead',
+  )
+})
+
+test('compound || early-return guard optionalizes constructor-inlined conditional slot init', () => {
+  const output = transformComponentSource(`
+    import { Component } from '@geajs/core'
+    import issueStore from './issue-store'
+
+    export default class IssueDetails extends Component {
+      isEditing = false
+
+      template() {
+        const { isLoading, issue } = issueStore
+
+        if (isLoading || !issue) return <div>Loading</div>
+
+        const desc = issue.description || ''
+
+        return (
+          <div>
+            {this.isEditing && <textarea value={desc} />}
+            {!this.isEditing && desc && <p>{desc}</p>}
+          </div>
+        )
+      }
+    }
+  `)
+
+  assert.match(output, /__geaRegisterCond/, 'should generate __geaRegisterCond calls')
+
+  const ctorStart = output.indexOf('constructor(')
+  const templateStart = output.indexOf('  template()')
+  assert.ok(ctorStart >= 0 && templateStart > ctorStart, 'expected constructor before template()')
+  const ctorBody = output.slice(ctorStart, templateStart)
+  assert.match(
+    ctorBody,
+    /issue\?\.description/,
+    'compound || guard must still optionalize store reads in constructor-inlined cond-slot setup',
   )
 })
 
@@ -373,4 +419,41 @@ export default class App extends Component {
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
+})
+
+test('conditional empty vs store html map: template() must not embed gestureLog.map (list DOM is __applyListChanges only)', () => {
+  const output = transformComponentSource(`
+    import { View } from '@geajs/mobile'
+    import appStore from './app-store'
+
+    export default class GestureLogPanel extends View {
+      template() {
+        return (
+          <view>
+            <div class="gesture-log">
+              {appStore.gestureLog.length === 0 ? (
+                <div class="gesture-log-empty">No gestures</div>
+              ) : (
+                appStore.gestureLog.map((entry) => (
+                  <div key={entry.id} class="gesture-log-entry">
+                    <span>{entry.gesture}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </view>
+        )
+      }
+    }
+  `)
+
+  assert.match(output, /__geaRegisterCond\(/)
+  assert.match(output, /__applyListChanges/)
+  const tmpl = output.match(/template\([^)]*\)\s*\{([\s\S]*)\n {2}\}/)
+  assert.ok(tmpl, 'template method should exist')
+  assert.doesNotMatch(
+    tmpl![1],
+    /gestureLog\.map\(/,
+    'store-backed list inside conditional slot must not serialize .map() into template() (duplicates __applyListChanges rows)',
+  )
 })

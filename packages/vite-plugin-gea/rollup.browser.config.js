@@ -18,7 +18,7 @@ import json from '@rollup/plugin-json'
 function rewriteCreateRequire() {
   return {
     name: 'rewrite-create-require',
-    transform(code, id) {
+    transform(code, _id) {
       if (!code.includes('createRequire')) return null
 
       let result = code
@@ -31,7 +31,7 @@ function rewriteCreateRequire() {
         result = `import __babelTraverse_esm__ from '@babel/traverse'\n` + result
         result = result.replace(
           /const\s+traverse\s*=\s*require\('@babel\/traverse'\)\.default/g,
-          'const traverse = __babelTraverse_esm__.default || __babelTraverse_esm__'
+          'const traverse = __babelTraverse_esm__.default || __babelTraverse_esm__',
         )
       }
 

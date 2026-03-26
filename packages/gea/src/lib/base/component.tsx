@@ -173,28 +173,6 @@ export default class Component extends Store {
     return this.rendered_
   }
 
-  /**
-   * Force a full DOM replacement by re-evaluating the template.
-   * Used when the template has multiple return paths (early return pattern)
-   * and the reactive system can't patch individual elements.
-   */
-  __rerender() {
-    if (!this.rendered_ || !this.element_) return
-    const manager = ComponentManager.getInstance()
-    const newHtml = String(this.template(this.props)).trim()
-    const newEl = manager.createElement(newHtml)
-    const parent = this.element_.parentNode
-    if (parent) {
-      parent.replaceChild(newEl, this.element_)
-      this.element_ = newEl
-      ;(newEl as any).__geaComponent = this
-      this.attachBindings_()
-      this.mountCompiledChildComponents_()
-      this.instantiateChildComponents_()
-      this.setupEventDirectives_()
-    }
-  }
-
   onAfterRender() {}
 
   onAfterRenderAsync() {}
@@ -232,11 +210,7 @@ export default class Component extends Store {
         target[prop] = value
         if (typeof (component as any).__onPropChange === 'function') {
           if (value !== prev || (typeof prev === 'object' && prev !== null)) {
-            try {
-              ;(component as any).__onPropChange(prop, value)
-            } catch (err) {
-              console.error(err)
-            }
+            ;(component as any).__onPropChange(prop, value)
           }
         }
         return true
@@ -259,7 +233,7 @@ export default class Component extends Store {
     for (const key in nextProps) {
       this.props[key] = nextProps[key]
     }
-    if (typeof (this as any).__onPropChange !== 'function' && typeof this.__geaRequestRender === 'function') {
+    if (typeof (this as any).__onPropChange !== 'function') {
       this.__geaRequestRender()
     }
   }
@@ -294,7 +268,6 @@ export default class Component extends Store {
     if (!this.element_ || !this.element_.parentNode) return
 
     const parent = this.element_.parentNode
-    const nextSibling = this.element_.nextSibling
     const activeElement = document.activeElement as HTMLElement | null
     const shouldRestoreFocus = Boolean(activeElement && this.element_.contains(activeElement))
     const focusedId = shouldRestoreFocus ? activeElement?.id || null : null
@@ -339,6 +312,12 @@ export default class Component extends Store {
     const manager = ComponentManager.getInstance()
     const newElement = manager.createElement(String(this.template(this.props)).trim())
 
+    if (!newElement) {
+      this.element_ = placeholder as unknown as HTMLElement
+      this.rendered_ = true
+      return
+    }
+
     parent.replaceChild(newElement, placeholder)
 
     this.element_ = newElement
@@ -353,14 +332,8 @@ export default class Component extends Store {
       ;(this as any).__setupRefs()
     }
 
-    // Re-sync list items after full re-render. When a parent object changes
-    // (e.g. issue null→object), __observeList on ["issue","comments"] doesn't
-    // fire because the proxy only emits on ["issue"]. Rebuild items from
-    // current store data and render any new ones into their containers.
     if ((this as any).__geaListConfigs) {
       for (const { store: s, path: p, config: c } of (this as any).__geaListConfigs) {
-        // Lazily resolve items from the instance property if not yet available
-        // (createdHooks runs before constructor body sets the instance variable)
         if (!c.items && c.itemsKey) c.items = (this as any)[c.itemsKey]
         if (!c.items) continue
         const arr = p.reduce((obj: any, key: string) => obj?.[key], s.__store) ?? []
@@ -590,15 +563,26 @@ export default class Component extends Store {
         item.render(container)
       }
     }
-    let cursor = container.firstChild
+
+    const ordered: Node[] = []
     for (const item of items) {
-      let el = item.element_
+      let el: HTMLElement | null = item.element_
       if (!el) continue
       while (el.parentElement && el.parentElement !== container) el = el.parentElement
+      ordered.push(el)
+    }
+    if (ordered.length === 0) return
+
+    const itemSet = new Set(ordered)
+    let cursor: ChildNode | null = container.firstChild
+    while (cursor && !itemSet.has(cursor)) cursor = cursor.nextSibling
+
+    for (const el of ordered) {
       if (el !== cursor) {
         container.insertBefore(el, cursor || null)
       } else {
-        cursor = cursor.nextSibling
+        cursor = cursor!.nextSibling
+        while (cursor && !itemSet.has(cursor)) cursor = cursor.nextSibling
       }
     }
   }
@@ -969,7 +953,10 @@ export default class Component extends Store {
       }
     }
 
-    if (items.length > prev.length) {
+    // Do not use the append-only fast path when prev is empty: the container may still
+    // hold non-list UI from a ternary branch (e.g. `.list-empty` while map length was 0).
+    // Appending would leave that placeholder and duplicate rows after the next sync.
+    if (items.length > prev.length && prev.length > 0) {
       let appendOk = true
       for (let j = 0; j < prev.length; j++) {
         if (itemKey(prev[j]) !== itemKey(items[j])) {
@@ -1015,8 +1002,10 @@ export default class Component extends Store {
     }
 
     c.__geaPrev = items.slice()
-    let oldCount: number = c.__geaCount
-    if (oldCount == null) {
+    let oldCount: number | undefined = c.__geaCount
+    // __geaCount can be 0 while the DOM still has non-map nodes (e.g. a ternary empty-state
+    // branch). Recount from the live tree so we clear them before inserting mapped rows.
+    if (oldCount == null || (oldCount === 0 && container.firstChild)) {
       oldCount = 0
       for (let n: ChildNode | null = container.firstChild; n; n = n.nextSibling) {
         if (n.nodeType === 1) oldCount++
@@ -1131,25 +1120,48 @@ export default class Component extends Store {
     const parent = endMarker && endMarker.parentNode
     if (!marker || !endMarker || !parent) return false
     const replaceSlotContent = (htmlFn: (() => string) | null) => {
+      if (!htmlFn) {
+        let node: ChildNode | null = marker.nextSibling
+        while (node && node !== endMarker) {
+          const next: ChildNode | null = node.nextSibling
+          node.remove()
+          node = next
+        }
+        return
+      }
+      const html = htmlFn()
+      // Empty reinjection = no static HTML for this branch; __applyListChanges may already own
+      // keyed rows between markers. Remove only non–list nodes (placeholders, text) so patch order
+      // vs list observers does not wipe data-gea-item-id rows (mobile-showcase gesture log).
+      if (html === '') {
+        let node: ChildNode | null = marker.nextSibling
+        while (node && node !== endMarker) {
+          const next: ChildNode | null = node.nextSibling
+          if (node.nodeType !== 1) {
+            node.remove()
+          } else if (!(node as HTMLElement).hasAttribute('data-gea-item-id')) {
+            node.remove()
+          }
+          node = next
+        }
+        return
+      }
       let node: ChildNode | null = marker.nextSibling
       while (node && node !== endMarker) {
         const next: ChildNode | null = node.nextSibling
         node.remove()
         node = next
       }
-      if (htmlFn) {
-        const html = htmlFn()
-        const isSvg = 'namespaceURI' in parent && (parent as Element).namespaceURI === 'http://www.w3.org/2000/svg'
-        if (isSvg) {
-          const wrap = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-          wrap.innerHTML = html
-          while (wrap.firstChild) parent.insertBefore(wrap.firstChild, endMarker)
-        } else {
-          const tpl = document.createElement('template')
-          tpl.innerHTML = html
-          Component.__syncValueProps(tpl.content)
-          parent.insertBefore(tpl.content, endMarker)
-        }
+      const isSvg = 'namespaceURI' in parent && (parent as Element).namespaceURI === 'http://www.w3.org/2000/svg'
+      if (isSvg) {
+        const wrap = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+        wrap.innerHTML = html
+        while (wrap.firstChild) parent.insertBefore(wrap.firstChild, endMarker)
+      } else {
+        const tpl = document.createElement('template')
+        tpl.innerHTML = html
+        Component.__syncValueProps(tpl.content)
+        parent.insertBefore(tpl.content, endMarker)
       }
     }
 

@@ -25,6 +25,12 @@ interface ObserverNode {
   children: Map<string, ObserverNode>
 }
 
+interface ArrayProxyMeta {
+  arrayPathParts: string[]
+  arrayIndex: number
+  baseTail: string[]
+}
+
 function createObserverNode(pathParts: string[]): ObserverNode {
   return {
     pathParts,
@@ -140,6 +146,8 @@ export class Store {
   private _arrayIndexProxyCache = new WeakMap()
   private _internedArrayPaths = new Map<string, string[]>()
   private _topLevelProxies = new Map<string, [raw: any, proxy: any]>()
+  private _pendingBatchKind: 0 | 1 | 2 = 0
+  private _pendingBatchArrayPathParts: string[] | null = null
 
   constructor(initialData?: Record<string, any>) {
     const proxy = new Proxy(this, {
@@ -290,11 +298,17 @@ export class Store {
     } finally {
       this._pendingChanges = []
       this._flushScheduled = false
+      this._pendingBatchKind = 0
+      this._pendingBatchArrayPathParts = null
     }
   }
 
   observe(path: string | string[], handler: StoreObserver): () => void {
     const pathParts = splitPath(path)
+    return this._addObserver(pathParts, handler)
+  }
+
+  private _addObserver(pathParts: string[], handler: StoreObserver): () => void {
     const nodes = [this._observerRoot]
     let node = this._observerRoot
 
@@ -448,7 +462,11 @@ export class Store {
 
     if (!allSameArray) return false
 
-    const arrayNode = this._getObserverNode(arrayPathParts!)
+    return this._deliverKnownArrayItemPropBatch(batch, arrayPathParts!)
+  }
+
+  private _deliverKnownArrayItemPropBatch(batch: StoreChange[], arrayPathParts: string[]): boolean {
+    const arrayNode = this._getObserverNode(arrayPathParts)
     if (
       this._observerRoot.handlers.size === 0 &&
       arrayNode &&
@@ -459,7 +477,7 @@ export class Store {
       return true
     }
 
-    const commonMatches = this._collectMatchingObserverNodes(arrayPathParts!)
+    const commonMatches = this._collectMatchingObserverNodes(arrayPathParts)
     for (let i = 0; i < commonMatches.length; i++) {
       this._notifyHandlers(commonMatches[i], batch)
     }
@@ -467,7 +485,7 @@ export class Store {
     if (!arrayNode || arrayNode.children.size === 0) return true
 
     const deliveries = new Map<ObserverNode, StoreChange[]>()
-    const suffixOffset = arrayPathParts!.length
+    const suffixOffset = arrayPathParts.length
 
     for (let i = 0; i < batch.length; i++) {
       const change = batch[i]
@@ -492,9 +510,23 @@ export class Store {
 
   private _flushChanges = (): void => {
     this._flushScheduled = false
-    const batch = this._normalizeBatch(this._pendingChanges)
+    const pendingBatch = this._pendingChanges
+    const pendingBatchKind = this._pendingBatchKind
+    const pendingBatchArrayPathParts = this._pendingBatchArrayPathParts
     this._pendingChanges = []
-    if (batch.length === 0) return
+    this._pendingBatchKind = 0
+    this._pendingBatchArrayPathParts = null
+    if (pendingBatch.length === 0) return
+
+    if (
+      pendingBatchKind === 1 &&
+      pendingBatchArrayPathParts &&
+      this._deliverKnownArrayItemPropBatch(pendingBatch, pendingBatchArrayPathParts)
+    ) {
+      return
+    }
+
+    const batch = this._normalizeBatch(pendingBatch)
 
     if (this._deliverArrayItemPropBatch(batch)) return
 
@@ -527,11 +559,69 @@ export class Store {
   }
 
   private _emitChanges(changes: StoreChange[]): void {
-    for (let i = 0; i < changes.length; i++) this._pendingChanges.push(changes[i])
+    for (let i = 0; i < changes.length; i++) this._queueChange(changes[i])
+    this._scheduleFlush()
+  }
+
+  private _queueChange(change: StoreChange): void {
+    this._pendingChanges.push(change)
+    this._trackPendingChange(change)
+  }
+
+  private _trackPendingChange(change: StoreChange): void {
+    if (this._pendingBatchKind === 2) return
+    if (!change.isArrayItemPropUpdate || !change.arrayPathParts) {
+      this._pendingBatchKind = 2
+      this._pendingBatchArrayPathParts = null
+      return
+    }
+
+    if (this._pendingBatchKind === 0) {
+      this._pendingBatchKind = 1
+      this._pendingBatchArrayPathParts = change.arrayPathParts
+      return
+    }
+
+    const pendingArrayPathParts = this._pendingBatchArrayPathParts
+    if (
+      pendingArrayPathParts !== change.arrayPathParts &&
+      !samePathParts(pendingArrayPathParts!, change.arrayPathParts)
+    ) {
+      this._pendingBatchKind = 2
+      this._pendingBatchArrayPathParts = null
+    }
+  }
+
+  private _scheduleFlush(): void {
     if (!this._flushScheduled) {
       this._flushScheduled = true
       queueMicrotask(this._flushChanges)
     }
+  }
+
+  private _queueDirectArrayItemPrimitiveChange(
+    target: any,
+    property: string,
+    value: any,
+    previousValue: any,
+    isNew: boolean,
+    arrayMeta: ArrayProxyMeta,
+    getPathParts: (prop: string) => string[],
+    getLeafPathParts: (prop: string) => string[],
+  ): void {
+    this._queueChange({
+      type: isNew ? 'add' : 'update',
+      property,
+      target,
+      pathParts: getPathParts(property),
+      newValue: value,
+      previousValue,
+      arrayPathParts: arrayMeta.arrayPathParts,
+      arrayIndex: arrayMeta.arrayIndex,
+      leafPathParts: getLeafPathParts(property),
+      isArrayItemPropUpdate: true,
+    })
+    this._scheduleFlush()
   }
 
   private _interceptArrayMethod(arr: any[], method: string, _basePath: string, baseParts: string[]): Function | null {
@@ -739,7 +829,36 @@ export class Store {
     }
   }
 
-  private _createProxy(target: any, basePath: string, baseParts: string[] = []): any {
+  private _getCachedArrayMeta(baseParts: string[]): ArrayProxyMeta | null {
+    for (let i = baseParts.length - 1; i >= 0; i--) {
+      if (!isNumericIndex(baseParts[i])) continue
+      let internKey: string
+      let interned: string[]
+      if (i === 1) {
+        internKey = baseParts[0]
+        interned = this._internedArrayPaths.get(internKey)!
+        if (!interned) {
+          interned = [baseParts[0]]
+          this._internedArrayPaths.set(internKey, interned)
+        }
+      } else {
+        internKey = baseParts.slice(0, i).join('\0')
+        interned = this._internedArrayPaths.get(internKey)!
+        if (!interned) {
+          interned = baseParts.slice(0, i)
+          this._internedArrayPaths.set(internKey, interned)
+        }
+      }
+      return {
+        arrayPathParts: interned,
+        arrayIndex: Number(baseParts[i]),
+        baseTail: i + 1 < baseParts.length ? baseParts.slice(i + 1) : [],
+      }
+    }
+    return null
+  }
+
+  private _createProxy(target: any, basePath: string, baseParts: string[] = [], arrayMeta?: ArrayProxyMeta): any {
     if (!target || typeof target !== 'object') return target
 
     // Return cached proxy if one already exists for this raw object.
@@ -751,50 +870,59 @@ export class Store {
     }
 
     const store = this // eslint-disable-line @typescript-eslint/no-this-alias
-    let cachedArrayMeta: { arrayPathParts: string[]; arrayIndex: number; baseTail: string[] } | null = null
-    for (let i = baseParts.length - 1; i >= 0; i--) {
-      if (!isNumericIndex(baseParts[i])) continue
-      // Fast path for common case: baseParts = ["prop", "N"]
-      let internKey: string
-      let interned: string[]
-      if (i === 1) {
-        internKey = baseParts[0]
-        interned = store._internedArrayPaths.get(internKey)!
-        if (!interned) {
-          interned = [baseParts[0]]
-          store._internedArrayPaths.set(internKey, interned)
-        }
-      } else {
-        internKey = baseParts.slice(0, i).join('\0')
-        interned = store._internedArrayPaths.get(internKey)!
-        if (!interned) {
-          interned = baseParts.slice(0, i)
-          store._internedArrayPaths.set(internKey, interned)
-        }
-      }
-      cachedArrayMeta = {
-        arrayPathParts: interned,
-        arrayIndex: Number(baseParts[i]),
-        baseTail: i + 1 < baseParts.length ? baseParts.slice(i + 1) : [],
-      }
-      break
-    }
+    const cachedArrayMeta = arrayMeta ?? store._getCachedArrayMeta(baseParts)
     // Defer Map creation until actually needed (saves allocation for read-only items)
     let pathCache: Map<string, string[]> | undefined
     let leafCache: Map<string, string[]> | undefined
     let methodCache: Map<string, Function> | undefined
+    let lastPathProp: string | undefined
+    let lastPathParts: string[] | undefined
+    let lastLeafProp: string | undefined
+    let lastLeafParts: string[] | undefined
 
     function getCachedPathParts(propStr: string): string[] {
-      if (!pathCache) pathCache = new Map()
-      let pp = pathCache.get(propStr)
-      if (!pp) {
-        pp = baseParts.length > 0 ? [...baseParts, propStr] : [propStr]
-        pathCache.set(propStr, pp)
+      if (lastPathProp === propStr && lastPathParts) return lastPathParts
+      if (pathCache) {
+        const cached = pathCache.get(propStr)
+        if (cached) return cached
       }
-      return pp
+      const parts = baseParts.length > 0 ? [...baseParts, propStr] : [propStr]
+      if (lastPathProp === undefined) {
+        lastPathProp = propStr
+        lastPathParts = parts
+        return parts
+      }
+      if (!pathCache) {
+        pathCache = new Map()
+        pathCache.set(lastPathProp, lastPathParts!)
+      }
+      pathCache.set(propStr, parts)
+      return parts
     }
 
-    const createProxy = (t: any, bp: string, bps: string[]) => store._createProxy(t, bp, bps)
+    function getCachedLeafPathParts(propStr: string): string[] {
+      if (lastLeafProp === propStr && lastLeafParts) return lastLeafParts
+      if (leafCache) {
+        const cached = leafCache.get(propStr)
+        if (cached) return cached
+      }
+      const parts =
+        cachedArrayMeta && cachedArrayMeta.baseTail.length > 0 ? [...cachedArrayMeta.baseTail, propStr] : [propStr]
+      if (lastLeafProp === undefined) {
+        lastLeafProp = propStr
+        lastLeafParts = parts
+        return parts
+      }
+      if (!leafCache) {
+        leafCache = new Map()
+        leafCache.set(lastLeafProp, lastLeafParts!)
+      }
+      leafCache.set(propStr, parts)
+      return parts
+    }
+
+    const createProxy = (t: any, bp: string, bps: string[], nextArrayMeta?: ArrayProxyMeta) =>
+      store._createProxy(t, bp, bps, nextArrayMeta)
 
     const proxy = new Proxy(target, {
       get(obj: any, prop: string | symbol) {
@@ -821,9 +949,10 @@ export class Store {
           if (!methodCache) methodCache = new Map()
           let cached = methodCache.get(prop)
           if (cached !== undefined) return cached
-          cached = store._interceptArrayMethod(obj, prop, basePath, baseParts)
-            || store._interceptArrayIterator(obj, prop, basePath, baseParts, createProxy)
-            || value.bind(obj)
+          cached =
+            store._interceptArrayMethod(obj, prop, basePath, baseParts) ||
+            store._interceptArrayIterator(obj, prop, basePath, baseParts, createProxy) ||
+            value.bind(obj)
           methodCache.set(prop, cached)
           return cached
         }
@@ -848,8 +977,13 @@ export class Store {
               indexCache = new Map()
               store._arrayIndexProxyCache.set(obj, indexCache)
             }
-            const currentPath = basePath ? `${basePath}.${prop}` : (prop as string)
-            const created = createProxy(value, currentPath, getCachedPathParts(prop as string))
+            const propStr = prop as string
+            const currentPath = basePath ? `${basePath}.${propStr}` : propStr
+            const created = createProxy(value, currentPath, getCachedPathParts(propStr), {
+              arrayPathParts: baseParts,
+              arrayIndex: Number(propStr),
+              baseTail: [],
+            })
             indexCache.set(prop, created)
             return created
           }
@@ -882,6 +1016,20 @@ export class Store {
           }
           obj[prop] = value
 
+          if (cachedArrayMeta && cachedArrayMeta.baseTail.length === 0) {
+            store._queueDirectArrayItemPrimitiveChange(
+              obj,
+              prop,
+              value,
+              oldValue,
+              isNew,
+              cachedArrayMeta,
+              getCachedPathParts,
+              getCachedLeafPathParts,
+            )
+            return true
+          }
+
           const change: StoreChange = {
             type: isNew ? 'add' : 'update',
             property: prop,
@@ -891,22 +1039,13 @@ export class Store {
             previousValue: oldValue,
           }
           if (cachedArrayMeta) {
-            if (!leafCache) leafCache = new Map()
-            let lp = leafCache.get(prop)
-            if (!lp) {
-              lp = cachedArrayMeta.baseTail.length > 0 ? [...cachedArrayMeta.baseTail, prop] : [prop]
-              leafCache.set(prop, lp)
-            }
             change.arrayPathParts = cachedArrayMeta.arrayPathParts
             change.arrayIndex = cachedArrayMeta.arrayIndex
-            change.leafPathParts = lp
+            change.leafPathParts = getCachedLeafPathParts(prop)
             change.isArrayItemPropUpdate = true
           }
-          store._pendingChanges.push(change)
-          if (!store._flushScheduled) {
-            store._flushScheduled = true
-            queueMicrotask(store._flushChanges)
-          }
+          store._queueChange(change)
+          store._scheduleFlush()
           return true
         }
 
@@ -954,22 +1093,13 @@ export class Store {
               newValue: value.slice(start),
             }
             if (cachedArrayMeta) {
-              if (!leafCache) leafCache = new Map()
-              let lp = leafCache.get(prop)
-              if (!lp) {
-                lp = cachedArrayMeta.baseTail.length > 0 ? [...cachedArrayMeta.baseTail, prop] : [prop]
-                leafCache.set(prop, lp)
-              }
               change.arrayPathParts = cachedArrayMeta.arrayPathParts
               change.arrayIndex = cachedArrayMeta.arrayIndex
-              change.leafPathParts = lp
+              change.leafPathParts = getCachedLeafPathParts(prop)
               change.isArrayItemPropUpdate = true
             }
-            store._pendingChanges.push(change)
-            if (!store._flushScheduled) {
-              store._flushScheduled = true
-              queueMicrotask(store._flushChanges)
-            }
+            store._queueChange(change)
+            store._scheduleFlush()
             return true
           }
         }
@@ -983,22 +1113,13 @@ export class Store {
           previousValue: oldValue,
         }
         if (cachedArrayMeta) {
-          if (!leafCache) leafCache = new Map()
-          let lp = leafCache.get(prop)
-          if (!lp) {
-            lp = cachedArrayMeta.baseTail.length > 0 ? [...cachedArrayMeta.baseTail, prop] : [prop]
-            leafCache.set(prop, lp)
-          }
           change.arrayPathParts = cachedArrayMeta.arrayPathParts
           change.arrayIndex = cachedArrayMeta.arrayIndex
-          change.leafPathParts = lp
+          change.leafPathParts = getCachedLeafPathParts(prop)
           change.isArrayItemPropUpdate = true
         }
-        store._pendingChanges.push(change)
-        if (!store._flushScheduled) {
-          store._flushScheduled = true
-          queueMicrotask(store._flushChanges)
-        }
+        store._queueChange(change)
+        store._scheduleFlush()
         return true
       },
 
@@ -1022,22 +1143,13 @@ export class Store {
           previousValue: oldValue,
         }
         if (cachedArrayMeta) {
-          if (!leafCache) leafCache = new Map()
-          let lp = leafCache.get(prop)
-          if (!lp) {
-            lp = cachedArrayMeta.baseTail.length > 0 ? [...cachedArrayMeta.baseTail, prop] : [prop]
-            leafCache.set(prop, lp)
-          }
           change.arrayPathParts = cachedArrayMeta.arrayPathParts
           change.arrayIndex = cachedArrayMeta.arrayIndex
-          change.leafPathParts = lp
+          change.leafPathParts = getCachedLeafPathParts(prop)
           change.isArrayItemPropUpdate = true
         }
-        store._pendingChanges.push(change)
-        if (!store._flushScheduled) {
-          store._flushScheduled = true
-          queueMicrotask(store._flushChanges)
-        }
+        store._queueChange(change)
+        store._scheduleFlush()
         return true
       },
     })

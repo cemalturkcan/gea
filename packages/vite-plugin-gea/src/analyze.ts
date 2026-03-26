@@ -12,7 +12,14 @@ import type {
   UnresolvedMapInfo,
   UnresolvedRelationalClassBinding,
 } from './ir.ts'
-import { buildObserveKey, pathPartsToString, resolvePath, generateSelector, getDirectChildElements, getJSXTagName } from './utils.ts'
+import {
+  buildObserveKey,
+  pathPartsToString,
+  resolvePath,
+  generateSelector,
+  getDirectChildElements,
+  getJSXTagName,
+} from './utils.ts'
 import { analyzeJSXInMap } from './analyze-map.ts'
 import {
   resolveExpr,
@@ -53,6 +60,11 @@ export interface AnalysisResult {
   conditionalSlotNodeMap: Map<t.Node, string>
   /** Guard condition from early return pattern (if (guard) return A; return B;) that requires full re-render */
   earlyReturnGuard?: t.Expression
+  /**
+   * Index into templateSetupContext.statements (statements before the final return) of the
+   * early-return if. Setup after this index must not run unless that if has been evaluated first.
+   */
+  earlyReturnBarrierIndex?: number
 }
 
 function buildTextTemplateExpressionFromParts(
@@ -167,27 +179,8 @@ export function analyzeTemplate(
       conditionalSlotNodeMap: new Map(),
     }
 
-  // Detect early return pattern: if (cond) { return JSX; } return JSX;
-  // Record the guard condition so the reactivity system can trigger a full re-render.
-  let earlyReturnGuard: t.Expression | undefined
   const bodyStmts = templateMethod.body.body
-  for (let i = 0; i < bodyStmts.length - 1; i++) {
-    const s = bodyStmts[i]
-    if (
-      t.isIfStatement(s) &&
-      !s.alternate &&
-      t.isBlockStatement(s.consequent) &&
-      s.consequent.body.length === 1 &&
-      t.isReturnStatement(s.consequent.body[0]) &&
-      s.consequent.body[0].argument &&
-      t.isReturnStatement(bodyStmts[i + 1])
-    ) {
-      earlyReturnGuard = t.cloneNode(s.test, true) as t.Expression
-      break
-    }
-  }
-
-  const returnStmt = templateMethod.body.body.find((s) => t.isReturnStatement(s) && s.argument !== null) as
+  const returnStmt = bodyStmts.find((s) => t.isReturnStatement(s) && s.argument !== null) as
     | t.ReturnStatement
     | undefined
   if (!returnStmt?.argument)
@@ -205,7 +198,34 @@ export function analyzeTemplate(
       conditionalSlotScopedStoreKeys: new Set(),
       conditionalSlotNodeMap: new Map(),
     }
-  const returnIndex = templateMethod.body.body.indexOf(returnStmt)
+
+  const returnIndex = bodyStmts.indexOf(returnStmt)
+
+  // if (guard) return A; …setup…; return B — guard must run before main-branch setup (e.g. const x = item.foo).
+  let earlyReturnGuard: t.Expression | undefined
+  let earlyReturnBarrierIndex: number | undefined
+  const earlyReturnFromIf = (s: t.IfStatement): t.ReturnStatement | null => {
+    if (t.isReturnStatement(s.consequent) && s.consequent.argument) return s.consequent
+    if (
+      t.isBlockStatement(s.consequent) &&
+      s.consequent.body.length === 1 &&
+      t.isReturnStatement(s.consequent.body[0]) &&
+      s.consequent.body[0].argument
+    ) {
+      return s.consequent.body[0]
+    }
+    return null
+  }
+  for (let i = 0; i < returnIndex; i++) {
+    const s = bodyStmts[i]
+    if (!t.isIfStatement(s) || s.alternate) continue
+    const earlyRet = earlyReturnFromIf(s)
+    if (!earlyRet?.argument) continue
+    earlyReturnGuard = t.cloneNode(s.test, true) as t.Expression
+    earlyReturnBarrierIndex = i
+    break
+  }
+
   const templateSetupContext = {
     params: templateMethod.params.filter(
       (param): param is t.Identifier | t.Pattern | t.RestElement => !t.isTSParameterProperty(param),
@@ -341,6 +361,7 @@ export function analyzeTemplate(
     conditionalSlotScopedStoreKeys,
     conditionalSlotNodeMap,
     earlyReturnGuard,
+    earlyReturnBarrierIndex,
   }
 }
 
@@ -701,9 +722,11 @@ function analyzeChildren(
         // their container element paths don't collide with main-template paths.
         const nestedMapCalls = collectNestedMapCalls(expr)
         const hasNestedMapCall = nestedMapCalls.length > 0
-        const mixedTextNodeIndex = parentHasElementChildren(node)
-          ? getDOMTextNodeIndex(node.children, index)
-          : undefined
+        const jsxInTextSiblingGroup = shouldBuildTextTemplate && textSiblingGroupContainsJSX(textExpressions)
+        const mixedTextNodeIndex =
+          parentHasElementChildren(node) || jsxInTextSiblingGroup
+            ? getDOMTextNodeIndex(node.children, index)
+            : undefined
         // Call handleTextBinding first — it may push a conditional slot
         const slotCountBefore = conditionalSlots?.length ?? 0
         handleTextBinding(
@@ -728,12 +751,11 @@ function analyzeChildren(
           classBody,
           conditionalSlotNodeMap,
           mixedTextNodeIndex,
+          jsxInTextSiblingGroup,
         )
         // Determine if a conditional slot was created for this expression
         const slotCountAfter = conditionalSlots?.length ?? 0
-        const slotId = slotCountAfter > slotCountBefore
-          ? conditionalSlots![slotCountAfter - 1].slotId
-          : undefined
+        const slotId = slotCountAfter > slotCountBefore ? conditionalSlots![slotCountAfter - 1].slotId : undefined
         nestedMapCalls.forEach(({ mapExpr, parentElement, containerPath }) => {
           let mapNode = node
           let mapElementPath = elementPath
@@ -1085,14 +1107,21 @@ function handleTextBinding(
   rerenderPropNames?: Set<string>,
   rerenderConditions?: Array<{ expression: t.Expression; setupStatements: t.Statement[] }>,
   conditionalSlots?: import('./ir').ConditionalSlot[],
-  hasNestedMapCall: boolean = false,
+  _hasNestedMapCall: boolean = false,
   classBody?: t.ClassBody,
   conditionalSlotNodeMap?: Map<t.Node, string>,
   textNodeIndex?: number,
+  jsxInTextSiblingGroup = false,
 ) {
   const propName = resolvePropRef(expr, propsParamName, destructuredPropNames)
   if (propName) {
-    if (shouldBuildTextTemplate && textTemplate && textExpressions.length > 0 && templateSetupContext) {
+    if (
+      shouldBuildTextTemplate &&
+      textTemplate &&
+      textExpressions.length > 0 &&
+      templateSetupContext &&
+      !jsxInTextSiblingGroup
+    ) {
       const derivedTemplateExpr = buildTextTemplateExpressionFromParts(textTemplate, textExpressions)
       const setupStatements = collectTemplateSetupStatements(derivedTemplateExpr, templateSetupContext)
       const dependentProps = collectDependentPropNames(
@@ -1131,7 +1160,13 @@ function handleTextBinding(
     return
   }
   if (!expressionMayProduceJSX(expr)) {
-    if (shouldBuildTextTemplate && textTemplate && textExpressions.length > 0 && templateSetupContext) {
+    if (
+      shouldBuildTextTemplate &&
+      textTemplate &&
+      textExpressions.length > 0 &&
+      templateSetupContext &&
+      !jsxInTextSiblingGroup
+    ) {
       const derivedTemplateExpr = buildTextTemplateExpressionFromParts(textTemplate, textExpressions)
       const setupStatements = collectTemplateSetupStatements(derivedTemplateExpr, templateSetupContext)
       const dependentProps = collectDependentPropNames(
@@ -1231,7 +1266,7 @@ function handleTextBinding(
   if (!result?.parts?.length) {
     if (templateSetupContext && !t.isJSXEmptyExpression(expr) && !expressionMayProduceJSX(expr)) {
       const exprToUse =
-        shouldBuildTextTemplate && textTemplate
+        shouldBuildTextTemplate && textTemplate && !jsxInTextSiblingGroup
           ? buildTextTemplateExpressionFromParts(textTemplate, textExpressions)
           : expr
       const setupStatements = collectTemplateSetupStatements(exprToUse, templateSetupContext)
@@ -1255,7 +1290,7 @@ function handleTextBinding(
   }
   const selector = generateSelector(elementPath)
 
-  if (shouldBuildTextTemplate && textTemplate && textExpressions.length > 0) {
+  if (shouldBuildTextTemplate && textTemplate && textExpressions.length > 0 && !jsxInTextSiblingGroup) {
     if (isComputedArrayProp(result.parts, textExpressions, stateRefs)) {
       addArrayTextBindings(
         selector,
@@ -1280,7 +1315,7 @@ function handleTextBinding(
     ...(textNodeIndex !== undefined ? { textNodeIndex } : {}),
   }
   applyImportedState(binding, result, stateProps)
-  if (shouldBuildTextTemplate && textTemplate) {
+  if (shouldBuildTextTemplate && textTemplate && !jsxInTextSiblingGroup) {
     binding.textTemplate = textTemplate
     binding.textExpressionIndex = textExpressions.findIndex(
       (te) => pathPartsToString(te.pathParts) === pathPartsToString(result.parts),
@@ -1288,6 +1323,10 @@ function handleTextBinding(
     binding.textExpressions = textExpressions
   }
   bindings.push(binding)
+}
+
+function textSiblingGroupContainsJSX(textExpressions: TextExpression[]): boolean {
+  return textExpressions.some((te) => te.expression && expressionMayProduceJSX(te.expression))
 }
 
 function expressionMayProduceJSX(expr: t.Expression | t.JSXEmptyExpression): boolean {
@@ -1457,7 +1496,9 @@ function collectAllStateAccesses(
         !path.parentPath.node.computed
       ) {
         const grandParent = path.parentPath.parentPath
-        if (!(grandParent && t.isCallExpression(grandParent.node) && grandParent.node.callee === path.parentPath.node)) {
+        if (
+          !(grandParent && t.isCallExpression(grandParent.node) && grandParent.node.callee === path.parentPath.node)
+        ) {
           return
         }
       }

@@ -35,9 +35,30 @@ test('prop text patch preserves surrounding template text', () => {
     }
   `)
 
-  assert.match(output, /const __boundValue = `[\s\S]*Pay \$\$\$\{this\.props\.totalPrice\}[\s\S]*`;/)
+  assert.match(output, /const __boundValue = `[\s\S]*Pay \$\$\$\{value\}[\s\S]*`;/)
+  // `${value}` does not read properties off value; nullish guard would skip clearing text when value becomes null.
+  assert.doesNotMatch(output, /if \(!\(value === null \|\| value === undefined\)\)/)
   assert.match(output, /textContent = __boundValue/)
   assert.doesNotMatch(output, /__geaPatchProp_totalPrice\(value\)[\s\S]*textContent = value/)
+})
+
+test('prop text patch keeps nullish guard when derived expr reads properties of value', () => {
+  const output = transformComponentSource(`
+    import { Component } from '@geajs/core'
+
+    export default class Row extends Component {
+      template({ item }) {
+        return (
+          <span class="label">
+            {item.displayName}
+          </span>
+        )
+      }
+    }
+  `)
+
+  assert.match(output, /__onPropChange/)
+  assert.match(output, /if \(!\(value === null \|\| value === undefined\)\)/)
 })
 
 test('generated selectors distinguish repeated typed inputs', () => {
@@ -168,12 +189,13 @@ test('template-scoped prop variables inside .map() are rewritten to this.props',
     }
   `)
 
-  const renderMethod = output.match(/render\w*Item\(opt\)\s*\{([\s\S]*?)\n  \}/)
+  const renderMethod = output.match(/render\w*Item\(opt\)\s*\{([\s\S]*?)\n {2}\}/)
   assert.ok(renderMethod, 'render item method must be generated')
   const renderBody = renderMethod[1]
-  assert.match(renderBody, /this\.props\.isMulti/, 'isMulti must be accessed via this.props in the render item method')
-  assert.match(renderBody, /this\.props\.value/, 'value must be accessed via this.props in the render item method')
-  assert.doesNotMatch(renderBody, /[^.]isMulti\b/, 'bare isMulti must not appear in the render item method body')
+  assert.match(renderBody, /=\s*this\.props;/, 'map item render must read props from this.props')
+  assert.match(renderBody, /\bvalue\b/, 'value must be in map item render')
+  assert.match(renderBody, /\bisMulti\b/, 'isMulti must be in map item render')
+  assert.match(renderBody, /\.trim\(\)\}/, 'dynamic class in map item should be trimmed')
 })
 
 test('map callback render method includes template-local setup statements for free variables', () => {
@@ -196,7 +218,7 @@ test('map callback render method includes template-local setup statements for fr
     }
   `)
 
-  const renderMethod = output.match(/render\w+Item\(comment\)\s*\{([\s\S]*?)\n  \}/)
+  const renderMethod = output.match(/render\w+Item\(comment\)\s*\{([\s\S]*?)\n {2}\}/)
   assert.ok(renderMethod, 'render item method must be generated')
   const renderBody = renderMethod![1]
   assert.match(renderBody, /issueStore\.issue/, 'render method must re-derive issue from store')

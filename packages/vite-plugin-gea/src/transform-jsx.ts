@@ -1,7 +1,13 @@
 import * as t from '@babel/types'
 import type { ChildComponent, EventHandler, HandlerPropInMap, ObserveDependency } from './ir.ts'
 import type { StateRefMeta } from './parse.ts'
-import { getDirectChildElements, getJSXTagName, isComponentTag as isCompTag } from './utils.ts'
+import {
+  buildTrimmedClassJoinedExpression,
+  buildTrimmedClassValueExpression,
+  getDirectChildElements,
+  getJSXTagName,
+  isComponentTag as isCompTag,
+} from './utils.ts'
 import {
   buildComponentPropsExpression,
   collectExpressionDependencies,
@@ -181,12 +187,7 @@ function buildClassObjectExpression(expr: t.Expression): t.Expression {
           ),
           t.identifier('map'),
         ),
-        [
-          t.arrowFunctionExpression(
-            [t.arrayPattern([t.identifier('__k')])],
-            t.identifier('__k'),
-          ),
-        ],
+        [t.arrowFunctionExpression([t.arrayPattern([t.identifier('__k')])], t.identifier('__k'))],
       ),
       t.identifier('join'),
     ),
@@ -200,10 +201,14 @@ function tryStaticStyleObjectToCSS(expr: t.ObjectExpression): string | null {
     if (!t.isObjectProperty(prop) || prop.computed) return null
     const key = t.isIdentifier(prop.key) ? prop.key.name : t.isStringLiteral(prop.key) ? prop.key.value : null
     if (!key) return null
-    let value: string | null = null
-    if (t.isStringLiteral(prop.value)) value = prop.value.value
-    else if (t.isNumericLiteral(prop.value)) value = prop.value.value === 0 ? '0' : `${prop.value.value}px`
-    else return null
+    const value = t.isStringLiteral(prop.value)
+      ? prop.value.value
+      : t.isNumericLiteral(prop.value)
+        ? prop.value.value === 0
+          ? '0'
+          : `${prop.value.value}px`
+        : null
+    if (value === null) return null
     parts.push(`${camelToKebab(key)}: ${value}`)
   }
   return parts.join('; ')
@@ -225,10 +230,10 @@ function buildStyleObjectExpression(expr: t.Expression): t.Expression {
             t.templateElement({ raw: '', cooked: '' }, true),
           ],
           [
-            t.callExpression(
-              t.memberExpression(t.identifier('__k'), t.identifier('replace')),
-              [t.regExpLiteral('[A-Z]', 'g'), t.stringLiteral('-$&')],
-            ),
+            t.callExpression(t.memberExpression(t.identifier('__k'), t.identifier('replace')), [
+              t.regExpLiteral('[A-Z]', 'g'),
+              t.stringLiteral('-$&'),
+            ]),
             t.conditionalExpression(
               t.logicalExpression(
                 '&&',
@@ -291,9 +296,7 @@ function extractHtmlTemplatesFromConditional(expr: t.Expression): {
   return {}
 }
 
-function extractChildInstanceRef(
-  expr: t.Expression,
-): { instanceVar: string; guardExpr: t.Expression } | null {
+function extractChildInstanceRef(expr: t.Expression): { instanceVar: string; guardExpr: t.Expression } | null {
   if (!t.isLogicalExpression(expr) || expr.operator !== '&&') return null
   const right = expr.right
   let memberExpr: t.MemberExpression | null = null
@@ -313,35 +316,6 @@ function extractChildInstanceRef(
 
   const instanceVar = memberExpr.property.name
   return { instanceVar, guardExpr: expr.left as t.Expression }
-}
-
-function expressionMayProduceJSXForCtx(expr: t.Expression): boolean {
-  if (t.isJSXElement(expr) || t.isJSXFragment(expr)) return true
-  if (t.isLogicalExpression(expr)) {
-    return (
-      expressionMayProduceJSXForCtx(expr.left as t.Expression) ||
-      expressionMayProduceJSXForCtx(expr.right as t.Expression)
-    )
-  }
-  if (t.isConditionalExpression(expr)) {
-    return (
-      expressionMayProduceJSXForCtx(expr.consequent as t.Expression) ||
-      expressionMayProduceJSXForCtx(expr.alternate as t.Expression)
-    )
-  }
-  if (t.isParenthesizedExpression(expr)) return expressionMayProduceJSXForCtx(expr.expression as t.Expression)
-  if (t.isCallExpression(expr)) {
-    const callee = expr.callee
-    if (t.isArrowFunctionExpression(callee) || t.isFunctionExpression(callee)) {
-      if (t.isBlockStatement(callee.body)) {
-        return callee.body.body.some(
-          (s) => t.isReturnStatement(s) && !!s.argument && expressionMayProduceJSXForCtx(s.argument),
-        )
-      }
-      return expressionMayProduceJSXForCtx(callee.body as t.Expression)
-    }
-  }
-  return false
 }
 
 /** True if expression can evaluate to false when rendered in template (needs || '' to avoid "false" string). */
@@ -394,7 +368,12 @@ interface TemplatePart {
 }
 
 function escapeHtml(str: string): string {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
 }
 
 function getStaticStringValue(expr: t.Expression): string | null {
@@ -701,10 +680,7 @@ function replaceJSXInExpression(
       ...node.arguments.slice(1).map((a) => t.cloneNode(a)),
     ])
   }
-  if (
-    t.isCallExpression(node) &&
-    (t.isArrowFunctionExpression(node.callee) || t.isFunctionExpression(node.callee))
-  ) {
+  if (t.isCallExpression(node) && (t.isArrowFunctionExpression(node.callee) || t.isFunctionExpression(node.callee))) {
     const callee = node.callee
     if (t.isBlockStatement(callee.body)) {
       const replaceReturnsInStatements = (stmts: t.Statement[]): t.Statement[] =>
@@ -722,7 +698,7 @@ function replaceJSXInExpression(
               ? t.isBlockStatement(stmt.alternate)
                 ? t.blockStatement(replaceReturnsInStatements(stmt.alternate.body))
                 : t.isIfStatement(stmt.alternate)
-                  ? replaceReturnsInStatements([stmt.alternate])[0] as t.IfStatement
+                  ? (replaceReturnsInStatements([stmt.alternate])[0] as t.IfStatement)
                   : t.isReturnStatement(stmt.alternate) && stmt.alternate.argument
                     ? t.returnStatement(replaceJSXInExpression(stmt.alternate.argument, mapJSXNodes, ctx))
                     : stmt.alternate
@@ -741,10 +717,7 @@ function replaceJSXInExpression(
       )
     }
     const newBody = replaceJSXInExpression(callee.body as t.Expression, mapJSXNodes, ctx)
-    return t.callExpression(
-      t.arrowFunctionExpression(callee.params, newBody, callee.async),
-      node.arguments,
-    )
+    return t.callExpression(t.arrowFunctionExpression(callee.params, newBody, callee.async), node.arguments)
   }
   return node
 }
@@ -865,9 +838,10 @@ function processElement(node: t.JSXElement, parts: TemplatePart[], ctx: Ctx, ele
       ctx.componentInstanceCursors?.set(tagName, cursor + 1)
       if (ctx.lazyChildComponents) instance.lazy = true
       const rawChildPrefix = elementPath.length > 0 ? elementPath.join(' > ') : undefined
-      const childPathPrefix = ctx.elementPathPrefix && rawChildPrefix
-        ? ctx.elementPathPrefix + ' > ' + rawChildPrefix
-        : rawChildPrefix ?? ctx.elementPathPrefix
+      const childPathPrefix =
+        ctx.elementPathPrefix && rawChildPrefix
+          ? ctx.elementPathPrefix + ' > ' + rawChildPrefix
+          : (rawChildPrefix ?? ctx.elementPathPrefix)
       const childPropCtx = { ...ctx, inChildrenProp: true, elementPathPrefix: childPathPrefix }
       const props = buildComponentPropsExpression(
         node,
@@ -894,9 +868,10 @@ function processElement(node: t.JSXElement, parts: TemplatePart[], ctx: Ctx, ele
   // Components in map callbacks (both root and nested) produce real JS instances, not HTML strings.
   if (isComp) {
     const rawChildPrefix2 = elementPath.length > 0 ? elementPath.join(' > ') : undefined
-    const childPathPrefix2 = ctx.elementPathPrefix && rawChildPrefix2
-      ? ctx.elementPathPrefix + ' > ' + rawChildPrefix2
-      : rawChildPrefix2 ?? ctx.elementPathPrefix
+    const childPathPrefix2 =
+      ctx.elementPathPrefix && rawChildPrefix2
+        ? ctx.elementPathPrefix + ' > ' + rawChildPrefix2
+        : (rawChildPrefix2 ?? ctx.elementPathPrefix)
     const childPropCtx = { ...ctx, inChildrenProp: true, elementPathPrefix: childPathPrefix2 }
     const props = buildComponentPropsExpression(
       node,
@@ -1141,7 +1116,7 @@ function processElement(node: t.JSXElement, parts: TemplatePart[], ctx: Ctx, ele
             return
           }
           parts.push({ type: 'string', value: html })
-          const classExpr = buildClassObjectExpression(rawExpr)
+          const classExpr = buildTrimmedClassJoinedExpression(buildClassObjectExpression(rawExpr))
           parts.push({ type: 'string', value: ` class="` })
           parts.push({ type: 'expression', value: classExpr })
           html = '"'
@@ -1186,7 +1161,7 @@ function processElement(node: t.JSXElement, parts: TemplatePart[], ctx: Ctx, ele
         parts.push({ type: 'string', value: html })
         const expr = transformJSXExpression(rawExpr, ctx)
         const skipCondition = buildAttrSkipCondition(expr, rawExpr)
-        const templateExpr = expr
+        const templateExpr = propAttrName === 'class' ? buildTrimmedClassValueExpression(expr) : expr
         if (t.isBooleanLiteral(skipCondition) && !skipCondition.value) {
           // Attribute is always present — inline it without a conditional wrapper
           parts.push({ type: 'string', value: ` ${propAttrName}="` })
@@ -1293,10 +1268,7 @@ function processChildren(
         })
         appendString(parts, `-->`)
       } else {
-        if (
-          !ctx.inChildrenProp &&
-          (t.isArrowFunctionExpression(rawExpr) || t.isFunctionExpression(rawExpr))
-        ) {
+        if (!ctx.inChildrenProp && (t.isArrowFunctionExpression(rawExpr) || t.isFunctionExpression(rawExpr))) {
           const err = new Error(
             `[gea] Function-as-child ({(ctx) => ...}) is not supported. Pass callback functions via named props instead (e.g., renderItem={...}).`,
           )

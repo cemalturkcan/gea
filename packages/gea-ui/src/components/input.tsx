@@ -15,7 +15,7 @@ export default class Input extends Component {
         disabled={props.disabled}
         name={props.name}
         id={props.inputId}
-        onInput={props.onInput}
+        onInput={(e: InputEvent) => props.onInput?.(e)}
       />
     )
   }

@@ -145,6 +145,10 @@
 
 /* ------------------------------------------------------------
    Reset / Normalize (minimal)
+   Do not target button/input/textarea/select here: this sheet is unlayered, and unlayered rules
+   win over Tailwind @layer utilities. Margin/padding/border/font on those tags would erase
+   @geajs/ui classes (bg-primary, h-9, px-4, etc.). Tailwind preflight in theme.css handles them
+   inside @layer base so utilities still apply.
    ------------------------------------------------------------ */
 *,
 *::before,
@@ -169,11 +173,7 @@ ul,
 ol,
 li,
 form,
-label,
-input,
-textarea,
-button,
-select {
+label {
   margin: 0;
   padding: 0;
   border: 0;
@@ -194,21 +194,6 @@ a {
 img {
   max-width: 100%;
   display: block;
-}
-
-button {
-  cursor: pointer;
-  background: none;
-  border: none;
-  font: inherit;
-  color: inherit;
-}
-
-input,
-textarea,
-select {
-  font: inherit;
-  color: inherit;
 }
 
 /* ------------------------------------------------------------

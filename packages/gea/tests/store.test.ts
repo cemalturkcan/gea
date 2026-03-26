@@ -336,6 +336,63 @@ describe('Store – array item property updates', () => {
     assert.equal(batches[0][0].isArrayItemPropUpdate, true)
     assert.equal(batches[0][0].arrayIndex, 0)
   })
+
+  it('skips generic batch normalization for homogeneous array item property batches', async () => {
+    const store = new Store({ items: [{ label: 'a' }, { label: 'b' }] })
+    const batches: StoreChange[][] = []
+    let normalizeCalls = 0
+    const originalNormalize = (store as any)._normalizeBatch.bind(store)
+
+    ;(store as any)._normalizeBatch = (batch: StoreChange[]) => {
+      normalizeCalls++
+      return originalNormalize(batch)
+    }
+
+    store.observe('items', (_v, c) => batches.push(c))
+
+    store.items[0].label = 'updated a'
+    store.items[1].label = 'updated b'
+
+    await flush()
+
+    assert.equal(batches.length, 1)
+    assert.equal(batches[0].length, 2)
+    assert.equal(normalizeCalls, 0)
+  })
+
+  it('reuses parent array metadata when creating a direct index proxy', () => {
+    const store = new Store({ items: [{ label: 'a' }] })
+    const items = store.items
+    let arrayMetaCalls = 0
+    const originalGetCachedArrayMeta = (store as any)._getCachedArrayMeta?.bind(store)
+
+    assert.ok(originalGetCachedArrayMeta, 'expected _getCachedArrayMeta to exist')
+    ;(store as any)._getCachedArrayMeta = (baseParts: string[]) => {
+      arrayMetaCalls++
+      return originalGetCachedArrayMeta(baseParts)
+    }
+
+    void items[0]
+
+    assert.equal(arrayMetaCalls, 0)
+  })
+
+  it('uses the specialized direct array-item primitive update path', async () => {
+    const store = new Store({ items: [{ label: 'a' }] })
+    let directPrimitiveCalls = 0
+    const originalQueueDirectArrayItemPrimitiveChange = (store as any)._queueDirectArrayItemPrimitiveChange?.bind(store)
+
+    assert.ok(originalQueueDirectArrayItemPrimitiveChange, 'expected _queueDirectArrayItemPrimitiveChange to exist')
+    ;(store as any)._queueDirectArrayItemPrimitiveChange = (...args: any[]) => {
+      directPrimitiveCalls++
+      return originalQueueDirectArrayItemPrimitiveChange(...args)
+    }
+
+    store.items[0].label = 'updated'
+    await flush()
+
+    assert.equal(directPrimitiveCalls, 1)
+  })
 })
 
 describe('Store – getters (computed values)', () => {

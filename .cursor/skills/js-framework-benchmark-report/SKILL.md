@@ -1,11 +1,14 @@
----
 name: js-framework-benchmark-report
-description: Rebuild the local js-framework-benchmark HTML report using the curated framework set for this repo, and avoid polluting the report with every framework in webdriver-ts/results. Use when the user asks to update the benchmark report, refresh webdriver-ts-results, regenerate the HTML results page, or compare Gea against vanilla, solid, vue, and react.
+description: Use when the user asks to run js-framework-benchmark, update the benchmark report, refresh webdriver-ts-results, regenerate the HTML results page, run all frameworks for this repo, or compare Gea against other configured frameworks.
 ---
 
 # JS Framework Benchmark Report
 
 ## Use This Workflow
+
+In this repo, "all frameworks" means the frameworks configured in `benchmark-report.config.json`, not the full upstream js-framework-benchmark matrix.
+
+Do not run the full upstream matrix unless the user explicitly says they want the upstream/full/every-framework benchmark.
 
 Do not run bare `npm run results` in `js-framework-benchmark` for this project unless the user explicitly wants the full upstream matrix.
 
@@ -20,6 +23,16 @@ That script:
 1. Reads the curated framework list from `benchmark-report.config.json`
 2. Regenerates `webdriver-ts-results/src/results.ts` with framework filtering
 3. Rebuilds `webdriver-ts-results/dist`
+
+## Interpretation Rules
+
+- User says "run all frameworks", "benchmark all frameworks", or similar for this repo:
+  run only the configured framework set from `benchmark-report.config.json`
+- User says "full upstream matrix", "every framework in js-framework-benchmark", or explicitly asks for the upstream benchmark:
+  use the upstream workflow instead of the repo-local curated workflow
+- If the wording is ambiguous, prefer the configured repo-local framework set
+- After rebuilding the report, provide the local URL:
+  `http://localhost:8080/webdriver-ts-results/dist/index.html`
 
 For the normal shared HTML report, do not pass any `--framework` overrides.
 
@@ -46,6 +59,14 @@ node scripts/update-js-framework-benchmark-report.mjs
 ```
 
 This is the safe default. Use this whenever the user says "update the report", "refresh the HTML", or wants the normal comparison screen back.
+
+Run the configured framework set for this repo, then rebuild the shared report:
+
+```bash
+node scripts/update-js-framework-benchmark-report.mjs --run --rebuild
+```
+
+Use this when the user asks to "run all frameworks" in this repo. This means all configured frameworks, not the full upstream matrix.
 
 Run selected benchmarks first, then rebuild the filtered report:
 
@@ -83,3 +104,4 @@ node scripts/update-js-framework-benchmark-report.mjs \
 - Benchmark filtering is optional. If you omit `--benchmark`, the report includes all available benchmark categories for the selected frameworks.
 - The report update is file-safe: the generator writes `results.ts` atomically before the UI build runs.
 - Default behavior for this repo: no explicit `--framework` flags when rebuilding the report UI. Let `benchmark-report.config.json` supply the curated framework set unless the user explicitly asks for a narrowed report.
+- After a successful rebuild, tell the user the report URL: `http://localhost:8080/webdriver-ts-results/dist/index.html`

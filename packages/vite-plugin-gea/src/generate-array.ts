@@ -1,7 +1,15 @@
 import * as t from '@babel/types'
 import { appendToBody, id, js, jsBlockBody, jsExpr, jsMethod } from 'eszter'
 import type { ArrayMapBinding, ConditionalMapBinding, RelationalMapBinding } from './ir.ts'
-import { buildMemberChain, normalizePathParts, pathPartsToString, isComponentTag, getJSXTagName } from './utils.ts'
+import { ITEM_IS_KEY } from './analyze-helpers.ts'
+import {
+  buildMemberChain,
+  buildTrimmedClassValueExpression,
+  getJSXTagName,
+  isComponentTag,
+  normalizePathParts,
+  pathPartsToString,
+} from './utils.ts'
 import { collectPatchEntries, childPathRefName } from './generate-array-patch.ts'
 import type { NodePath } from '@babel/traverse'
 import { createRequire } from 'module'
@@ -33,6 +41,10 @@ function getArrayCreateMethodName(arrayMap: ArrayMapBinding): string {
 
 function getArrayRenderMethodName(arrayMap: ArrayMapBinding): string {
   return `render${getArrayCapName(arrayMap)}Item`
+}
+
+function getArrayPatchMethodName(arrayMap: ArrayMapBinding): string {
+  return `patch${getArrayCapName(arrayMap)}Item`
 }
 
 function getPropPatcherTargetExpr(
@@ -96,20 +108,35 @@ function buildPropPatcherFunction(
               '=',
               t.memberExpression(t.memberExpression(target, t.identifier('style')), t.identifier('cssText')),
               t.conditionalExpression(
-                t.binaryExpression('===', t.unaryExpression('typeof', t.identifier('__attrValue')), t.stringLiteral('object')),
+                t.binaryExpression(
+                  '===',
+                  t.unaryExpression('typeof', t.identifier('__attrValue')),
+                  t.stringLiteral('object'),
+                ),
                 t.callExpression(
                   t.memberExpression(
                     t.callExpression(
                       t.memberExpression(
-                        t.callExpression(t.memberExpression(t.identifier('Object'), t.identifier('entries')), [t.identifier('__attrValue')]),
+                        t.callExpression(t.memberExpression(t.identifier('Object'), t.identifier('entries')), [
+                          t.identifier('__attrValue'),
+                        ]),
                         t.identifier('map'),
                       ),
                       [
                         t.arrowFunctionExpression(
                           [t.arrayPattern([t.identifier('k'), t.identifier('v')])],
-                          t.binaryExpression('+', t.binaryExpression('+',
-                            t.callExpression(t.memberExpression(t.identifier('k'), t.identifier('replace')), [t.regExpLiteral('[A-Z]', 'g'), t.stringLiteral('-$&')]),
-                            t.stringLiteral(': ')), t.identifier('v')),
+                          t.binaryExpression(
+                            '+',
+                            t.binaryExpression(
+                              '+',
+                              t.callExpression(t.memberExpression(t.identifier('k'), t.identifier('replace')), [
+                                t.regExpLiteral('[A-Z]', 'g'),
+                                t.stringLiteral('-$&'),
+                              ]),
+                              t.stringLiteral(': '),
+                            ),
+                            t.identifier('v'),
+                          ),
                         ),
                       ],
                     ),
@@ -200,9 +227,8 @@ function buildPatchEntryPropPatcher(entry: {
   const value = t.identifier('value')
   const item = t.identifier('item')
   const target = t.identifier('__target')
-  const targetExpr = entry.childPath.length > 0
-    ? t.memberExpression(row, t.identifier(childPathRefName(entry.childPath)))
-    : row
+  const targetExpr =
+    entry.childPath.length > 0 ? t.memberExpression(row, t.identifier(childPathRefName(entry.childPath))) : row
 
   if (entry.type === 'className') {
     const isRoot = entry.childPath.length === 0
@@ -217,7 +243,7 @@ function buildPatchEntryPropPatcher(entry: {
         t.assignmentExpression(
           '=',
           t.memberExpression(ref, t.identifier('className')),
-          t.cloneNode(entry.expression, true),
+          buildTrimmedClassValueExpression(t.cloneNode(entry.expression, true) as t.Expression),
         ),
       ),
     )
@@ -233,20 +259,35 @@ function buildPatchEntryPropPatcher(entry: {
               '=',
               t.memberExpression(t.memberExpression(target, t.identifier('style')), t.identifier('cssText')),
               t.conditionalExpression(
-                t.binaryExpression('===', t.unaryExpression('typeof', t.identifier('__attrValue')), t.stringLiteral('object')),
+                t.binaryExpression(
+                  '===',
+                  t.unaryExpression('typeof', t.identifier('__attrValue')),
+                  t.stringLiteral('object'),
+                ),
                 t.callExpression(
                   t.memberExpression(
                     t.callExpression(
                       t.memberExpression(
-                        t.callExpression(t.memberExpression(t.identifier('Object'), t.identifier('entries')), [t.identifier('__attrValue')]),
+                        t.callExpression(t.memberExpression(t.identifier('Object'), t.identifier('entries')), [
+                          t.identifier('__attrValue'),
+                        ]),
                         t.identifier('map'),
                       ),
                       [
                         t.arrowFunctionExpression(
                           [t.arrayPattern([t.identifier('k'), t.identifier('v')])],
-                          t.binaryExpression('+', t.binaryExpression('+',
-                            t.callExpression(t.memberExpression(t.identifier('k'), t.identifier('replace')), [t.regExpLiteral('[A-Z]', 'g'), t.stringLiteral('-$&')]),
-                            t.stringLiteral(': ')), t.identifier('v')),
+                          t.binaryExpression(
+                            '+',
+                            t.binaryExpression(
+                              '+',
+                              t.callExpression(t.memberExpression(t.identifier('k'), t.identifier('replace')), [
+                                t.regExpLiteral('[A-Z]', 'g'),
+                                t.stringLiteral('-$&'),
+                              ]),
+                              t.stringLiteral(': '),
+                            ),
+                            t.identifier('v'),
+                          ),
                         ),
                       ],
                     ),
@@ -372,6 +413,7 @@ export function generateEnsureArrayConfigsMethod(arrayMaps: ArrayMapBinding[]): 
     const configProp = t.memberExpression(t.thisExpression(), t.identifier(getArrayConfigPropName(arrayMap)))
     const renderMethodName = getArrayRenderMethodName(arrayMap)
     const createMethodName = getArrayCreateMethodName(arrayMap)
+    const patchMethodName = getArrayPatchMethodName(arrayMap)
     const propPatchers = buildPropPatchersObject(arrayMap)
     const hasIndex = !!arrayMap.indexVariable
     const renderLambdaParams: t.Identifier[] = [t.identifier('item')]
@@ -405,15 +447,57 @@ export function generateEnsureArrayConfigsMethod(arrayMaps: ArrayMapBinding[]): 
           [t.thisExpression()],
         ),
       ),
+      t.objectProperty(
+        t.identifier('patchRow'),
+        t.logicalExpression(
+          '&&',
+          t.memberExpression(t.thisExpression(), t.identifier(patchMethodName)),
+          t.callExpression(
+            t.memberExpression(
+              t.memberExpression(t.thisExpression(), t.identifier(patchMethodName)),
+              t.identifier('bind'),
+            ),
+            [t.thisExpression()],
+          ),
+        ),
+      ),
     ]
+
+    if (arrayMap.itemIdProperty === ITEM_IS_KEY) {
+      properties.push(
+        t.objectProperty(
+          t.identifier('getKey'),
+          t.arrowFunctionExpression(
+            [t.identifier('item')],
+            t.callExpression(t.identifier('String'), [t.identifier('item')]),
+          ),
+        ),
+      )
+    } else if (arrayMap.itemIdProperty) {
+      properties.push(
+        t.objectProperty(
+          t.identifier('getKey'),
+          t.arrowFunctionExpression(
+            [t.identifier('item')],
+            t.callExpression(t.identifier('String'), [
+              t.logicalExpression(
+                '??',
+                t.optionalMemberExpression(t.identifier('item'), t.identifier(arrayMap.itemIdProperty), false, true),
+                t.identifier('item'),
+              ),
+            ]),
+          ),
+        ),
+      )
+    }
 
     if (propPatchers) {
       properties.push(t.objectProperty(t.identifier('propPatchers'), propPatchers))
     }
 
     // Detect if the map item template root is a component (PascalCase tag)
-    const rootIsComponent = t.isJSXElement(arrayMap.itemTemplate) &&
-      isComponentTag(getJSXTagName(arrayMap.itemTemplate.openingElement.name))
+    const rootIsComponent =
+      t.isJSXElement(arrayMap.itemTemplate) && isComponentTag(getJSXTagName(arrayMap.itemTemplate.openingElement.name))
     if (rootIsComponent) {
       properties.push(t.objectProperty(t.identifier('hasComponentItems'), t.booleanLiteral(true)))
     }
@@ -510,10 +594,7 @@ export function generateArrayConditionalPatchObserver(
   const containerRef = t.memberExpression(t.thisExpression(), t.identifier(containerName))
   const proxiedArr = arrayMap.isImportedState
     ? buildMemberChain(
-        t.memberExpression(
-          t.identifier(arrayMap.storeVar || 'store'),
-          t.identifier('__store'),
-        ),
+        t.memberExpression(t.identifier(arrayMap.storeVar || 'store'), t.identifier('__store')),
         arrayPath,
       )
     : buildMemberChain(t.thisExpression(), arrayPath)
@@ -580,10 +661,7 @@ export function generateArrayConditionalRerenderObserver(arrayMap: ArrayMapBindi
   const configRef = t.memberExpression(t.thisExpression(), t.identifier(getArrayConfigPropName(arrayMap)))
   const proxiedArr = arrayMap.isImportedState
     ? buildMemberChain(
-        t.memberExpression(
-          t.identifier(arrayMap.storeVar || 'store'),
-          t.identifier('__store'),
-        ),
+        t.memberExpression(t.identifier(arrayMap.storeVar || 'store'), t.identifier('__store')),
         arrayPath,
       )
     : buildMemberChain(t.thisExpression(), arrayPath)
@@ -706,7 +784,7 @@ function buildConditionalPatchStatement(
     return js`${jsExpr`${target}.textContent`} = ${expression};`
   }
   if (binding.type === 'className') {
-    return js`${jsExpr`${target}.className`} = ${expression};`
+    return js`${jsExpr`${target}.className`} = ${buildTrimmedClassValueExpression(expression)};`
   }
   if (binding.attributeName === 'style') {
     return t.blockStatement(

@@ -2,7 +2,17 @@ import * as t from '@babel/types'
 import { appendToBody, id, js, jsMethod } from 'eszter'
 import type { NodePath } from '@babel/traverse'
 import type { ArrayMapBinding } from './ir.ts'
-import { normalizePathParts, pathPartsToString, replacePropRefsInExpression, isComponentTag, getJSXTagName, camelToKebab, loggingCatchClause } from './utils.ts'
+import {
+  buildTrimmedClassValueExpression,
+  camelToKebab,
+  getJSXTagName,
+  isComponentTag,
+  loggingCatchClause,
+  normalizePathParts,
+  optionalizeMemberChainsAfterComputedItemKey,
+  pathPartsToString,
+  replacePropRefsInExpression,
+} from './utils.ts'
 import { ITEM_IS_KEY } from './analyze-helpers.ts'
 import { createRequire } from 'module'
 
@@ -54,23 +64,301 @@ const EVENT_NAMES = new Set([
   'drop',
 ])
 
-function collectItemTemplateProps(template: t.JSXElement | t.JSXFragment, itemVar: string): string[] {
-  const props = new Set<string>()
+interface DummyPropTree {
+  [key: string]: DummyPropTree | true
+}
+
+function collectItemTemplatePropTree(template: t.JSXElement | t.JSXFragment, itemVar: string): DummyPropTree {
+  const tree: DummyPropTree = {}
   const program = t.program([t.expressionStatement(t.cloneNode(template, true))])
   traverse(program, {
     noScope: true,
     MemberExpression(path: NodePath<t.MemberExpression>) {
-      if (!t.isIdentifier(path.node.object, { name: itemVar })) return
-      if (!t.isIdentifier(path.node.property) || path.node.computed) return
-      props.add(path.node.property.name)
+      const chain: string[] = []
+      let node: t.Expression = path.node
+      while (t.isMemberExpression(node) && !node.computed && t.isIdentifier(node.property)) {
+        chain.unshift(node.property.name)
+        node = node.object
+      }
+      if (!t.isIdentifier(node, { name: itemVar }) || chain.length === 0) return
+      let cursor: DummyPropTree = tree
+      for (let i = 0; i < chain.length; i++) {
+        const key = chain[i]
+        if (i === chain.length - 1) {
+          if (!(key in cursor)) cursor[key] = true
+        } else {
+          if (!(key in cursor) || cursor[key] === true) cursor[key] = {}
+          cursor = cursor[key] as DummyPropTree
+        }
+      }
     },
   })
-  return Array.from(props)
+  return tree
 }
 
-export function generatePatchItemMethod(arrayMap: ArrayMapBinding): t.ClassMethod | null {
-  void arrayMap
-  return null
+function buildDummyFromTree(tree: DummyPropTree, keyProp: string | null): t.ObjectExpression {
+  const props: t.ObjectProperty[] = []
+  for (const [key, value] of Object.entries(tree)) {
+    if (key === keyProp) {
+      props.push(t.objectProperty(t.identifier(key), t.numericLiteral(0)))
+    } else if (value === true) {
+      props.push(t.objectProperty(t.identifier(key), t.stringLiteral('')))
+    } else {
+      props.push(t.objectProperty(t.identifier(key), buildDummyFromTree(value, null)))
+    }
+  }
+  return t.objectExpression(props)
+}
+
+export function generatePatchItemMethod(
+  arrayMap: ArrayMapBinding,
+  templatePropNames?: Set<string>,
+  wholeParamName?: string,
+  templateSetupContext?: { params: Array<t.Identifier | t.Pattern | t.RestElement>; statements: t.Statement[] },
+): t.ClassMethod | null {
+  if (!arrayMap.itemTemplate) return null
+  const arrayPath = pathPartsToString(arrayMap.arrayPathParts || normalizePathParts((arrayMap as any).arrayPath || ''))
+  const arrayName = arrayPath.replace(/\./g, '')
+  const capName = arrayName.charAt(0).toUpperCase() + arrayName.slice(1)
+  const methodName = `patch${capName}Item`
+  const containerProp = `__${arrayPath.replace(/\./g, '_')}_container`
+  const itemIdProperty = arrayMap.itemIdProperty
+
+  const itemTemplateRootIsComponent =
+    t.isJSXElement(arrayMap.itemTemplate) && isComponentTag(getJSXTagName(arrayMap.itemTemplate.openingElement.name))
+  if (itemTemplateRootIsComponent) return null
+
+  let { entries, requiresRerender } = collectPatchEntries(arrayMap)
+  if (arrayMap.callbackBodyStatements?.length) requiresRerender = true
+
+  if (!requiresRerender && templateSetupContext && templateSetupContext.statements.length > 0) {
+    const setupVarNames = new Set<string>()
+    for (const stmt of templateSetupContext.statements) {
+      if (!t.isVariableDeclaration(stmt)) continue
+      for (const decl of stmt.declarations) {
+        if (t.isIdentifier(decl.id)) setupVarNames.add(decl.id.name)
+        else if (t.isObjectPattern(decl.id)) {
+          for (const prop of decl.id.properties) {
+            if (t.isObjectProperty(prop) && t.isIdentifier(prop.value)) setupVarNames.add(prop.value.name)
+            else if (t.isRestElement(prop) && t.isIdentifier(prop.argument)) setupVarNames.add(prop.argument.name)
+          }
+        }
+      }
+    }
+    if (setupVarNames.size > 0) {
+      const freeVars = new Set<string>()
+      for (const entry of entries) {
+        traverse(t.expressionStatement(t.cloneNode(entry.expression, true)), {
+          noScope: true,
+          Identifier(p: NodePath<t.Identifier>) {
+            if (t.isMemberExpression(p.parent) && p.parent.property === p.node && !p.parent.computed) return
+            freeVars.add(p.node.name)
+          },
+        })
+      }
+      for (const name of setupVarNames) {
+        if (freeVars.has(name)) {
+          requiresRerender = true
+          break
+        }
+      }
+    }
+  }
+
+  if (requiresRerender || entries.length === 0) return null
+
+  const propNames = templatePropNames ?? new Set<string>()
+  if (propNames.size > 0 || wholeParamName) {
+    entries = entries.map((e) => ({
+      ...e,
+      expression: replacePropRefsInExpression(
+        t.cloneNode(e.expression, true) as t.Expression,
+        propNames,
+        wholeParamName,
+      ),
+    }))
+  }
+
+  const { hoists, patchedEntries } = hoistStoreReads(entries, arrayMap.storeVar)
+  const elVar = t.identifier('row')
+  const body: t.Statement[] = [t.ifStatement(t.unaryExpression('!', elVar), t.returnStatement())]
+
+  for (const hoist of hoists) {
+    body.push(t.variableDeclaration('var', [t.variableDeclarator(t.identifier(hoist.varName), hoist.expression)]))
+  }
+
+  const refMap = new Map<string, t.Expression>()
+  for (const entry of patchedEntries) {
+    if (entry.childPath.length === 0) continue
+    const key = entry.childPath.join('_')
+    if (refMap.has(key)) continue
+    const refName = childPathRefName(entry.childPath)
+    const refExpr = t.memberExpression(elVar, t.identifier(refName))
+    const navExpr = buildElementNavExpr(elVar, entry.childPath)
+    body.push(
+      t.ifStatement(
+        t.unaryExpression('!', refExpr),
+        t.expressionStatement(t.assignmentExpression('=', refExpr, navExpr)),
+      ),
+    )
+    refMap.set(key, refExpr)
+  }
+
+  for (const entry of patchedEntries) {
+    const navExpr =
+      entry.childPath.length > 0
+        ? refMap.get(entry.childPath.join('_')) || buildElementNavExpr(elVar, entry.childPath)
+        : elVar
+    switch (entry.type) {
+      case 'className':
+        body.push(
+          t.expressionStatement(
+            t.assignmentExpression(
+              '=',
+              t.memberExpression(navExpr, t.identifier('className')),
+              buildTrimmedClassValueExpression(t.cloneNode(entry.expression, true) as t.Expression),
+            ),
+          ),
+        )
+        break
+      case 'text':
+        body.push(
+          t.expressionStatement(
+            t.assignmentExpression('=', t.memberExpression(navExpr, t.identifier('textContent')), entry.expression),
+          ),
+        )
+        break
+      case 'attribute': {
+        const attrVal = t.identifier('__av')
+        if (entry.attributeName === 'style') {
+          body.push(
+            t.variableDeclaration('var', [t.variableDeclarator(attrVal, entry.expression)]),
+            t.ifStatement(
+              t.logicalExpression(
+                '||',
+                t.binaryExpression('==', attrVal, t.nullLiteral()),
+                t.binaryExpression('===', attrVal, t.booleanLiteral(false)),
+              ),
+              t.expressionStatement(
+                t.callExpression(t.memberExpression(navExpr, t.identifier('removeAttribute')), [
+                  t.stringLiteral('style'),
+                ]),
+              ),
+              t.expressionStatement(
+                t.assignmentExpression(
+                  '=',
+                  t.memberExpression(t.memberExpression(navExpr, t.identifier('style')), t.identifier('cssText')),
+                  t.conditionalExpression(
+                    t.binaryExpression('===', t.unaryExpression('typeof', attrVal), t.stringLiteral('object')),
+                    t.callExpression(
+                      t.memberExpression(
+                        t.callExpression(
+                          t.memberExpression(
+                            t.callExpression(t.memberExpression(t.identifier('Object'), t.identifier('entries')), [
+                              attrVal,
+                            ]),
+                            t.identifier('map'),
+                          ),
+                          [
+                            t.arrowFunctionExpression(
+                              [t.arrayPattern([t.identifier('k'), t.identifier('v')])],
+                              t.binaryExpression(
+                                '+',
+                                t.binaryExpression(
+                                  '+',
+                                  t.callExpression(t.memberExpression(t.identifier('k'), t.identifier('replace')), [
+                                    t.regExpLiteral('[A-Z]', 'g'),
+                                    t.stringLiteral('-$&'),
+                                  ]),
+                                  t.stringLiteral(': '),
+                                ),
+                                t.identifier('v'),
+                              ),
+                            ),
+                          ],
+                        ),
+                        t.identifier('join'),
+                      ),
+                      [t.stringLiteral('; ')],
+                    ),
+                    t.callExpression(t.identifier('String'), [attrVal]),
+                  ),
+                ),
+              ),
+            ),
+          )
+        } else {
+          body.push(
+            t.variableDeclaration('var', [t.variableDeclarator(attrVal, entry.expression)]),
+            t.ifStatement(
+              t.logicalExpression(
+                '||',
+                t.binaryExpression('==', attrVal, t.nullLiteral()),
+                t.binaryExpression('===', attrVal, t.booleanLiteral(false)),
+              ),
+              t.expressionStatement(
+                t.callExpression(t.memberExpression(navExpr, t.identifier('removeAttribute')), [
+                  t.stringLiteral(entry.attributeName!),
+                ]),
+              ),
+              t.expressionStatement(
+                t.callExpression(t.memberExpression(navExpr, t.identifier('setAttribute')), [
+                  t.stringLiteral(entry.attributeName!),
+                  t.callExpression(t.identifier('String'), [attrVal]),
+                ]),
+              ),
+            ),
+          )
+        }
+        break
+      }
+    }
+  }
+
+  const itemIdExpr =
+    itemIdProperty && itemIdProperty !== ITEM_IS_KEY
+      ? t.memberExpression(t.identifier('item'), t.identifier(itemIdProperty))
+      : t.callExpression(t.identifier('String'), [t.identifier('item')])
+  body.push(
+    t.expressionStatement(
+      t.callExpression(t.memberExpression(elVar, t.identifier('setAttribute')), [
+        t.stringLiteral('data-gea-item-id'),
+        itemIdExpr,
+      ]),
+    ),
+  )
+
+  if (arrayMap.containerBindingId) {
+    body.push(
+      t.variableDeclaration('var', [
+        t.variableDeclarator(t.identifier('__c'), t.memberExpression(t.thisExpression(), t.identifier(containerProp))),
+      ]),
+      t.ifStatement(
+        t.logicalExpression(
+          '&&',
+          t.identifier('__c'),
+          t.memberExpression(t.identifier('__c'), t.identifier('__geaIdPfx')),
+        ),
+        t.expressionStatement(
+          t.assignmentExpression(
+            '=',
+            t.memberExpression(elVar, t.identifier('id')),
+            t.binaryExpression('+', t.memberExpression(t.identifier('__c'), t.identifier('__geaIdPfx')), itemIdExpr),
+          ),
+        ),
+      ),
+    )
+  }
+
+  body.push(
+    t.expressionStatement(
+      t.assignmentExpression('=', t.memberExpression(elVar, t.identifier('__geaItem')), t.identifier('item')),
+    ),
+  )
+
+  const params: t.Identifier[] = [t.identifier('row'), t.identifier('item'), t.identifier('__prevItem')]
+  if (arrayMap.indexVariable) params.push(t.identifier('__idx'))
+  return t.classMethod('method', t.identifier(methodName), params, t.blockStatement(body))
 }
 
 export function collectPatchEntries(arrayMap: ArrayMapBinding): PatchPlan {
@@ -91,6 +379,9 @@ export function collectPatchEntries(arrayMap: ArrayMapBinding): PatchPlan {
     const rootTagName = getJSXTagName(modified.openingElement.name)
     const rootIsComponent = isComponentTag(rootTagName)
     walkJSXForPatch(modified, [], entries, rootIsComponent)
+  }
+  for (const ent of entries) {
+    ent.expression = optionalizeMemberChainsAfterComputedItemKey(ent.expression, 'item')
   }
   return { entries, requiresRerender }
 }
@@ -263,8 +554,8 @@ export function generateCreateItemMethod(
   const itemIdProperty = arrayMap.itemIdProperty
 
   // Detect if the map item template root is a component (PascalCase tag)
-  const itemTemplateRootIsComponent = t.isJSXElement(arrayMap.itemTemplate) &&
-    isComponentTag(getJSXTagName(arrayMap.itemTemplate.openingElement.name))
+  const itemTemplateRootIsComponent =
+    t.isJSXElement(arrayMap.itemTemplate) && isComponentTag(getJSXTagName(arrayMap.itemTemplate.openingElement.name))
 
   let { entries, requiresRerender } = collectPatchEntries(arrayMap)
 
@@ -367,7 +658,8 @@ export function generateCreateItemMethod(
                 else if (t.isObjectPattern(decl.id)) {
                   for (const prop of decl.id.properties) {
                     if (t.isObjectProperty(prop) && t.isIdentifier(prop.value)) setupVarNames.add(prop.value.name)
-                    else if (t.isRestElement(prop) && t.isIdentifier(prop.argument)) setupVarNames.add(prop.argument.name)
+                    else if (t.isRestElement(prop) && t.isIdentifier(prop.argument))
+                      setupVarNames.add(prop.argument.name)
                   }
                 }
               }
@@ -385,14 +677,21 @@ export function generateCreateItemMethod(
           }
           let needsSetup = false
           for (const name of setupVarNames) {
-            if (propsRefsFreeVars.has(name)) { needsSetup = true; break }
+            if (propsRefsFreeVars.has(name)) {
+              needsSetup = true
+              break
+            }
           }
           if (needsSetup) {
             const propRefsNames = propNames ?? new Set<string>()
             for (const stmt of templateSetupContext.statements) {
               let clonedStmt = t.cloneNode(stmt, true) as t.Statement
               if (propRefsNames.size > 0 || wholeParamName) {
-                clonedStmt = replacePropRefsInExpression(clonedStmt as any, propRefsNames, wholeParamName) as any as t.Statement
+                clonedStmt = replacePropRefsInExpression(
+                  clonedStmt as any,
+                  propRefsNames,
+                  wholeParamName,
+                ) as any as t.Statement
               }
               rerenderBody.push(clonedStmt)
             }
@@ -418,7 +717,7 @@ export function generateCreateItemMethod(
 
   const { hoists, patchedEntries } = hoistStoreReads(entries, arrayMap.storeVar)
 
-  const itemProps = collectItemTemplateProps(arrayMap.itemTemplate!, arrayMap.itemVariable)
+  const propTree = collectItemTemplatePropTree(arrayMap.itemTemplate!, arrayMap.itemVariable)
 
   const containerRef = t.memberExpression(t.thisExpression(), t.identifier(containerProp))
   const cVar = t.identifier('__c')
@@ -432,26 +731,17 @@ export function generateCreateItemMethod(
   const dummyItem: t.Expression = isPrimitiveKey
     ? t.stringLiteral('__dummy__')
     : (() => {
-        const dummyProps: t.ObjectProperty[] = []
-        const seen = new Set<string>()
-        for (const prop of [itemIdProperty, ...itemProps]) {
-          if (seen.has(prop)) continue
-          seen.add(prop)
-          dummyProps.push(
-            t.objectProperty(t.identifier(prop), prop === itemIdProperty ? t.numericLiteral(0) : t.stringLiteral('')),
-          )
-        }
-        return t.objectExpression(dummyProps)
+        if (itemIdProperty && !(itemIdProperty in propTree)) propTree[itemIdProperty] = true
+        return buildDummyFromTree(propTree, itemIdProperty)
       })()
 
   const tplInit: t.Statement[] = [
     t.variableDeclaration('var', [
       t.variableDeclarator(
         t.identifier('__tw'),
-        t.callExpression(
-          t.memberExpression(t.identifier('document'), t.identifier('createElement')),
-          [t.stringLiteral('template')],
-        ),
+        t.callExpression(t.memberExpression(t.identifier('document'), t.identifier('createElement')), [
+          t.stringLiteral('template'),
+        ]),
       ),
     ]),
     t.expressionStatement(
@@ -519,10 +809,9 @@ export function generateCreateItemMethod(
         t.variableDeclaration('var', [
           t.variableDeclarator(
             t.identifier('__fw'),
-            t.callExpression(
-              t.memberExpression(t.identifier('document'), t.identifier('createElement')),
-              [t.stringLiteral('template')],
-            ),
+            t.callExpression(t.memberExpression(t.identifier('document'), t.identifier('createElement')), [
+              t.stringLiteral('template'),
+            ]),
           ),
         ]),
         t.expressionStatement(
@@ -561,26 +850,25 @@ export function generateCreateItemMethod(
     const refName = childPathRefName(entry.childPath)
     const navExpr = buildElementNavExpr(elVar, entry.childPath)
     body.push(
-      t.expressionStatement(
-        t.assignmentExpression(
-          '=',
-          t.memberExpression(elVar, t.identifier(refName)),
-          navExpr,
-        ),
-      ),
+      t.expressionStatement(t.assignmentExpression('=', t.memberExpression(elVar, t.identifier(refName)), navExpr)),
     )
     refMap.set(key, t.memberExpression(elVar, t.identifier(refName)))
   }
 
   for (const entry of patchedEntries) {
-    const navExpr = entry.childPath.length > 0
-      ? (refMap.get(entry.childPath.join('_')) || buildElementNavExpr(elVar, entry.childPath))
-      : elVar
+    const navExpr =
+      entry.childPath.length > 0
+        ? refMap.get(entry.childPath.join('_')) || buildElementNavExpr(elVar, entry.childPath)
+        : elVar
     switch (entry.type) {
       case 'className':
         body.push(
           t.expressionStatement(
-            t.assignmentExpression('=', t.memberExpression(navExpr, t.identifier('className')), entry.expression),
+            t.assignmentExpression(
+              '=',
+              t.memberExpression(navExpr, t.identifier('className')),
+              buildTrimmedClassValueExpression(t.cloneNode(entry.expression, true) as t.Expression),
+            ),
           ),
         )
         break
@@ -617,15 +905,26 @@ export function generateCreateItemMethod(
                       t.memberExpression(
                         t.callExpression(
                           t.memberExpression(
-                            t.callExpression(t.memberExpression(t.identifier('Object'), t.identifier('entries')), [attrVal]),
+                            t.callExpression(t.memberExpression(t.identifier('Object'), t.identifier('entries')), [
+                              attrVal,
+                            ]),
                             t.identifier('map'),
                           ),
                           [
                             t.arrowFunctionExpression(
                               [t.arrayPattern([t.identifier('k'), t.identifier('v')])],
-                              t.binaryExpression('+', t.binaryExpression('+',
-                                t.callExpression(t.memberExpression(t.identifier('k'), t.identifier('replace')), [t.regExpLiteral('[A-Z]', 'g'), t.stringLiteral('-$&')]),
-                                t.stringLiteral(': ')), t.identifier('v')),
+                              t.binaryExpression(
+                                '+',
+                                t.binaryExpression(
+                                  '+',
+                                  t.callExpression(t.memberExpression(t.identifier('k'), t.identifier('replace')), [
+                                    t.regExpLiteral('[A-Z]', 'g'),
+                                    t.stringLiteral('-$&'),
+                                  ]),
+                                  t.stringLiteral(': '),
+                                ),
+                                t.identifier('v'),
+                              ),
                             ),
                           ],
                         ),
