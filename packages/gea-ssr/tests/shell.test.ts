@@ -36,3 +36,29 @@ describe('parseShell', () => {
     assert.ok(after.startsWith('</div>'))
   })
 })
+
+describe('parseShell — escapeRegex coverage', () => {
+  it('handles app element ID with dots', () => {
+    const html = '<html><head></head><body><div id="my.app"></div></body></html>'
+    const result = parseShell(html, 'my.app')
+    assert.ok(result.before.includes('id="my.app"'))
+  })
+
+  it('handles app element ID with brackets', () => {
+    const html = '<html><head></head><body><div id="app[0]"></div></body></html>'
+    const result = parseShell(html, 'app[0]')
+    assert.ok(result.before.includes('id="app[0]"'))
+  })
+
+  it('handles app element ID with plus and star', () => {
+    const html = '<html><head></head><body><div id="app+star*"></div></body></html>'
+    const result = parseShell(html, 'app+star*')
+    assert.ok(result.before.includes('id="app+star*"'))
+  })
+
+  it('handles app element ID with parentheses', () => {
+    const html = '<html><head></head><body><div id="app(1)"></div></body></html>'
+    const result = parseShell(html, 'app(1)')
+    assert.ok(result.before.includes('id="app(1)"'))
+  })
+})

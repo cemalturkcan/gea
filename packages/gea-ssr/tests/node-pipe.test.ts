@@ -60,4 +60,54 @@ describe('pipeToNodeResponse', () => {
       new Promise((_, reject) => setTimeout(() => reject(new Error('pipeToNodeResponse hung after client disconnect')), 2000)),
     ])
   })
+
+  it('stops writing after multiple chunks when client disconnects', async () => {
+    const res = createMockResponse()
+
+    let controllerRef: ReadableStreamDefaultController<Uint8Array>
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) { controllerRef = controller },
+    })
+
+    const pipePromise = pipeToNodeResponse(stream, res)
+
+    // Write first chunk
+    controllerRef!.enqueue(new TextEncoder().encode('chunk1'))
+    await new Promise(resolve => setTimeout(resolve, 5))
+
+    // Disconnect after first chunk
+    res.emit('close')
+
+    await Promise.race([
+      pipePromise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('hung')), 2000)),
+    ])
+
+    assert.equal(res.chunks.length, 1, 'only one chunk written before disconnect')
+  })
+
+  it('handles backpressure then disconnect without hanging', async () => {
+    const emitter = new EventEmitter()
+    const res = Object.assign(emitter, {
+      write() { return false }, // Always backpressure
+      end() {},
+    })
+
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('data'))
+      },
+    })
+
+    const pipePromise = pipeToNodeResponse(stream, res)
+
+    // Disconnect while waiting for drain
+    await new Promise(resolve => setTimeout(resolve, 5))
+    res.emit('close')
+
+    await Promise.race([
+      pipePromise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('hung after backpressure disconnect')), 2000)),
+    ])
+  })
 })

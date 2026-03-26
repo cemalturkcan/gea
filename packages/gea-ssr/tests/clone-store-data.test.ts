@@ -101,3 +101,66 @@ describe('cloneStoreData – fail fast on unsupported types', () => {
     assert.equal(cloned.visible, 'yes')
   })
 })
+
+describe('cloneStoreData – deep structures', () => {
+  it('clones deeply nested objects (5 levels) with independence', () => {
+    const store = {
+      level1: {
+        level2: {
+          level3: {
+            level4: {
+              level5: 'deep-value',
+            },
+          },
+        },
+      },
+    }
+    const result = cloneStoreData(store)
+    const l1 = result.level1 as Record<string, unknown>
+    const l2 = l1.level2 as Record<string, unknown>
+    const l3 = l2.level3 as Record<string, unknown>
+    const l4 = l3.level4 as Record<string, unknown>
+    assert.equal(l4.level5, 'deep-value')
+
+    // Verify deep independence
+    l4.level5 = 'mutated'
+    assert.equal(store.level1.level2.level3.level4.level5, 'deep-value')
+  })
+
+  it('clones arrays of objects with independence', () => {
+    const store = {
+      items: [{ id: 1, name: 'a' }, { id: 2, name: 'b' }],
+    }
+    const result = cloneStoreData(store)
+    const items = result.items as Array<Record<string, unknown>>
+    assert.equal(items.length, 2)
+    assert.equal(items[0].id, 1)
+    items[0].name = 'mutated'
+    assert.equal(store.items[0].name, 'a', 'original unchanged')
+  })
+
+  it('clones Date objects preserving time', () => {
+    const date = new Date('2026-01-15T10:30:00Z')
+    const store = { created: date }
+    const result = cloneStoreData(store)
+    assert.ok(result.created instanceof Date)
+    assert.equal((result.created as Date).getTime(), date.getTime())
+    assert.notEqual(result.created, date, 'different Date instance')
+  })
+
+  it('handles mixed nested structure with arrays and objects', () => {
+    const store = {
+      config: {
+        tags: ['alpha', 'beta'],
+        settings: { theme: 'dark', sizes: [10, 20, 30] },
+      },
+    }
+    const result = cloneStoreData(store)
+    const config = result.config as Record<string, unknown>
+    const tags = config.tags as string[]
+    assert.deepEqual(tags, ['alpha', 'beta'])
+    const settings = config.settings as Record<string, unknown>
+    assert.equal(settings.theme, 'dark')
+    assert.deepEqual(settings.sizes, [10, 20, 30])
+  })
+})

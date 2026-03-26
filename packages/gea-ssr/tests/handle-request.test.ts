@@ -76,6 +76,22 @@ describe('handleRequest', () => {
     assert.equal(response.status, 200)
   })
 
+  it('never executes route guard functions during SSR', async () => {
+    let guardCalled = false
+    const handler = handleRequest(TestApp, {
+      indexHtml,
+      routes: {
+        '/protected': {
+          guard: () => { guardCalled = true; return '/login' },
+          children: { '/page': TestApp },
+        },
+      },
+    })
+    const response = await handler(new Request('http://localhost/protected/page'))
+    assert.equal(guardCalled, false, 'guard should never be called during SSR')
+    assert.equal(response.status, 200, 'page renders without guard redirect')
+  })
+
   it('calls onError when onBeforeRender throws', async () => {
     let caughtError: Error | null = null
     const handler = handleRequest(TestApp, {
@@ -102,6 +118,18 @@ describe('handleRequest', () => {
     })
     const response = await handler(new Request('http://localhost/'))
     assert.equal(response.status, 500)
+  })
+
+  it('returns 500 when both onBeforeRender and onError throw', async () => {
+    const handler = handleRequest(TestApp, {
+      indexHtml,
+      async onBeforeRender() { throw new Error('primary failure') },
+      onError() { throw new Error('handler also failed') },
+    })
+    const response = await handler(new Request('http://localhost/'))
+    assert.equal(response.status, 500)
+    const body = await response.text()
+    assert.equal(body, 'Internal Server Error')
   })
 
   it('serializes store state into HTML', async () => {

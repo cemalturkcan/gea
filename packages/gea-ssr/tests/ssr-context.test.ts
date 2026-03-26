@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { handleRequest } from '../src/handle-request.ts'
+import { resolveOverlay, runInSSRContext } from '../src/ssr-context.ts'
 import type { GeaComponentInstance, GeaStore } from '../src/types.ts'
 import { Store } from '../../gea/src/lib/store.ts'
 
@@ -109,5 +110,128 @@ describe('SSR context isolation', () => {
 
     // Singleton untouched
     assert.equal(sharedStore.user, 'initial')
+  })
+})
+
+describe('resolveOverlay()', () => {
+  it('returns undefined outside SSR context', () => {
+    const store = { count: 0 }
+    const result = resolveOverlay(store)
+    assert.equal(result, undefined)
+  })
+
+  it('returns cloned overlay inside SSR context', async () => {
+    const store = { count: 5, name: 'test' }
+    await runInSSRContext([store], () => {
+      const overlay = resolveOverlay(store)
+      assert.ok(overlay !== undefined)
+      assert.equal(overlay!.count, 5)
+      assert.equal(overlay!.name, 'test')
+    })
+  })
+
+  it('overlay is independent from original store', async () => {
+    const store = { count: 5 }
+    await runInSSRContext([store], () => {
+      const overlay = resolveOverlay(store)
+      overlay!.count = 99
+      assert.equal(store.count, 5, 'original store unchanged')
+      assert.equal(overlay!.count, 99, 'overlay mutated independently')
+    })
+  })
+})
+
+describe('unwrapProxy via runInSSRContext', () => {
+  it('uses __getRawTarget when present on store', async () => {
+    const realStore = { count: 10 }
+    const proxy = {
+      count: 10,
+      __getRawTarget: realStore,
+    }
+    await runInSSRContext([proxy], () => {
+      // resolveOverlay uses the raw target as key
+      const overlayViaProxy = resolveOverlay(proxy)
+      assert.equal(overlayViaProxy, undefined, 'proxy itself is not the key')
+      const overlayViaRaw = resolveOverlay(realStore)
+      assert.ok(overlayViaRaw !== undefined, 'raw target is the key')
+      assert.equal(overlayViaRaw!.count, 10)
+    })
+  })
+
+  it('uses store directly when __getRawTarget is not an object', async () => {
+    const store = { count: 7, __getRawTarget: 'not-an-object' }
+    await runInSSRContext([store], () => {
+      const overlay = resolveOverlay(store)
+      assert.ok(overlay !== undefined, 'store itself is the key')
+    })
+  })
+})
+
+describe('store isolation — advanced concurrency', () => {
+  it('nested async operations see same overlay within one context', async () => {
+    const store = { count: 0 }
+    await runInSSRContext([store], async () => {
+      const overlay1 = resolveOverlay(store)
+      overlay1!.count = 10
+
+      await new Promise(resolve => setTimeout(resolve, 1))
+
+      const overlay2 = resolveOverlay(store)
+      assert.equal(overlay2!.count, 10, 'same overlay across async boundary')
+      assert.equal(overlay1, overlay2, 'same reference')
+    })
+  })
+
+  it('parallel SSR contexts get independent overlays', async () => {
+    const store = { count: 0 }
+    const results: number[] = []
+
+    await Promise.all([
+      runInSSRContext([store], async () => {
+        const overlay = resolveOverlay(store)!
+        overlay.count = 100
+        await new Promise(resolve => setTimeout(resolve, 5))
+        results.push(overlay.count)
+      }),
+      runInSSRContext([store], async () => {
+        const overlay = resolveOverlay(store)!
+        overlay.count = 200
+        await new Promise(resolve => setTimeout(resolve, 5))
+        results.push(overlay.count)
+      }),
+    ])
+
+    assert.ok(results.includes(100))
+    assert.ok(results.includes(200))
+    assert.equal(store.count, 0, 'original store untouched')
+  })
+
+  it('overlay not accessible after context ends', async () => {
+    const store = { count: 0 }
+    await runInSSRContext([store], async () => {
+      const overlay = resolveOverlay(store)
+      assert.ok(overlay !== undefined)
+    })
+    const afterOverlay = resolveOverlay(store)
+    assert.equal(afterOverlay, undefined, 'overlay gone after context exits')
+  })
+
+  it('handles multiple stores in parallel contexts', async () => {
+    const storeA = { value: 'a' }
+    const storeB = { value: 'b' }
+
+    await Promise.all([
+      runInSSRContext([storeA, storeB], async () => {
+        resolveOverlay(storeA)!.value = 'a-modified'
+        resolveOverlay(storeB)!.value = 'b-modified'
+        await new Promise(resolve => setTimeout(resolve, 2))
+        assert.equal(resolveOverlay(storeA)!.value, 'a-modified')
+        assert.equal(resolveOverlay(storeB)!.value, 'b-modified')
+      }),
+      runInSSRContext([storeA, storeB], async () => {
+        assert.equal(resolveOverlay(storeA)!.value, 'a')
+        assert.equal(resolveOverlay(storeB)!.value, 'b')
+      }),
+    ])
   })
 })
