@@ -31,6 +31,7 @@ export function transformComponentFile(
   originalAST: t.File,
   compImportsUsedAsTags: Set<string>,
   knownComponentImports: Set<string> = new Set(),
+  ssr: boolean = false,
 ): boolean {
   let transformed = false
   const stateRefs = collectStateReferences(originalAST, storeImports)
@@ -195,7 +196,7 @@ export function transformComponentFile(
       }
       transformNestedReturns(body)
 
-      if (earlyReturnCtx.eventHandlers.length > 0) {
+      if (!ssr && earlyReturnCtx.eventHandlers.length > 0) {
         const earlyClassPath = path.findParent((p) =>
           t.isClassDeclaration(p.node),
         ) as NodePath<t.ClassDeclaration> | null
@@ -217,7 +218,7 @@ export function transformComponentFile(
         analysis.stateChildSlots = stateChildSlots
       }
 
-      if (eventHandlers.length > 0) {
+      if (!ssr && eventHandlers.length > 0) {
         const classPath = path.findParent((p) => t.isClassDeclaration(p.node)) as NodePath<t.ClassDeclaration> | null
         if (classPath) {
           const setupStatements = returnIndex >= 0 ? body.slice(0, returnIndex) : []
@@ -357,19 +358,21 @@ export function transformComponentFile(
   transformRemainingJSX(ast, imports)
   addJoinToMapCallsInTemplates(ast)
 
-  transformed =
-    applyStaticReactivity(
-      ast,
-      originalAST,
-      className,
-      sourceFile,
-      imports,
-      stateRefs,
-      storeImports,
-      compiledChildren,
-      eventIdCounter,
-      preTransformAnalysis,
-    ) || transformed
+  if (!ssr) {
+    transformed =
+      applyStaticReactivity(
+        ast,
+        originalAST,
+        className,
+        sourceFile,
+        imports,
+        stateRefs,
+        storeImports,
+        compiledChildren,
+        eventIdCounter,
+        preTransformAnalysis,
+      ) || transformed
+  }
 
   transformRemainingJSX(ast, imports)
 
