@@ -51,6 +51,9 @@
     "url": "https://github.com/dashersw/gea/issues"
   },
   "homepage": "https://github.com/dashersw/gea#readme",
+  "dependencies": {
+    "@types/react": "^19.0.0"
+  },
   "devDependencies": {
     "@types/node": "^25.5.0",
     "c8": "^11.0.0",
