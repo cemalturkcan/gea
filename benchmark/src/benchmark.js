@@ -48,14 +48,14 @@ export default class Benchmark extends Component {
         </div>
         <table class="table table-hover table-striped test-data">
           <tbody id="tbody">
-            {store.data.map((item) => (
+            {store.data.map((item, index) => (
               <tr key={item.id} class={store.selected === item.id ? 'danger' : ''}>
                 <td class="col-md-1">{item.id}</td>
                 <td class="col-md-4">
                   <a click={() => store.select(item.id)}>{item.label}</a>
                 </td>
                 <td class="col-md-1">
-                  <a click={() => store.remove(item)}>
+                  <a click={() => store.remove(index)}>
                     <span class="glyphicon glyphicon-remove" aria-hidden="true"></span>
                   </a>
                 </td>

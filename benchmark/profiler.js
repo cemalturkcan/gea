@@ -286,8 +286,7 @@
         s.run()
       },
       (s) => {
-        const items = s.data.__getTarget || s.data
-        s.remove(items[500]?.id || 500)
+        s.remove(500)
       },
       10,
     )
