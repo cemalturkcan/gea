@@ -2,7 +2,12 @@ import * as t from '@babel/types'
 import { getTemplateParamBinding } from './template-param-utils.ts'
 import { id, jsBlockBody, jsMethod } from 'eszter'
 import type { EventHandler } from './ir.ts'
-import { buildMemberChainFromParts, extractHandlerBody, replacePropRefsInStatements } from './utils.ts'
+import {
+  buildMemberChainFromParts,
+  buildOptionalMemberChain,
+  extractHandlerBody,
+  replacePropRefsInStatements,
+} from './utils.ts'
 import { ITEM_IS_KEY } from './analyze-helpers.ts'
 import { collectTemplateSetupStatements } from './transform-attributes.ts'
 
@@ -81,7 +86,11 @@ function ensureMapItemHelper(
           t.binaryExpression(
             '===',
             t.callExpression(t.identifier('String'), [
-              t.optionalMemberExpression(t.identifier('__candidate'), t.identifier(ctx.itemIdProperty), false, true),
+              t.logicalExpression(
+                '??',
+                buildOptionalMemberChain(t.identifier('__candidate'), ctx.itemIdProperty),
+                t.identifier('__candidate'),
+              ),
             ]),
             t.identifier('__itemId'),
           ),

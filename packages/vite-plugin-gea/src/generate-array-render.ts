@@ -3,6 +3,7 @@ import { appendToBody, id, js, jsMethod } from 'eszter'
 import type { ArrayMapBinding, EventHandler, HandlerPropInMap } from './ir.ts'
 import { transformJSXToTemplate } from './transform-jsx.ts'
 import {
+  buildOptionalMemberChain,
   normalizePathParts,
   pathPartsToString,
   replacePropRefsInExpression,
@@ -47,7 +48,11 @@ function buildHandlerRegistrationStatements(
         : t.arrowFunctionExpression([t.identifier('e')], t.blockStatement(bodyWithProps))
     const keyExpr =
       hp.itemIdProperty && hp.itemIdProperty !== ITEM_IS_KEY
-        ? t.memberExpression(t.identifier(itemVariable), t.identifier(hp.itemIdProperty))
+        ? t.logicalExpression(
+            '??',
+            buildOptionalMemberChain(t.identifier(itemVariable), hp.itemIdProperty),
+            t.identifier(itemVariable),
+          )
         : t.callExpression(t.identifier('String'), [t.identifier(itemVariable)])
     stmts.push(
       t.expressionStatement(
@@ -86,7 +91,11 @@ export function buildPopulateItemHandlersMethod(
     const itemVar = 'item' // populate method uses generic loop var
     const keyExpr =
       hp.itemIdProperty && hp.itemIdProperty !== ITEM_IS_KEY
-        ? t.memberExpression(t.identifier(itemVar), t.identifier(hp.itemIdProperty))
+        ? t.logicalExpression(
+            '??',
+            buildOptionalMemberChain(t.identifier(itemVar), hp.itemIdProperty),
+            t.identifier(itemVar),
+          )
         : t.callExpression(t.identifier('String'), [t.identifier(itemVar)])
     loopBody.push(
       t.expressionStatement(

@@ -36,6 +36,7 @@ import { getHoistableRootEventsForImport } from './component-event-helpers.ts'
 import { appendCompiledEventMethods } from './generate-events.ts'
 import {
   buildMemberChainFromParts,
+  buildOptionalMemberChain,
   buildObserveKey,
   getObserveMethodName,
   parseObserveKey,
@@ -223,7 +224,11 @@ function generateCreatedHooks(
           config.itemIdProperty && config.itemIdProperty !== ITEM_IS_KEY
             ? t.arrowFunctionExpression(
                 [t.identifier('opt')],
-                t.memberExpression(t.identifier('opt'), t.identifier(config.itemIdProperty)),
+                t.logicalExpression(
+                  '??',
+                  buildOptionalMemberChain(t.identifier('opt'), config.itemIdProperty),
+                  t.identifier('opt'),
+                ),
               )
             : config.itemIdProperty === ITEM_IS_KEY
               ? t.arrowFunctionExpression([t.identifier('opt')], t.identifier('opt'))
@@ -3771,7 +3776,11 @@ function injectMapItemAttrsIntoTemplate(
 
       const itemIdExpr =
         info.itemIdProperty && info.itemIdProperty !== ITEM_IS_KEY
-          ? t.memberExpression(t.identifier(info.itemVariable), t.identifier(info.itemIdProperty))
+          ? t.logicalExpression(
+              '??',
+              buildOptionalMemberChain(t.identifier(info.itemVariable), info.itemIdProperty),
+              t.identifier(info.itemVariable),
+            )
           : t.callExpression(t.identifier('String'), [t.identifier(info.itemVariable)])
       const eventAttr = info.eventToken ? ` data-gea-event="${info.eventToken}"` : ''
 

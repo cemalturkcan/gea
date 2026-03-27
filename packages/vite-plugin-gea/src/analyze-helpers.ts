@@ -322,6 +322,17 @@ function rewriteEarlyReturns(node: t.Statement): void {
 /** Sentinel returned by detectItemIdProperty when `key={item}` — the item itself is the key. */
 export const ITEM_IS_KEY = '__self__'
 
+function getItemMemberPath(expr: t.Expression, itemVar: string): string | undefined {
+  const parts: string[] = []
+  let current: t.Expression = expr
+  while (t.isMemberExpression(current) && !current.computed && t.isIdentifier(current.property)) {
+    parts.unshift(current.property.name)
+    current = current.object
+  }
+  if (!t.isIdentifier(current) || current.name !== itemVar || parts.length === 0) return undefined
+  return parts.join('.')
+}
+
 export function detectItemIdProperty(
   template: t.JSXElement | t.JSXFragment | undefined,
   itemVar: string,
@@ -331,13 +342,8 @@ export function detectItemIdProperty(
     if (!t.isJSXAttribute(attr) || !t.isJSXIdentifier(attr.name) || attr.name.name !== 'key') continue
     if (!t.isJSXExpressionContainer(attr.value)) continue
     const keyExpr = attr.value.expression
-    if (
-      t.isMemberExpression(keyExpr) &&
-      t.isIdentifier(keyExpr.object) &&
-      keyExpr.object.name === itemVar &&
-      t.isIdentifier(keyExpr.property)
-    )
-      return keyExpr.property.name
+    const memberPath = getItemMemberPath(keyExpr as t.Expression, itemVar)
+    if (memberPath) return memberPath
     if (t.isIdentifier(keyExpr) && keyExpr.name === itemVar) return ITEM_IS_KEY
   }
   return undefined

@@ -3,6 +3,7 @@ import { appendToBody, id, js, jsMethod } from 'eszter'
 import type { NodePath } from '@babel/traverse'
 import type { ArrayMapBinding } from './ir.ts'
 import {
+  buildOptionalMemberChain,
   buildTrimmedClassValueExpression,
   camelToKebab,
   getJSXTagName,
@@ -68,6 +69,21 @@ interface DummyPropTree {
   [key: string]: DummyPropTree | true
 }
 
+function ensureDummyTreePath(tree: DummyPropTree, path: string): void {
+  const parts = normalizePathParts(path)
+  if (parts.length === 0) return
+  let cursor = tree
+  for (let i = 0; i < parts.length; i++) {
+    const key = parts[i]
+    if (i === parts.length - 1) {
+      if (!(key in cursor)) cursor[key] = true
+      return
+    }
+    if (!(key in cursor) || cursor[key] === true) cursor[key] = {}
+    cursor = cursor[key] as DummyPropTree
+  }
+}
+
 function collectItemTemplatePropTree(template: t.JSXElement | t.JSXFragment, itemVar: string): DummyPropTree {
   const tree: DummyPropTree = {}
   const program = t.program([t.expressionStatement(t.cloneNode(template, true))])
@@ -96,11 +112,16 @@ function collectItemTemplatePropTree(template: t.JSXElement | t.JSXFragment, ite
   return tree
 }
 
-function buildDummyFromTree(tree: DummyPropTree, keyProp: string | null): t.ObjectExpression {
+function buildDummyFromTree(tree: DummyPropTree, keyPathParts: string[] | null): t.ObjectExpression {
   const props: t.ObjectProperty[] = []
   for (const [key, value] of Object.entries(tree)) {
-    if (key === keyProp) {
+    const matchesKeyPath = keyPathParts && keyPathParts.length > 0 && keyPathParts[0] === key
+    if (matchesKeyPath && keyPathParts!.length === 1) {
       props.push(t.objectProperty(t.identifier(key), t.numericLiteral(0)))
+    } else if (matchesKeyPath) {
+      props.push(
+        t.objectProperty(t.identifier(key), buildDummyFromTree(value === true ? {} : value, keyPathParts!.slice(1))),
+      )
     } else if (value === true) {
       props.push(t.objectProperty(t.identifier(key), t.stringLiteral('')))
     } else {
@@ -317,7 +338,7 @@ export function generatePatchItemMethod(
 
   const itemIdExpr =
     itemIdProperty && itemIdProperty !== ITEM_IS_KEY
-      ? t.memberExpression(t.identifier('item'), t.identifier(itemIdProperty))
+      ? t.logicalExpression('??', buildOptionalMemberChain(t.identifier('item'), itemIdProperty), t.identifier('item'))
       : t.callExpression(t.identifier('String'), [t.identifier('item')])
   body.push(
     t.expressionStatement(
@@ -731,8 +752,8 @@ export function generateCreateItemMethod(
   const dummyItem: t.Expression = isPrimitiveKey
     ? t.stringLiteral('__dummy__')
     : (() => {
-        if (itemIdProperty && !(itemIdProperty in propTree)) propTree[itemIdProperty] = true
-        return buildDummyFromTree(propTree, itemIdProperty)
+        if (itemIdProperty) ensureDummyTreePath(propTree, itemIdProperty)
+        return buildDummyFromTree(propTree, itemIdProperty ? normalizePathParts(itemIdProperty) : null)
       })()
 
   const tplInit: t.Statement[] = [
@@ -968,7 +989,7 @@ export function generateCreateItemMethod(
 
   const itemIdExpr =
     itemIdProperty && itemIdProperty !== ITEM_IS_KEY
-      ? t.memberExpression(t.identifier('item'), t.identifier(itemIdProperty))
+      ? t.logicalExpression('??', buildOptionalMemberChain(t.identifier('item'), itemIdProperty), t.identifier('item'))
       : t.callExpression(t.identifier('String'), [t.identifier('item')])
   body.push(
     t.expressionStatement(

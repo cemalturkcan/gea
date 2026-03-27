@@ -15,6 +15,17 @@ import { createRequire } from 'module'
 const require = createRequire(import.meta.url)
 const traverse = require('@babel/traverse').default
 
+function getItemMemberPath(expr: t.Expression, itemVar: string): string | null {
+  const parts: string[] = []
+  let current: t.Expression = expr
+  while (t.isMemberExpression(current) && !current.computed && t.isIdentifier(current.property)) {
+    parts.unshift(current.property.name)
+    current = current.object
+  }
+  if (!t.isIdentifier(current) || current.name !== itemVar || parts.length === 0) return null
+  return parts.join('.')
+}
+
 export function analyzeJSXInMap(
   node: t.JSXElement,
   arrayPath: PathParts,
@@ -444,13 +455,7 @@ function resolveSide(
   if (itemIdProperty === ITEM_IS_KEY && t.isIdentifier(expr) && expr.name === itemVar) {
     return { kind: 'item-id' }
   }
-  if (
-    t.isMemberExpression(expr) &&
-    t.isIdentifier(expr.object) &&
-    expr.object.name === itemVar &&
-    t.isIdentifier(expr.property) &&
-    expr.property.name === itemIdProperty
-  ) {
+  if (getItemMemberPath(expr, itemVar) === itemIdProperty) {
     return { kind: 'item-id' }
   }
 

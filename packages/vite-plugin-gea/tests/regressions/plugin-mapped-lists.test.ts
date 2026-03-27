@@ -867,3 +867,38 @@ export default class App {
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+test('nested member keys become data-gea-item-id expressions', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'gea-nested-map-key-'))
+  try {
+    const componentPath = join(dir, 'App.jsx')
+    const output = await transformWithPlugin(
+      `
+import store from './store'
+
+export default class App {
+  template() {
+    return (
+      <table>
+        <tbody>
+          {store.memberships.map((membership) => (
+            <tr key={membership.member.name}>
+              <td>{membership.member.name}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    )
+  }
+}
+      `,
+      componentPath,
+    )
+
+    assert.ok(output, 'should produce compiled output')
+    assert.match(output, /data-gea-item-id="\$\{membership\?\.member\?\.name \?\? membership\}"/)
+    assert.doesNotMatch(output, /data-gea-item-id="\$\{membership\.id\}"/)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})

@@ -3,6 +3,7 @@ import { appendToBody, id, js, jsBlockBody, jsExpr, jsMethod } from 'eszter'
 import type { ArrayMapBinding, ConditionalMapBinding, RelationalMapBinding } from './ir.ts'
 import { ITEM_IS_KEY } from './analyze-helpers.ts'
 import {
+  buildOptionalMemberChain,
   buildMemberChain,
   buildTrimmedClassValueExpression,
   getJSXTagName,
@@ -482,7 +483,7 @@ export function generateEnsureArrayConfigsMethod(arrayMaps: ArrayMapBinding[]): 
             t.callExpression(t.identifier('String'), [
               t.logicalExpression(
                 '??',
-                t.optionalMemberExpression(t.identifier('item'), t.identifier(arrayMap.itemIdProperty), false, true),
+                buildOptionalMemberChain(t.identifier('item'), arrayMap.itemIdProperty),
                 t.identifier('item'),
               ),
             ]),

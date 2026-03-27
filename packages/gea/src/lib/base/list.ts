@@ -3,6 +3,7 @@ import type { StoreChange } from '../store'
 export interface ListConfig {
   arrayPathParts: string[]
   create: (item: any, index?: number) => HTMLElement
+  render?: (item: any, index?: number) => string
   propPatchers?: Record<string, Array<(row: HTMLElement, value: any, item: any) => void>>
   patchRow?: (row: HTMLElement, item: any, prevItem: any, index?: number) => void
   getKey?: (item: any, index?: number) => string
@@ -17,14 +18,32 @@ function samePathParts(a?: string[], b?: string[]): boolean {
   return true
 }
 
-function rebuildList(container: HTMLElement, array: any[], create: (item: any, index?: number) => HTMLElement): void {
-  container.textContent = ''
-  if (array.length === 0) return
+function rebuildList(container: HTMLElement, array: any[], config: ListConfig): void {
+  if (array.length === 0) {
+    if (container.textContent !== '') container.textContent = ''
+    return
+  }
+
+  if (config.render && !config.hasComponentItems) {
+    const n = array.length
+    const parts = new Array<string>(n)
+    const render = config.render
+    for (let i = 0; i < n; i++) {
+      parts[i] = render(array[i], i)
+    }
+    container.innerHTML = parts.join('')
+    for (let i = 0; i < n; i++) {
+      const row = container.children[i] as HTMLElement | undefined
+      if (row) (row as any).__geaItem = array[i]
+    }
+    return
+  }
 
   const fragment = document.createDocumentFragment()
   for (let i = 0; i < array.length; i++) {
-    fragment.appendChild(create(array[i], i))
+    fragment.appendChild(config.create(array[i], i))
   }
+  if (container.textContent !== '') container.textContent = ''
   container.appendChild(fragment)
 }
 
@@ -128,12 +147,13 @@ function applyRootReplacementPatch(
   if (prevItems.length !== items.length || container.children.length !== items.length) return false
 
   for (let index = 0; index < items.length; index++) {
+    const prevKey = config.getKey(prevItems[index], index)
+    const nextKey = config.getKey(items[index], index)
+    if (prevKey !== nextKey) return false
     const row = container.children[index] as HTMLElement | undefined
     if (!row) return false
     const domKey = row.getAttribute('data-gea-item-id')
-    const prevKey = config.getKey(prevItems[index], index)
-    const nextKey = config.getKey(items[index], index)
-    if (domKey == null || domKey !== prevKey || domKey !== nextKey) return false
+    if (domKey == null || domKey !== prevKey) return false
   }
 
   for (let index = 0; index < items.length; index++) {
@@ -195,7 +215,7 @@ export function applyListChanges(
     if (applyRootReplacementPatch(container, items, firstChange, config)) {
       return
     }
-    rebuildList(container, items, config.create)
+    rebuildList(container, items, config)
     return
   }
 
@@ -240,7 +260,7 @@ export function applyListChanges(
   }
 
   if (!handledMutation) {
-    rebuildList(container, items, config.create)
+    rebuildList(container, items, config)
     return
   }
 
@@ -248,7 +268,7 @@ export function applyListChanges(
     const firstChild = container.children[0] as HTMLElement | undefined
     if (firstChild && !firstChild.hasAttribute('data-gea-item-id')) {
       if (container.children.length !== items.length) {
-        rebuildList(container, items, config.create)
+        rebuildList(container, items, config)
         return
       }
       // Lengths match: either legacy no-op (multiple non-row nodes) or a single empty-state

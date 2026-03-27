@@ -315,6 +315,34 @@ describe('applyListChanges', () => {
       assert.deepEqual(getTexts(container), ['x', 'y'])
     })
 
+    it('uses bulk render path for root replacements when render is available', () => {
+      const container = document.createElement('div')
+      const changes: StoreChange[] = [
+        {
+          type: 'update',
+          property: 'items',
+          target: {},
+          pathParts: ['items'],
+          newValue: ['x', 'y'],
+          previousValue: [],
+        },
+      ]
+
+      let createCalls = 0
+      const config: ListConfig = {
+        arrayPathParts: ['items'],
+        create: (item: string) => {
+          createCalls++
+          return createRow(item)
+        },
+        render: (item: string) => `<div data-gea-item-id="${item}">${item}</div>`,
+      }
+
+      applyListChanges(container, ['x', 'y'], changes, config)
+      assert.deepEqual(getTexts(container), ['x', 'y'])
+      assert.equal(createCalls, 0)
+    })
+
     it('patches rows in place for same-key root replacements when patchRow/getKey are available', () => {
       const container = document.createElement('div')
       const firstRow = document.createElement('div')

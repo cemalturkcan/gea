@@ -4,6 +4,7 @@ import type { StateRefMeta } from './parse.ts'
 import {
   buildTrimmedClassJoinedExpression,
   buildTrimmedClassValueExpression,
+  buildOptionalMemberChain,
   getDirectChildElements,
   getJSXTagName,
   isComponentTag as isCompTag,
@@ -21,7 +22,12 @@ import {
   getRootClassSelector,
   toGeaEventType,
 } from './component-event-helpers.ts'
-import { ITEM_IS_KEY, normalizeDestructuredMapCallback } from './analyze-helpers.ts'
+import {
+  ITEM_IS_KEY,
+  detectItemIdProperty,
+  extractItemTemplate,
+  normalizeDestructuredMapCallback,
+} from './analyze-helpers.ts'
 
 const RESERVED_HTML_TAG_NAMES = new Set([
   'a',
@@ -640,11 +646,12 @@ function replaceJSXInExpression(
     normalizeDestructuredMapCallback(fn)
     const handlerPropsInMap: HandlerPropInMap[] = []
     const mapItemVariable = t.isIdentifier(fn.params[0]) ? fn.params[0].name : 'item'
+    const mapItemIdProperty = detectItemIdProperty(extractItemTemplate(fn), mapItemVariable) || 'id'
     const mapCtx = {
       ...ctx,
       inMapCallback: true,
       handlerPropsInMap,
-      mapItemIdProperty: 'id',
+      mapItemIdProperty,
       mapItemVariable,
       conditionalSlots: undefined,
       conditionalSlotCursor: undefined,
@@ -929,7 +936,7 @@ function processElement(node: t.JSXElement, parts: TemplatePart[], ctx: Ctx, ele
     const itemIdProp = ctx.mapItemIdProperty
     const itemIdExpr: t.Expression =
       itemIdProp && itemIdProp !== ITEM_IS_KEY
-        ? t.memberExpression(t.identifier(itemVar), t.identifier(itemIdProp))
+        ? t.logicalExpression('??', buildOptionalMemberChain(t.identifier(itemVar), itemIdProp), t.identifier(itemVar))
         : t.callExpression(t.identifier('String'), [t.identifier(itemVar)])
 
     if (ctx.mapContainerBindingId) {
@@ -1084,7 +1091,11 @@ function processElement(node: t.JSXElement, parts: TemplatePart[], ctx: Ctx, ele
             const itemVar = ctx.mapItemVariable || 'item'
             const propItemIdExpr: t.Expression =
               itemIdProp && itemIdProp !== ITEM_IS_KEY
-                ? t.memberExpression(t.identifier(itemVar), t.identifier(itemIdProp))
+                ? t.logicalExpression(
+                    '??',
+                    buildOptionalMemberChain(t.identifier(itemVar), itemIdProp),
+                    t.identifier(itemVar),
+                  )
                 : t.callExpression(t.identifier('String'), [t.identifier(itemVar)])
             parts.push({ type: 'string', value: html })
             parts.push({

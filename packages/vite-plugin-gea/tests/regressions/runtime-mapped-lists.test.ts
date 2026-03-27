@@ -1052,3 +1052,94 @@ test('component array children reconcile by key, not by index', async () => {
     restoreDom()
   }
 })
+test('nested member keys let delegated map events target the correct row', async () => {
+  const restoreDom = installDom()
+
+  try {
+    const seed = `runtime-${Date.now()}-nested-map-key-events`
+    const [{ default: Component }, { Store }] = await loadRuntimeModules(seed)
+    const store = new Store({
+      memberships: [
+        { member: { name: 'Ada' }, dedication: 1, revenue: 100 },
+        { member: { name: 'Grace' }, dedication: 2, revenue: 200 },
+      ],
+    })
+
+    const MembershipTable = await compileJsxComponent(
+      `
+        import { Component } from '@geajs/core'
+        import store from './store.ts'
+
+        export default class MembershipTable extends Component {
+          updateDedication(name, dedication) {
+            const index = store.memberships.findIndex(entry => entry.member.name === name)
+            if (index < 0) return
+            store.memberships[index].dedication = dedication
+            store.memberships[index].revenue = dedication * 100
+          }
+
+          template() {
+            return (
+              <div>
+                <table>
+                  <tbody>
+                    {store.memberships.map(membership => (
+                      <tr key={membership.member.name}>
+                        <td class="name">{membership.member.name}</td>
+                        <td class="dedication">{membership.dedication}</td>
+                        <td class="revenue">{membership.revenue}</td>
+                        <td>
+                          <button class="bump" click={() => this.updateDedication(membership.member.name, membership.dedication + 1)}>
+                            Bump
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div class="total">{store.memberships.reduce((sum, membership) => sum + membership.revenue, 0)}</div>
+              </div>
+            )
+          }
+        }
+      `,
+      '/virtual/MembershipTable.jsx',
+      'MembershipTable',
+      { Component, store },
+    )
+
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+
+    const view = new MembershipTable()
+    view.render(root)
+    await flushMicrotasks()
+
+    const rows = () => Array.from(view.el.querySelectorAll('tbody > tr'))
+    const graceRowBefore = rows()[1] as HTMLElement | undefined
+    const graceButton = graceRowBefore?.querySelector('.bump') as HTMLElement | null
+
+    assert.equal(rows()[0]?.getAttribute('data-gea-item-id'), 'Ada')
+    assert.equal(rows()[1]?.getAttribute('data-gea-item-id'), 'Grace')
+    assert.equal(graceRowBefore?.querySelector('.dedication')?.textContent?.trim(), '2')
+    assert.equal(graceRowBefore?.querySelector('.revenue')?.textContent?.trim(), '200')
+    assert.equal(view.el.querySelector('.total')?.textContent?.trim(), '300')
+
+    graceButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+    await flushMicrotasks()
+
+    const graceRowAfter = rows()[1] as HTMLElement | undefined
+    assert.equal(graceRowAfter, graceRowBefore, 'Grace row DOM should be preserved')
+    assert.equal(store.memberships[0].dedication, 1)
+    assert.equal(store.memberships[0].revenue, 100)
+    assert.equal(store.memberships[1].dedication, 3)
+    assert.equal(store.memberships[1].revenue, 300)
+    assert.equal(rows()[0]?.getAttribute('data-gea-item-id'), 'Ada')
+    assert.equal(rows()[1]?.getAttribute('data-gea-item-id'), 'Grace')
+
+    view.dispose()
+    await flushMicrotasks()
+  } finally {
+    restoreDom()
+  }
+})

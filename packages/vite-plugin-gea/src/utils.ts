@@ -164,6 +164,18 @@ export function buildMemberChainFromParts(base: t.Expression, parts: PathParts):
   }, base)
 }
 
+export function buildOptionalMemberChain(base: t.Expression, path: string): t.Expression {
+  return buildOptionalMemberChainFromParts(base, path ? path.split('.') : [])
+}
+
+export function buildOptionalMemberChainFromParts(base: t.Expression, parts: PathParts): t.Expression {
+  if (parts.length === 0) return base
+  return parts.reduce<t.Expression>((acc, prop) => {
+    const isIndex = /^\d+$/.test(prop)
+    return t.optionalMemberExpression(acc, isIndex ? t.numericLiteral(Number(prop)) : t.identifier(prop), isIndex, true)
+  }, base)
+}
+
 function sanitizeObserveName(value: string): string {
   return value.replace(/[^a-zA-Z0-9_$]/g, '_')
 }
