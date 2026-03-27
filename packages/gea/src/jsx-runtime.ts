@@ -1,8 +1,7 @@
 /* eslint-disable @typescript-eslint/no-namespace, @typescript-eslint/no-empty-object-type */
-// Do not `/// <reference types="react" />` here — that pulls in React’s global JSX rules
-// and forces class components to match `React.Component` (constructor + instance shape).
+import type { JSX as ReactJSX, DOMAttributes, ReactEventHandler } from 'react'
 
-type _GeaDomAugment<T> = import('react').DOMAttributes<T>
+type _GeaDomAugment<T> = DOMAttributes<T>
 
 declare module 'react' {
   interface LabelHTMLAttributes<T> {
@@ -36,7 +35,7 @@ declare module 'react' {
     pointerup?: _GeaDomAugment<T>['onPointerUp']
     pointermove?: _GeaDomAugment<T>['onPointerMove']
     scroll?: _GeaDomAugment<T>['onScroll']
-    resize?: import('react').ReactEventHandler<T> | undefined
+    resize?: ReactEventHandler<T> | undefined
     drag?: _GeaDomAugment<T>['onDrag']
     dragstart?: _GeaDomAugment<T>['onDragStart']
     dragend?: _GeaDomAugment<T>['onDragEnd']
@@ -52,37 +51,41 @@ declare module 'react' {
   }
 }
 
-declare global {
-  namespace JSX {
-    type Element = string
-    interface IntrinsicElements extends import('react').JSX.IntrinsicElements {}
-    interface IntrinsicAttributes extends import('react').JSX.IntrinsicAttributes {}
-    /**
-     * Same idea as React: `props` must be typed `{}` here so TypeScript reads each
-     * class’s real `props` / `declare props` for JSX attributes. Using `unknown`
-     * makes attribute types collapse to `unknown` and breaks completions.
-     */
-    interface ElementAttributesProperty {
-      props: {}
-    }
-    interface ElementChildrenAttribute {
-      children: {}
-    }
-    /**
-     * Gea class components implement `template(props)` instead of React's `render()`.
-     */
-    interface ElementClass {
-      template?(props: unknown): unknown
-    }
-    /**
-     * Gea class components use `new Component(props)` (no React `context`) and `template()`, not `render()`.
-     * React’s `ElementType` includes `React.JSXElementConstructor`, which rejects Gea classes unless we override.
-     */
-    type ElementType =
-      | keyof IntrinsicElements
-      | ((props: any) => any)
-      | (new (props?: any, ...args: any[]) => ElementClass)
+export namespace JSX {
+  export type Element = string
+  export interface IntrinsicElements extends ReactJSX.IntrinsicElements {}
+  export interface IntrinsicAttributes extends ReactJSX.IntrinsicAttributes {}
+  /**
+   * Same idea as React: `props` must be typed `{}` here so TypeScript reads each
+   * class's real `props` / `declare props` for JSX attributes. Using `unknown`
+   * makes attribute types collapse to `unknown` and breaks completions.
+   */
+  export interface ElementAttributesProperty {
+    props: {}
   }
+  export interface ElementChildrenAttribute {
+    children: {}
+  }
+  /**
+   * Gea class components implement `template(props)` instead of React's `render()`.
+   */
+  export interface ElementClass {
+    template?(props: unknown): unknown
+  }
+  /**
+   * Gea class components use `new Component(props)` (no React `context`) and `template()`, not `render()`.
+   * React's `ElementType` includes `React.JSXElementConstructor`, which rejects Gea classes unless we override.
+   */
+  export type ElementType =
+    | keyof IntrinsicElements
+    | ((props: any) => any)
+    | (new (props?: any, ...args: any[]) => ElementClass)
 }
 
-export {}
+export function jsx(): string {
+  return ''
+}
+export function jsxs(): string {
+  return ''
+}
+export const Fragment = Symbol.for('gea.fragment')

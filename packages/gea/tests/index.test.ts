@@ -64,9 +64,12 @@ describe('gea entry point', () => {
   })
 })
 
-describe('JSX type entry (jsx.ts)', () => {
+describe('JSX runtime entry (jsx-runtime.ts)', () => {
   it('can be imported without error', async () => {
-    const jsx = await import('../src/jsx')
-    assert.ok(jsx)
+    const jsxRuntime = await import('../src/jsx-runtime')
+    assert.ok(jsxRuntime)
+    assert.equal(typeof jsxRuntime.jsx, 'function')
+    assert.equal(typeof jsxRuntime.jsxs, 'function')
+    assert.equal(typeof jsxRuntime.Fragment, 'symbol')
   })
 })

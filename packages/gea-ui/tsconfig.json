@@ -5,13 +5,15 @@
     "paths": {
       "@geajs/core": [
         "../gea/src/index.ts"
+      ],
+      "@geajs/core/jsx-runtime": [
+        "../gea/src/jsx-runtime"
       ]
     }
   },
   "include": [
     "src/**/*.ts",
-    "src/**/*.tsx",
-    "../gea/src/jsx-global.d.ts"
+    "src/**/*.tsx"
   ],
   "exclude": [
     "dist",

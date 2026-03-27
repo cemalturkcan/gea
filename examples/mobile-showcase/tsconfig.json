@@ -5,6 +5,9 @@
       "@geajs/core": [
         "../../packages/gea/src"
       ],
+      "@geajs/core/jsx-runtime": [
+        "../../packages/gea/src/jsx-runtime"
+      ],
       "@geajs/ui": [
         "../../packages/gea-ui/src"
       ],

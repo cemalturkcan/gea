@@ -8,13 +8,27 @@
   "types": "./dist/index.d.mts",
   "files": [
     "dist",
-    "tsconfig.json"
+    "tsconfig.json",
+    "jsx-runtime.mjs",
+    "jsx-runtime.d.mts",
+    "jsx-dev-runtime.mjs",
+    "jsx-dev-runtime.d.mts"
   ],
   "exports": {
     ".": {
       "source": "./src/index.ts",
       "types": "./dist/index.d.mts",
       "import": "./dist/index.mjs"
+    },
+    "./jsx-runtime": {
+      "source": "./src/jsx-runtime.ts",
+      "types": "./jsx-runtime.d.mts",
+      "import": "./jsx-runtime.mjs"
+    },
+    "./jsx-dev-runtime": {
+      "source": "./src/jsx-dev-runtime.ts",
+      "types": "./jsx-dev-runtime.d.mts",
+      "import": "./jsx-dev-runtime.mjs"
     }
   },
   "repository": {
@@ -33,7 +47,7 @@
     "mobile"
   ],
   "scripts": {
-    "build": "tsdown --config-loader unrun && node scripts/append-jsx-types.mjs",
+    "build": "tsdown --config-loader unrun",
     "prepublishOnly": "npm run build",
     "size": "node -e \"process.stdout.write('gzip size: ')\" && gzip-size dist/gea.js",
     "ts-type-check": "tsc --noEmit --project tsconfig.build.json",
