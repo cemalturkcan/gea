@@ -1,5 +1,14 @@
 # @geajs/vite-plugin
 
+## 1.0.11
+
+### Patch Changes
+
+- [`17a9b97`](https://github.com/dashersw/gea/commit/17a9b976b9d79935affdb4d987d6cebaa443ce07) Thanks [@dashersw](https://github.com/dashersw)! - Reduce compiled output weight and runtime overhead for map-rendered lists:
+  eliminate redundant class attribute wrapping for string ternaries, skip
+  index computation in event handlers that don't reference it, and remove
+  per-row id attributes in favour of data-gea-item-id lookups.
+
 ## 1.0.10
 
 ### Patch Changes
