@@ -1,5 +1,11 @@
 # @geajs/vite-plugin
 
+## 1.0.13
+
+### Patch Changes
+
+- [`dd2e8f3`](https://github.com/dashersw/gea/commit/dd2e8f355811e75aa019e9b8e841094310050162) Thanks [@dashersw](https://github.com/dashersw)! - Fix gea-env.d.ts injection to only target the active project's tsconfig, preventing unrelated workspace tsconfigs from being modified during builds
+
 ## 1.0.12
 
 ### Patch Changes
