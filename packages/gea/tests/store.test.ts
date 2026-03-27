@@ -121,6 +121,55 @@ describe('Store – batching via queueMicrotask', () => {
     assert.equal(batches.length, 1)
     assert.equal(batches[0].length, 2)
   })
+
+  it('uses the specialized top-level batch path for exact top-level observers', async () => {
+    const store = new Store({ data: [] as number[], selected: 0 })
+    let topLevelBatchCalls = 0
+    const originalDeliverTopLevelBatch = (store as any)._deliverTopLevelBatch?.bind(store)
+
+    assert.ok(originalDeliverTopLevelBatch, 'expected _deliverTopLevelBatch to exist')
+    ;(store as any)._deliverTopLevelBatch = (batch: StoreChange[]) => {
+      topLevelBatchCalls++
+      return originalDeliverTopLevelBatch(batch)
+    }
+
+    const dataBatches: StoreChange[][] = []
+    const selectedBatches: StoreChange[][] = []
+    store.observe('data', (_v, c) => dataBatches.push(c))
+    store.observe('selected', (_v, c) => selectedBatches.push(c))
+
+    store.data = [1, 2, 3] as any
+    store.selected = 1
+    await flush()
+
+    assert.equal(topLevelBatchCalls, 1)
+    assert.equal(dataBatches.length, 1)
+    assert.equal(selectedBatches.length, 1)
+  })
+
+  it('skips top-level proxy materialization for exact empty-array clears', async () => {
+    const store = new Store({ data: [1, 2, 3] as number[], selected: 0 })
+    let observedValue: unknown
+    let topLevelValueCalls = 0
+    const originalGetTopLevelObservedValue = (store as any)._getTopLevelObservedValue?.bind(store)
+
+    assert.ok(originalGetTopLevelObservedValue, 'expected _getTopLevelObservedValue to exist')
+    ;(store as any)._getTopLevelObservedValue = (change: StoreChange) => {
+      topLevelValueCalls++
+      return originalGetTopLevelObservedValue(change)
+    }
+
+    store.observe('data', (value) => {
+      observedValue = value
+    })
+
+    store.data = [] as any
+    await flush()
+
+    assert.equal(topLevelValueCalls, 0)
+    assert.ok(Array.isArray(observedValue))
+    assert.equal((observedValue as any[]).length, 0)
+  })
 })
 
 describe('Store – array methods', () => {

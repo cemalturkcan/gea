@@ -137,6 +137,7 @@ export function isInternalProp(prop: string): boolean {
  * }
  */
 export class Store {
+  private static _noDirectTopLevelValue = Symbol('noDirectTopLevelValue')
   /**
    * SSR overlay resolver — set by `@geajs/ssr` before rendering.
    * Must be truthy **before** `new Store()` for overlay semantics; determines proxy shape at construction.
@@ -639,6 +640,35 @@ export class Store {
     }
   }
 
+  private _notifyHandlersWithValue(node: ObserverNode, value: any, relevant: StoreChange[]): void {
+    for (const handler of node.handlers) {
+      try {
+        handler(value, relevant)
+      } catch (e) {
+        console.error('[Gea Store] Observer threw:', e)
+      }
+    }
+  }
+
+  private _getDirectTopLevelObservedValue(change: StoreChange): any {
+    const nextValue = change.newValue
+    if (Array.isArray(nextValue) && nextValue.length === 0) return nextValue
+    return Store._noDirectTopLevelValue
+  }
+
+  private _getTopLevelObservedValue(change: StoreChange): any {
+    if (change.type === 'delete') return undefined
+    const value = (this as any)[change.property]
+    if (value === null || value === undefined || typeof value !== 'object') return value
+    const proto = Object.getPrototypeOf(value)
+    if (proto !== Object.prototype && !Array.isArray(value)) return value
+    const entry = this._topLevelProxies.get(change.property)
+    if (entry && entry[0] === value) return entry[1]
+    const proxy = this._createProxy(value, change.property, [change.property])
+    this._topLevelProxies.set(change.property, [value, proxy])
+    return proxy
+  }
+
   private _clearArrayIndexCache(arr: any): void {
     if (arr && typeof arr === 'object') this._arrayIndexProxyCache.delete(arr)
   }
@@ -760,6 +790,36 @@ export class Store {
     return true
   }
 
+  private _deliverTopLevelBatch(batch: StoreChange[]): boolean {
+    if (this._observerRoot.handlers.size > 0) return false
+
+    const deliveries = new Map<ObserverNode, { value: any; relevant: StoreChange[] }>()
+    for (let i = 0; i < batch.length; i++) {
+      const change = batch[i]
+      if (change.target !== this || change.pathParts.length !== 1) return false
+      const node = this._observerRoot.children.get(change.property)
+      if (!node) continue
+      if (node.children.size > 0) return false
+      if (node.handlers.size === 0) continue
+
+      let delivery = deliveries.get(node)
+      if (!delivery) {
+        const directValue = this._getDirectTopLevelObservedValue(change)
+        delivery = {
+          value: directValue !== Store._noDirectTopLevelValue ? directValue : this._getTopLevelObservedValue(change),
+          relevant: [],
+        }
+        deliveries.set(node, delivery)
+      }
+      delivery.relevant.push(change)
+    }
+
+    for (const [node, delivery] of deliveries) {
+      this._notifyHandlersWithValue(node, delivery.value, delivery.relevant)
+    }
+    return true
+  }
+
   private _flushChanges = (): void => {
     this._flushScheduled = false
     const pendingBatch = this._pendingChanges
@@ -777,6 +837,8 @@ export class Store {
     ) {
       return
     }
+
+    if (this._deliverTopLevelBatch(pendingBatch)) return
 
     const batch = this._normalizeBatch(pendingBatch)
 
