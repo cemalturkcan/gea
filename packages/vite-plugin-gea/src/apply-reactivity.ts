@@ -24,7 +24,12 @@ import {
 import { generateCreateItemMethod, generatePatchItemMethod } from './generate-array-patch.ts'
 import { ITEM_IS_KEY } from './analyze-helpers.ts'
 import { getTemplateParamBinding } from './template-param-utils.ts'
-import { buildTrimmedClassJoinedExpression, buildTrimmedClassValueExpression } from './utils.ts'
+import {
+  buildTrimmedClassJoinedExpression,
+  buildTrimmedClassValueExpression,
+  isAlwaysStringExpression,
+  isWhitespaceFree,
+} from './utils.ts'
 import {
   generateComponentArrayResult,
   getComponentArrayItemsName,
@@ -50,6 +55,7 @@ import {
   resolvePath,
   pruneUnusedSetupDestructuring,
   earlyReturnFalsyBindingName,
+  cacheThisIdInMethod,
   optionalizeBindingRootInStatements,
   optionalizeMemberChainsFromBindingRoot,
 } from './utils.ts'
@@ -311,6 +317,14 @@ function generateLocalStateObserverSetup(
   return method
 }
 
+/** Merge `if (__el) if (cond) ...` into `if (__el && cond) ...` when there is no else. */
+function wrapPatchWithElGuard(updateStmt: t.Statement): t.Statement {
+  if (t.isIfStatement(updateStmt) && !updateStmt.alternate) {
+    return t.ifStatement(t.logicalExpression('&&', t.identifier('__el'), updateStmt.test), updateStmt.consequent)
+  }
+  return t.ifStatement(t.identifier('__el'), updateStmt)
+}
+
 export function applyStaticReactivity(
   ast: t.File,
   originalAST: t.File,
@@ -424,20 +438,44 @@ export function applyStaticReactivity(
           const templatePropNames = getTemplatePropNames(classPath.node.body)
           const templateWholeParam = getTemplateParamIdentifier(classPath.node.body)
 
+          /** `__e0`, `__e1`, … for lazy-cached `getElementById` refs; cleared by `__resetEls` on rerender. */
+          const elRefFieldNames: string[] = []
+          let elRefSlotNext = 0
+          const allocElRefField = (): string => {
+            const name = `__e${elRefSlotNext++}`
+            elRefFieldNames.push(name)
+            return name
+          }
+          const buildCachedGetElementById = (idArg: t.Expression): t.Expression => {
+            const field = allocElRefField()
+            const read = t.memberExpression(t.thisExpression(), t.identifier(field))
+            const inner = t.callExpression(
+              t.memberExpression(t.identifier('document'), t.identifier('getElementById')),
+              [idArg],
+            )
+            return t.logicalExpression(
+              '||',
+              read,
+              t.parenthesizedExpression(t.assignmentExpression('=', t.cloneNode(read, true), inner)),
+            )
+          }
+
           const patchStatementsByBinding = new Map<(typeof analysis.propBindings)[0], t.Statement[]>()
           for (const pb of analysis.propBindings) {
             const elExpr =
               pb.bindingId !== undefined
-                ? t.callExpression(t.memberExpression(t.identifier('document'), t.identifier('getElementById')), [
+                ? buildCachedGetElementById(
                     t.binaryExpression(
                       '+',
                       t.memberExpression(t.thisExpression(), t.identifier('id')),
                       t.stringLiteral('-' + pb.bindingId),
                     ),
-                  ])
-                : t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('$')), [
-                    t.stringLiteral(pb.selector),
-                  ])
+                  )
+                : pb.selector === ':scope'
+                  ? t.memberExpression(t.thisExpression(), t.identifier('element_'))
+                  : t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('$')), [
+                      t.stringLiteral(pb.selector),
+                    ])
             const valueExpr = pb.expression && pb.setupStatements ? t.identifier('__boundValue') : t.identifier('value')
             let updateStmt: t.Statement
             if (pb.type === 'text' && pb.textNodeIndex !== undefined) {
@@ -540,26 +578,53 @@ export function applyStaticReactivity(
                 ),
                 [t.stringLiteral(' ')],
               )
+              const originalClassExpr = pb.expression && t.isExpression(pb.expression) ? pb.expression : valueExpr
+              const canSkipClassCoercion =
+                !isObjectClass &&
+                isAlwaysStringExpression(originalClassExpr as t.Expression) &&
+                isWhitespaceFree(originalClassExpr as t.Expression)
               const classValueExpr = isObjectClass
                 ? buildTrimmedClassJoinedExpression(objectJoinExpr)
-                : buildTrimmedClassValueExpression(valueExpr)
-              updateStmt = t.blockStatement([
-                t.variableDeclaration('const', [t.variableDeclarator(t.identifier('__newClass'), classValueExpr)]),
-                t.ifStatement(
-                  t.binaryExpression(
-                    '!==',
-                    t.memberExpression(t.identifier('__el'), t.identifier('className')),
-                    t.identifier('__newClass'),
-                  ),
-                  t.expressionStatement(
-                    t.assignmentExpression(
-                      '=',
-                      t.memberExpression(t.identifier('__el'), t.identifier('className')),
-                      t.identifier('__newClass'),
+                : canSkipClassCoercion
+                  ? valueExpr
+                  : buildTrimmedClassValueExpression(valueExpr)
+              updateStmt = canSkipClassCoercion
+                ? t.blockStatement([
+                    t.variableDeclaration('const', [
+                      t.variableDeclarator(t.identifier('__newClass'), t.cloneNode(valueExpr, true)),
+                    ]),
+                    t.ifStatement(
+                      t.binaryExpression(
+                        '!==',
+                        t.memberExpression(t.identifier('__el'), t.identifier('className')),
+                        t.identifier('__newClass'),
+                      ),
+                      t.expressionStatement(
+                        t.assignmentExpression(
+                          '=',
+                          t.memberExpression(t.identifier('__el'), t.identifier('className')),
+                          t.identifier('__newClass'),
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-              ])
+                  ])
+                : t.blockStatement([
+                    t.variableDeclaration('const', [t.variableDeclarator(t.identifier('__newClass'), classValueExpr)]),
+                    t.ifStatement(
+                      t.binaryExpression(
+                        '!==',
+                        t.memberExpression(t.identifier('__el'), t.identifier('className')),
+                        t.identifier('__newClass'),
+                      ),
+                      t.expressionStatement(
+                        t.assignmentExpression(
+                          '=',
+                          t.memberExpression(t.identifier('__el'), t.identifier('className')),
+                          t.identifier('__newClass'),
+                        ),
+                      ),
+                    ),
+                  ])
             } else if ((pb.type === 'value' || pb.type === 'checked') && pb.attributeName) {
               const propName = pb.attributeName
               updateStmt = t.expressionStatement(
@@ -685,7 +750,7 @@ export function applyStaticReactivity(
                 t.variableDeclaration('const', [t.variableDeclarator(t.identifier('__boundValue'), rewrittenExpr)]),
               )
             }
-            corePatch.push(t.ifStatement(t.identifier('__el'), updateStmt))
+            corePatch.push(wrapPatchWithElGuard(updateStmt))
 
             const nullishValue = t.logicalExpression(
               '||',
@@ -1319,6 +1384,33 @@ export function applyStaticReactivity(
             analysis.conditionalSlots || [],
             unresolvedMapPropRefreshDeps,
           )
+
+          if (elRefFieldNames.length > 0) {
+            const hasReset = classPath.node.body.body.some(
+              (m) => t.isClassMethod(m) && t.isIdentifier(m.key) && m.key.name === '__resetEls',
+            )
+            if (!hasReset) {
+              classPath.node.body.body.push(
+                t.classMethod(
+                  'method',
+                  t.identifier('__resetEls'),
+                  [],
+                  t.blockStatement(
+                    elRefFieldNames.map((name) =>
+                      t.expressionStatement(
+                        t.assignmentExpression(
+                          '=',
+                          t.memberExpression(t.thisExpression(), t.identifier(name)),
+                          t.nullLiteral(),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              )
+              applied = true
+            }
+          }
 
           if (analysis.stateChildSlots && analysis.stateChildSlots.length > 0) {
             generateStateChildSwapMethod(classPath.node.body, analysis.stateChildSlots)

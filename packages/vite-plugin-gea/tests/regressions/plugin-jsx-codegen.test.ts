@@ -96,9 +96,9 @@ test('prop patch methods use getElementById for element lookup', () => {
     }
   `)
 
-  assert.match(output, /counter-value.*id=.*this\.id.*-b\d|id=.*this\.id.*-b\d.*counter-value/)
+  assert.match(output, /counter-value.*id=.*__id.*-b\d|id=.*__id.*-b\d.*counter-value/)
   assert.ok(
-    /getElementById\([^)]*this\.id[^)]*\+[^)]*"-b\d"\)/.test(output),
+    /getElementById\([^)]*__id[^)]*\+[^)]*"-b\d"\)/.test(output),
     'prop patch must use getElementById, not this.$(selector)',
   )
 })

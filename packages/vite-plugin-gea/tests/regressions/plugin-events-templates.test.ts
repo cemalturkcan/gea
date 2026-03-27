@@ -138,7 +138,7 @@ test('conditional root html event handlers are preserved inside logical branches
     }
   `)
 
-  assert.match(output, /showBack && `<button class="btn btn-secondary" id="\$\{this\.id \+ "-ev\d+"\}">/)
+  assert.match(output, /showBack && `<button class="btn btn-secondary" id="\$\{__id \+ "-ev\d+"\}">/)
   assert.match(output, /get events\(\)\s*\{[\s\S]*click:\s*\{/)
 })
 

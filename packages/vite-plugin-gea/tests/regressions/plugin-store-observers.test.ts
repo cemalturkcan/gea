@@ -98,7 +98,7 @@ test('imported store array text bindings inject id on stats element for getEleme
   `)
 
   assert.ok(
-    /id=.*this\.id.*-b\d.*todo-stats|todo-stats.*id=.*this\.id.*-b\d/.test(output),
+    /id=.*__id.*-b\d.*todo-stats|todo-stats.*id=.*__id.*-b\d/.test(output),
     'todo-stats div must have id attribute for getElementById lookup',
   )
   assert.ok(
@@ -128,13 +128,10 @@ test('imported store input value binding injects id for getElementById', () => {
   `)
 
   assert.ok(
-    /input[^>]*id=.*this\.id.*-b\d|id=.*this\.id.*-b\d[^>]*input/.test(output),
+    /input[^>]*id=.*__id.*-b\d|id=.*__id.*-b\d[^>]*input/.test(output),
     'input must have id for getElementById so value updates (e.g. clear after add) work',
   )
-  assert.ok(
-    /getElementById\([^)]*this\.id[^)]*\+[^)]*"-b\d"\)/.test(output),
-    'input value binding must use getElementById',
-  )
+  assert.ok(/getElementById\([^)]*__id[^)]*\+[^)]*"-b\d"\)/.test(output), 'input value binding must use getElementById')
 })
 
 test('wildcard observers update index zero items', () => {

@@ -10,11 +10,18 @@ import {
   transformJSXFragmentToTemplate,
   transformJSXExpression,
   collectComponentTags,
+  type Ctx,
 } from './transform-jsx.ts'
+import { generateCloneMembers } from './generate-clone.ts'
 import { appendCompiledEventMethods } from './generate-events.ts'
 import { injectChildComponents, injectComponentRegistrations, getDirectPropMappings } from './generate-components.ts'
 import { getTemplateParamBinding } from './template-param-utils.ts'
-import { pruneUnusedSetupDestructuring } from './utils.ts'
+import {
+  pruneUnusedSetupDestructuring,
+  cacheThisIdInMethod,
+  wrapEventsGetterWithCache,
+  wrapSubpathCacheGuards,
+} from './utils.ts'
 import type { DirectPropMapping } from './generate-components.ts'
 import { applyStaticReactivity } from './apply-reactivity.ts'
 import { analyzeStoreGetters, analyzeStoreReactiveFields } from './store-getter-analysis.ts'
@@ -148,6 +155,21 @@ export function transformComponentFile(
         refCounter: { value: 0 },
       }
 
+      let cloneRoot: t.JSXElement | null = null
+      const preReturnStmts = returnIndex >= 0 ? body.slice(0, returnIndex) : []
+      const preCloneEligible =
+        !ssr &&
+        t.isJSXElement(retStmt.argument) &&
+        preReturnStmts.length === 0 &&
+        componentInstances.size === 0 &&
+        analysis.conditionalSlots.length === 0 &&
+        analysis.arrayMaps.length === 0 &&
+        analysis.unresolvedMaps.length === 0 &&
+        analysis.earlyReturnGuard === undefined
+      if (preCloneEligible && t.isJSXElement(retStmt.argument)) {
+        cloneRoot = t.cloneNode(retStmt.argument, true) as t.JSXElement
+      }
+
       if (t.isJSXElement(retStmt.argument)) {
         retStmt.argument = transformJSXToTemplate(retStmt.argument, ctx)
         transformed = true
@@ -217,6 +239,29 @@ export function transformComponentFile(
 
       if (stateChildSlots.length > 0) {
         analysis.stateChildSlots = stateChildSlots
+      }
+
+      if (cloneRoot && !ssr && stateChildSlots.length === 0 && classPath && t.isClassBody(classPath.node.body)) {
+        const cloneCtxForPatches: Ctx = {
+          ...ctx,
+          eventIdCounter: { value: 0 },
+          refCounter: { value: 0 },
+          eventHandlers: [],
+          refBindings: [],
+          componentInstanceCursors: new Map(ctx.componentInstanceCursors),
+        }
+        const cloneMembers = generateCloneMembers(
+          cloneRoot,
+          analysis,
+          path.node.params,
+          sourceFile,
+          imports,
+          cloneCtxForPatches,
+        )
+        if (cloneMembers) {
+          classPath.node.body.body.push(...cloneMembers)
+          transformed = true
+        }
       }
 
       if (!ssr && eventHandlers.length > 0) {
@@ -376,6 +421,32 @@ export function transformComponentFile(
   }
 
   transformRemainingJSX(ast, imports)
+
+  if (!ssr && transformed) {
+    traverse(ast, {
+      ClassDeclaration(path: NodePath<t.ClassDeclaration>) {
+        if (!t.isIdentifier(path.node.id) || path.node.id.name !== className) return
+        const subpathPcCounter = { value: 0 }
+        for (const member of path.node.body.body) {
+          if (!t.isClassMethod(member) || member.kind === 'constructor') continue
+          const name = t.isIdentifier(member.key) ? member.key.name : null
+          if (!name) continue
+          const isCompilerGenerated =
+            name === 'template' || (name === 'events' && member.kind === 'get') || name.startsWith('__')
+          if (isCompilerGenerated) {
+            cacheThisIdInMethod(member)
+          }
+          if (name === 'events' && member.kind === 'get') {
+            wrapEventsGetterWithCache(member)
+          }
+          if (name === '__onPropChange') {
+            wrapSubpathCacheGuards(member, subpathPcCounter, path.node.body)
+          }
+        }
+        path.stop()
+      },
+    })
+  }
 
   return transformed
 }

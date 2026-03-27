@@ -5,6 +5,7 @@ import type { EventHandler } from './ir.ts'
 import {
   buildMemberChainFromParts,
   buildOptionalMemberChain,
+  cacheThisIdInMethod,
   extractHandlerBody,
   replacePropRefsInStatements,
 } from './utils.ts'

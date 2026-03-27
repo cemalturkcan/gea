@@ -37,6 +37,9 @@ export default class Component<P = Record<string, any>> extends Store {
   declare __geaMaps?: Record<number, Record<string, any>>
   /** Compiler-registered conditional slot state */
   declare __geaConds?: Record<number, Record<string, any>>
+  /** Compiler-generated: clears cached `__eN` element refs used by `__onPropChange` */
+  declare __resetEls?: () => void
+  __rawProps_: Record<string, any> = {}
 
   constructor(props: P = {} as P, _unusedReactContext?: unknown) {
     super()
@@ -58,11 +61,15 @@ export default class Component<P = Record<string, any>> extends Store {
 
     this.rendered_ = false
 
-    let _propsProxy = this.__createPropsProxy(props || {})
+    let _rawProps = (props || {}) as Record<string, any>
+    let _propsProxy = this.__createPropsProxy(_rawProps)
+    this.__rawProps_ = _rawProps
     Object.defineProperty(this, 'props', {
       get: () => _propsProxy,
       set: (newProps: unknown) => {
-        _propsProxy = this.__createPropsProxy((newProps || {}) as object)
+        _rawProps = (newProps || {}) as object as Record<string, any>
+        _propsProxy = this.__createPropsProxy(_rawProps)
+        this.__rawProps_ = _rawProps
       },
       configurable: true,
       enumerable: true,
@@ -88,11 +95,16 @@ export default class Component<P = Record<string, any>> extends Store {
 
   get el() {
     if (!this.element_) {
-      const existing = document.getElementById(this.id_)
-      if (existing) {
-        this.element_ = existing
+      const cloneFn = (this as any).__cloneTemplate
+      if (typeof cloneFn === 'function') {
+        this.element_ = cloneFn.call(this)
       } else {
-        this.element_ = ComponentManager.getInstance().createElement(String(this.template(this.props)).trim())
+        const existing = document.getElementById(this.id_)
+        if (existing) {
+          this.element_ = existing
+        } else {
+          this.element_ = ComponentManager.getInstance().createElement(String(this.template(this.props)).trim())
+        }
       }
     }
     return this.element_
@@ -244,10 +256,20 @@ export default class Component<P = Record<string, any>> extends Store {
         this.rendered_ = true
       }
     }
-    for (const key in nextProps) {
-      this.props[key] = nextProps[key]
-    }
-    if (typeof (this as any).__onPropChange !== 'function') {
+    if (typeof (this as any).__onPropChange === 'function') {
+      const raw = this.__rawProps_
+      for (const key in nextProps) {
+        const prev = raw[key]
+        const next = nextProps[key]
+        raw[key] = next
+        if (next !== prev || (typeof prev === 'object' && prev !== null)) {
+          ;(this as any).__onPropChange(key, next)
+        }
+      }
+    } else {
+      for (const key in nextProps) {
+        this.props[key] = nextProps[key]
+      }
       this.__geaRequestRender()
     }
   }
@@ -320,6 +342,7 @@ export default class Component<P = Record<string, any>> extends Store {
     }
 
     this.__elCache.clear()
+    this.__resetEls?.()
 
     // Remove old element BEFORE calling template() so that getElementById
     // inside child __geaUpdateProps won't find stale DOM nodes.
@@ -328,7 +351,11 @@ export default class Component<P = Record<string, any>> extends Store {
     parent.removeChild(this.element_)
 
     const manager = ComponentManager.getInstance()
-    const newElement = manager.createElement(String(this.template(this.props)).trim())
+    const cloneFn = (this as any).__cloneTemplate
+    const newElement =
+      typeof cloneFn === 'function'
+        ? cloneFn.call(this)
+        : manager.createElement(String(this.template(this.props)).trim())
 
     if (!newElement) {
       this.element_ = placeholder as unknown as HTMLElement

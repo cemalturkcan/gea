@@ -475,7 +475,7 @@ function walkJSXForPatch(node: t.JSXElement, path: number[], entries: PatchEntry
  *   [1]    → base.firstElementChild.nextElementSibling
  *   [1, 0] → base.firstElementChild.nextElementSibling.firstElementChild
  */
-function buildElementNavExpr(base: t.Expression, childPath: number[]): t.Expression {
+export function buildElementNavExpr(base: t.Expression, childPath: number[]): t.Expression {
   let expr = base
   for (const idx of childPath) {
     expr = t.memberExpression(expr, t.identifier('firstElementChild'))
@@ -1014,7 +1014,7 @@ export function generateCreateItemMethod(
   return t.classMethod('method', t.identifier(methodName), createParams, t.blockStatement(body))
 }
 
-function templateRequiresRerender(file: t.File): boolean {
+export function templateRequiresRerender(file: t.File): boolean {
   let requiresRerender = false
   traverse(file, {
     noScope: true,

@@ -145,7 +145,7 @@ const RESERVED_HTML_TAG_NAMES = new Set([
 ])
 
 /** Convert PascalCase component name to a safe custom element tag (matches Gea's generateTagName_). */
-function pascalToKebabCase(tagName: string): string {
+export function pascalToKebabCase(tagName: string): string {
   const normalized = tagName
     .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
     .replace(/[\s_]+/g, '-')
@@ -474,7 +474,7 @@ export interface StateChildSlot {
   dependencies: ObserveDependency[]
 }
 
-interface Ctx {
+export interface Ctx {
   imports: Map<string, string>
   componentInstances?: Map<string, ChildComponent[]>
   componentInstanceCursors?: Map<string, number>

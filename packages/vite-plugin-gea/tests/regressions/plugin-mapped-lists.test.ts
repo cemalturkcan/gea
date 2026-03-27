@@ -265,7 +265,7 @@ test('unresolved map container uses getElementById for tbody lookup', () => {
   `)
 
   assert.ok(
-    /<tbody[^>]*id=.*this\.id.*-b\d/.test(output) || /id=.*this\.id.*-b\d[^>]*>[\s\S]*<tbody/.test(output),
+    /<tbody[^>]*id=.*__id.*-b\d/.test(output) || /id=.*__id.*-b\d[^>]*>[\s\S]*<tbody/.test(output),
     'tbody must have id for getElementById',
   )
   assert.ok(
