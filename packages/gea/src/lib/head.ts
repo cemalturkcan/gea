@@ -26,9 +26,12 @@ export class Head extends Component {
   _updateHead() {
     const props = this.props || {}
 
+    // Remove previously injected custom meta/link tags from prior route
+    document.querySelectorAll('[data-gea-head]').forEach((el) => el.remove())
+
     this._removeStale(props)
 
-    if (props.title) document.title = props.title
+    document.title = props.title || ''
 
     this._setMeta('description', props.description)
     this._setMeta('og:title', props.title)
@@ -54,26 +57,26 @@ export class Head extends Component {
     if (props.meta) {
       for (const tag of props.meta) {
         const key = tag.property || tag.name
-        if (key) this._setMeta(key, tag.content)
+        if (key) {
+          const isOg = key.startsWith('og:') || key.startsWith('twitter:')
+          const attr = isOg ? 'property' : 'name'
+          const el = document.createElement('meta')
+          el.setAttribute(attr, key)
+          el.content = tag.content || ''
+          el.setAttribute('data-gea-head', '')
+          document.head.appendChild(el)
+        }
       }
     }
 
     if (props.link) {
       for (const attrs of props.link) {
-        let selector: string | null = null
-        if (attrs.rel && attrs.href) {
-          selector = `link[rel="${attrs.rel}"][href="${attrs.href}"]`
-        } else if (attrs.rel) {
-          selector = `link[rel="${attrs.rel}"]`
-        }
-        let el = selector ? (document.querySelector(selector) as HTMLLinkElement) : null
-        if (!el) {
-          el = document.createElement('link')
-          document.head.appendChild(el)
-        }
+        const el = document.createElement('link')
+        el.setAttribute('data-gea-head', '')
         for (const [k, v] of Object.entries(attrs)) {
           el.setAttribute(k, v as string)
         }
+        document.head.appendChild(el)
       }
     }
 
@@ -114,19 +117,21 @@ export class Head extends Component {
   _removeMeta(nameOrProperty: string) {
     const isOg = nameOrProperty.startsWith('og:') || nameOrProperty.startsWith('twitter:')
     const attr = isOg ? 'property' : 'name'
-    const el = document.querySelector(`meta[${attr}="${nameOrProperty}"]`)
+    const escaped = typeof CSS !== 'undefined' ? CSS.escape(nameOrProperty) : nameOrProperty
+    const el = document.querySelector(`meta[${attr}="${escaped}"]`)
     if (el) el.remove()
   }
 
   _setMeta(nameOrProperty: string, content?: string) {
     const isOg = nameOrProperty.startsWith('og:') || nameOrProperty.startsWith('twitter:')
     const attr = isOg ? 'property' : 'name'
+    const escaped = typeof CSS !== 'undefined' ? CSS.escape(nameOrProperty) : nameOrProperty
     if (!content) {
-      const el = document.querySelector(`meta[${attr}="${nameOrProperty}"]`)
+      const el = document.querySelector(`meta[${attr}="${escaped}"]`)
       if (el) el.remove()
       return
     }
-    let el = document.querySelector(`meta[${attr}="${nameOrProperty}"]`) as HTMLMetaElement
+    let el = document.querySelector(`meta[${attr}="${escaped}"]`) as HTMLMetaElement
     if (!el) {
       el = document.createElement('meta')
       el.setAttribute(attr, nameOrProperty)

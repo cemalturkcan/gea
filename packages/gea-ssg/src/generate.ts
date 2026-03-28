@@ -232,6 +232,15 @@ async function runWithConcurrency<T>(
   await Promise.all(executing)
 }
 
+function escapeXml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
+}
+
 async function generateSitemap(
   pages: GeneratedPage[],
   options: { hostname: string; changefreq?: string; priority?: number; exclude?: string[] },
@@ -249,7 +258,7 @@ async function generateSitemap(
       const lastmod = head?.lastmod ? `\n    <lastmod>${head.lastmod}</lastmod>` : ''
       const loc = trailingSlash && p.path !== '/' ? `${hostname}${p.path}/` : `${hostname}${p.path}`
       return `  <url>
-    <loc>${loc}</loc>${lastmod}
+    <loc>${escapeXml(loc)}</loc>${lastmod}
     <changefreq>${changefreq}</changefreq>
     <priority>${priority}</priority>
   </url>`

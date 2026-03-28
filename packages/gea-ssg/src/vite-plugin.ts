@@ -1,4 +1,4 @@
-import { dirname, join, extname, resolve } from 'node:path'
+import { dirname, join, extname, resolve, normalize } from 'node:path'
 import { existsSync, createReadStream } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { Plugin, ResolvedConfig } from 'vite'
@@ -40,7 +40,7 @@ export function geaSSG(options: SSGPluginOptions = {}): Plugin[] {
 
           if (config.configFile) {
             const loaded = await loadConfigFromFile(
-              { command: 'serve', mode: config.mode },
+              { command: 'build', mode: config.mode },
               config.configFile,
               config.root,
             )
@@ -49,8 +49,17 @@ export function geaSSG(options: SSGPluginOptions = {}): Plugin[] {
                 .flat(Infinity)
                 .filter((p: any) => p && typeof p === 'object' && 'name' in p && !p.name.startsWith('gea-ssg'))
               const alias = loaded.config.resolve?.alias
-              if (alias && typeof alias === 'object' && !Array.isArray(alias)) {
-                userAlias = alias as Record<string, string>
+              if (alias && typeof alias === 'object') {
+                if (Array.isArray(alias)) {
+                  for (const a of alias) {
+                    if (a && typeof a === 'object' && 'find' in a && 'replacement' in a) {
+                      const key = typeof a.find === 'string' ? a.find : String(a.find)
+                      userAlias[key] = a.replacement as string
+                    }
+                  }
+                } else {
+                  userAlias = alias as Record<string, string>
+                }
               }
             }
           }
@@ -86,21 +95,27 @@ export function geaSSG(options: SSGPluginOptions = {}): Plugin[] {
               concurrency: options.concurrency,
               hydrate: options.hydrate,
             }
-            if (options.routes && options.app) {
-              ssgOpts.routes = options.routes
-              ssgOpts.app = options.app
-            } else {
-              const entry = options.entry || 'src/App.tsx'
-              const ssgEntry = await viteServer.ssrLoadModule(entry)
-              ssgOpts.routes = ssgEntry.routes
-              ssgOpts.app = ssgEntry.App || ssgEntry.default
+            const entry = options.entry || 'src/App.tsx'
+            const needsEntry = !options.routes || !options.app
+            const ssgEntry = needsEntry ? await viteServer.ssrLoadModule(entry) : null
 
-              if (!ssgOpts.routes || !ssgOpts.app) {
-                throw new Error(`[gea-ssg] ${entry} must export "routes" and "App" (or default).`)
-              }
+            ssgOpts.routes = options.routes ?? ssgEntry?.routes
+            ssgOpts.app = options.app ?? ssgEntry?.App ?? ssgEntry?.default
+
+            if (!ssgOpts.routes || !ssgOpts.app) {
+              throw new Error(
+                `[gea-ssg] Could not resolve routes and app. Either pass them via geaSSG({ routes, app }) or export them from "${entry}".`,
+              )
             }
 
-            await generate(ssgOpts)
+            const result = await generate(ssgOpts)
+            if (result.errors.length) {
+              console.error(`[gea-ssg] ${result.errors.length} page(s) failed to render:`)
+              for (const { path, error } of result.errors) {
+                console.error(`  - ${path}: ${error.message}`)
+              }
+              throw new Error(`[gea-ssg] Build completed with ${result.errors.length} rendering error(s).`)
+            }
           } finally {
             await viteServer.close()
           }
@@ -160,7 +175,7 @@ export function geaSSG(options: SSGPluginOptions = {}): Plugin[] {
 
         server.watcher.add(contentDir)
         const invalidate = (file: string) => {
-          if (file.startsWith(contentDir) && file.endsWith('.md')) {
+          if (normalize(file).startsWith(normalize(contentDir)) && file.endsWith('.md')) {
             contentLoaded = false
             server.ws.send({ type: 'full-reload' })
           }
@@ -182,9 +197,10 @@ export function geaSSG(options: SSGPluginOptions = {}): Plugin[] {
         const ts = options.trailingSlash !== false
 
         server.middlewares.use((req, res, next) => {
-          if (!req.url || extname(req.url) || req.url === '/') return next()
+          if (!req.url) return next()
 
           const url = req.url.split('?')[0]
+          if (extname(url) || url === '/') return next()
           const testPath = ts ? join(config.build.outDir, url, 'index.html') : join(config.build.outDir, url + '.html')
 
           if (existsSync(testPath)) {

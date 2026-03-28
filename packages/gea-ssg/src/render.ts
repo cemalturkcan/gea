@@ -66,7 +66,7 @@ export function renderToString(
                 )
               }
             }
-            entry.props = comp.props
+            entry.props = roundTripped
           } catch {
             console.warn(
               `[gea-ssg] hydrate: props on ${comp.constructor.name} are not JSON-serialisable — skipping prop transfer.`,
