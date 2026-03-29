@@ -30,677 +30,6 @@ function clearUidProvider() {
 	resetProvider = null;
 }
 //#endregion
-//#region src/lib/base/row-id.ts
-/**
-* Keyed `.map()` row roots use DOM `id` with a stable generated shape:
-*   `${componentId}-${containerBindingId}-gk-${encodeURIComponent(itemKey)}`
-* `-gk-` (gea key) separates the list binding segment from the encoded item key.
-*/
-const GEA_MAP_KEY_SEP = "-gk-";
-/** Build a document-unique id for a keyed list row when the user did not set `id`. */
-function geaBuildMapRowId(componentId, containerBindingId, itemKey) {
-	return `${componentId}-${containerBindingId}${GEA_MAP_KEY_SEP}${encodeURIComponent(itemKey)}`;
-}
-/** Parse the logical item key from a generated row id, or return null if the shape does not match. */
-function geaTryParseMapRowKeyFromId(fullId, componentId, containerBindingId) {
-	const prefix = `${componentId}-${containerBindingId}${GEA_MAP_KEY_SEP}`;
-	if (!fullId.startsWith(prefix)) return null;
-	try {
-		return decodeURIComponent(fullId.slice(prefix.length));
-	} catch {
-		return null;
-	}
-}
-/** Parse the logical key from any generated row id (finds `-gk-` anywhere). */
-function geaTryParseMapRowKeyFromGeneratedRowId(fullId) {
-	const i = fullId.indexOf(GEA_MAP_KEY_SEP);
-	if (i === -1) return null;
-	try {
-		return decodeURIComponent(fullId.slice(i + 4));
-	} catch {
-		return null;
-	}
-}
-/** True if `id` was produced by {@link geaBuildMapRowId} for this list (prefix match). */
-function geaIsGeneratedMapRowId(fullId, componentId, containerBindingId) {
-	return fullId.startsWith(`${componentId}-${containerBindingId}${GEA_MAP_KEY_SEP}`);
-}
-/** Walk from `start` toward `root` and return the nearest map row root (delegated events). */
-function geaFindDelegatedMapRow(start, root) {
-	let n = start;
-	while (n && n !== root) {
-		if (n.nodeType === 1) {
-			if (n.__geaItem !== void 0) return n;
-			if (n.id && n.id.includes("-gk-")) return n;
-		}
-		n = n.parentElement;
-	}
-	return null;
-}
-/** String key used for `__itemHandlers_` lookup — matches row `id` (parsed `-gk-` segment or user id). */
-function geaItemHandlerKeyFromRow(row) {
-	if (!row.id) return null;
-	return geaTryParseMapRowKeyFromGeneratedRowId(row.id) ?? row.id;
-}
-/** DOM row key for list reconciliation (matches `getKey` / encoded `id`). */
-function geaDomRowKeyFromElement(row, getKey, index) {
-	const it = row.__geaItem;
-	if (it != null) return getKey(it, index);
-	if (row.id) {
-		const parsed = geaTryParseMapRowKeyFromGeneratedRowId(row.id);
-		if (parsed != null) return parsed;
-		return row.id;
-	}
-	return null;
-}
-/** Whether this element is likely a keyed list row (vs placeholder UI). */
-function rowLooksLikeKeyedListRow(el) {
-	if (el.nodeType !== 1) return false;
-	const h = el;
-	return h.__geaItem !== void 0 || !!h.id;
-}
-//#endregion
-//#region src/lib/base/component-manager.ts
-const RESERVED_HTML_TAG_NAMES = new Set([
-	"a",
-	"abbr",
-	"address",
-	"area",
-	"article",
-	"aside",
-	"audio",
-	"b",
-	"base",
-	"bdi",
-	"bdo",
-	"blockquote",
-	"body",
-	"br",
-	"button",
-	"canvas",
-	"caption",
-	"cite",
-	"code",
-	"col",
-	"colgroup",
-	"data",
-	"datalist",
-	"dd",
-	"del",
-	"details",
-	"dfn",
-	"dialog",
-	"div",
-	"dl",
-	"dt",
-	"em",
-	"embed",
-	"fieldset",
-	"figcaption",
-	"figure",
-	"footer",
-	"form",
-	"h1",
-	"h2",
-	"h3",
-	"h4",
-	"h5",
-	"h6",
-	"head",
-	"header",
-	"hgroup",
-	"hr",
-	"html",
-	"i",
-	"iframe",
-	"img",
-	"input",
-	"ins",
-	"kbd",
-	"label",
-	"legend",
-	"li",
-	"link",
-	"main",
-	"map",
-	"mark",
-	"menu",
-	"meta",
-	"meter",
-	"nav",
-	"noscript",
-	"object",
-	"ol",
-	"optgroup",
-	"option",
-	"output",
-	"p",
-	"picture",
-	"pre",
-	"progress",
-	"q",
-	"rp",
-	"rt",
-	"ruby",
-	"s",
-	"samp",
-	"script",
-	"search",
-	"section",
-	"select",
-	"slot",
-	"small",
-	"source",
-	"span",
-	"strong",
-	"style",
-	"sub",
-	"summary",
-	"sup",
-	"table",
-	"tbody",
-	"td",
-	"template",
-	"textarea",
-	"tfoot",
-	"th",
-	"thead",
-	"time",
-	"title",
-	"tr",
-	"track",
-	"u",
-	"ul",
-	"var",
-	"video",
-	"wbr"
-]);
-const createElement = (() => {
-	let template = null;
-	return (htmlString) => {
-		if (!template) template = document.createElement("template");
-		template.innerHTML = htmlString.trim();
-		return template.content.firstElementChild;
-	};
-})();
-var ComponentManager = class ComponentManager {
-	static {
-		this.instance = void 0;
-	}
-	static {
-		this.customEventTypes_ = [];
-	}
-	static {
-		this.eventPlugins_ = [];
-	}
-	constructor() {
-		this.componentRegistry = {};
-		this.componentsToRender = {};
-		this.eventPlugins_ = [];
-		this.registeredDocumentEvents_ = /* @__PURE__ */ new Set();
-		this.loaded_ = false;
-		this.componentClassRegistry = {};
-		this.componentSelectorsCache_ = null;
-		this.boundHandleEvent_ = this.handleEvent.bind(this);
-		if (typeof document !== "undefined") if (document.body) this.onLoad();
-		else document.addEventListener("DOMContentLoaded", () => this.onLoad());
-		this.getUid = getUid;
-		this.createElement = createElement;
-	}
-	handleEvent(e) {
-		e.targetEl = e.target;
-		const comps = this.getParentComps(e.target);
-		const target = e.target;
-		const bubbleStepMap = /* @__PURE__ */ new Map();
-		let si = 0;
-		for (let n = target; n && n !== document.body; n = n.parentNode) bubbleStepMap.set(n, si++);
-		const compCount = comps.length;
-		const eventsByComp = new Array(compCount);
-		const rootSteps = new Array(compCount);
-		for (let i = 0; i < compCount; i++) {
-			const c = comps[i];
-			eventsByComp[i] = c?.events;
-			if (!c) {
-				rootSteps[i] = void 0;
-				continue;
-			}
-			const root = c.element_ ?? (typeof document !== "undefined" ? document.getElementById(c.id) : null);
-			rootSteps[i] = root ? bubbleStepMap.get(root) : void 0;
-		}
-		let broken = false;
-		let step = 0;
-		e.targetEl = e.target;
-		do {
-			if (broken || e.cancelBubble) break;
-			broken = this.callHandlers(comps, eventsByComp, e, rootSteps, step);
-			step++;
-		} while ((e.targetEl = e.targetEl.parentNode) && e.targetEl != document.body);
-	}
-	onLoad() {
-		this.loaded_ = true;
-		this.addDocumentEventListeners_(this.getActiveDocumentEventTypes_());
-		this.installConfiguredPlugins_();
-		new MutationObserver((_mutations) => {
-			for (const cmpId in this.componentsToRender) {
-				const comp = this.componentsToRender[cmpId];
-				if (comp.__geaCompiledChild) {
-					delete this.componentsToRender[cmpId];
-					continue;
-				}
-				if (comp.render()) delete this.componentsToRender[cmpId];
-			}
-		}).observe(document.body, {
-			childList: true,
-			subtree: true
-		});
-	}
-	static {
-		this.NON_BUBBLING_EVENTS_ = new Set([
-			"blur",
-			"focus",
-			"scroll",
-			"mouseenter",
-			"mouseleave"
-		]);
-	}
-	addDocumentEventListeners_(eventTypes) {
-		if (!document.body) return;
-		eventTypes.forEach((type) => {
-			if (this.registeredDocumentEvents_.has(type)) return;
-			const useCapture = ComponentManager.NON_BUBBLING_EVENTS_.has(type);
-			document.body.addEventListener(type, this.boundHandleEvent_, useCapture);
-			this.registeredDocumentEvents_.add(type);
-		});
-	}
-	installConfiguredPlugins_() {
-		ComponentManager.eventPlugins_.forEach((plugin) => this.installEventPlugin_(plugin));
-	}
-	installEventPlugin_(plugin) {
-		if (this.eventPlugins_.includes(plugin)) return;
-		this.eventPlugins_.push(plugin);
-		plugin(this);
-	}
-	getParentComps(child) {
-		let node = child, comp, ids;
-		const parentComps = [];
-		if (ids = node.parentComps) {
-			const parts = ids.split(",");
-			let stale = false;
-			for (let i = 0; i < parts.length; i++) {
-				const c = this.componentRegistry[parts[i]];
-				if (!c) {
-					stale = true;
-					break;
-				}
-				parentComps.push(c);
-			}
-			if (!stale) return parentComps;
-			parentComps.length = 0;
-			delete child.parentComps;
-		}
-		ids = [];
-		node = child;
-		do
-			if (comp = this.componentRegistry[node.id]) {
-				parentComps.push(comp);
-				ids.push(node.id);
-			} else if (node.id && node.nodeType === 1) {
-				const cid = node.getAttribute("data-gea-cid");
-				if (cid && (comp = this.componentRegistry[cid])) {
-					parentComps.push(comp);
-					ids.push(cid);
-				}
-			}
-		while (node = node.parentNode);
-		child.parentComps = ids.join(",");
-		return parentComps;
-	}
-	callHandlers(comps, eventsByComp, e, rootSteps, step) {
-		let broken = false;
-		for (let i = 0; i < comps.length; i++) {
-			const comp = comps[i];
-			if (!comp) continue;
-			const rootStep = rootSteps[i];
-			if (rootStep !== void 0 && step > rootStep) continue;
-			if (this.callEventsGetterHandler(comp, e, eventsByComp[i]) === false) {
-				broken = true;
-				break;
-			}
-			if (this.callItemHandler(comp, e) === false) {
-				broken = true;
-				break;
-			}
-		}
-		return broken;
-	}
-	callEventsGetterHandler(comp, e, events) {
-		const ev = events !== void 0 ? events : comp.events;
-		if (!comp || !ev) return true;
-		const targetEl = e.targetEl;
-		if (!targetEl || typeof targetEl.matches !== "function") return true;
-		const handlers = ev[e.type];
-		if (!handlers) return true;
-		const geaEvt = targetEl.getAttribute?.("data-gea-event");
-		if (geaEvt) {
-			const handler = handlers[`[data-gea-event="${geaEvt}"]`];
-			if (typeof handler === "function") {
-				Object.defineProperty(e, "currentTarget", {
-					value: targetEl,
-					configurable: true
-				});
-				if (handler.call(comp, e) === false) return false;
-			}
-			return true;
-		}
-		for (const selector in handlers) if (selector.charAt(0) === "#" ? targetEl.id === selector.slice(1) : targetEl.matches(selector)) {
-			const handler = handlers[selector];
-			if (typeof handler === "function") {
-				const targetComponent = this.getOwningComponent(targetEl);
-				Object.defineProperty(e, "currentTarget", {
-					value: targetEl,
-					configurable: true
-				});
-				if (handler.call(comp, e, targetComponent !== comp ? targetComponent : void 0) === false) return false;
-			}
-		}
-		return true;
-	}
-	callItemHandler(comp, e) {
-		if (!comp || typeof comp.__handleItemHandler !== "function") return true;
-		const targetEl = e.targetEl;
-		if (!targetEl || typeof targetEl.getAttribute !== "function") return true;
-		const root = comp.element_ ?? comp.el;
-		const itemEl = geaFindDelegatedMapRow(targetEl, root ?? null);
-		if (itemEl && root && root.contains(itemEl)) {
-			const itemId = geaItemHandlerKeyFromRow(itemEl);
-			if (itemId != null) return comp.__handleItemHandler(itemId, e);
-		}
-		return true;
-	}
-	getOwningComponent(node) {
-		let current = node;
-		while (current) {
-			if (current.id) {
-				const comp = this.getComponent(current.id);
-				if (comp) return comp;
-				if (current.nodeType === 1) {
-					const cid = current.getAttribute("data-gea-cid");
-					if (cid) {
-						const comp2 = this.getComponent(cid);
-						if (comp2) return comp2;
-					}
-				}
-			}
-			current = current.parentNode;
-		}
-	}
-	getComponent(id) {
-		return this.componentRegistry[id];
-	}
-	setComponent(comp) {
-		this.componentRegistry[comp.id] = comp;
-		if (!comp.rendered) this.componentsToRender[comp.id] = comp;
-		if (this.loaded_) {
-			if (comp.events) this.addDocumentEventListeners_(Object.keys(comp.events));
-		}
-	}
-	removeComponent(comp) {
-		delete this.componentRegistry[comp.id];
-		delete this.componentsToRender[comp.id];
-	}
-	registerComponentClass(ctor, tagName) {
-		if (!ctor || !ctor.name) return;
-		if (ctor.__geaTagName && this.componentClassRegistry[ctor.__geaTagName]) return;
-		const normalized = tagName || ctor.__geaTagName || this.generateTagName_(ctor);
-		ctor.__geaTagName = normalized;
-		if (!this.componentClassRegistry[normalized]) {
-			this.componentClassRegistry[normalized] = ctor;
-			this.componentSelectorsCache_ = null;
-		}
-	}
-	generateTagName_(ctor) {
-		const tagName = (ctor.displayName || ctor.name || "component").replace(/([a-z0-9])([A-Z])/g, "$1-$2").replace(/[\s_]+/g, "-").toLowerCase();
-		return RESERVED_HTML_TAG_NAMES.has(tagName) ? `gea-${tagName}` : tagName;
-	}
-	getComponentSelectors() {
-		if (!this.componentSelectorsCache_) this.componentSelectorsCache_ = Object.keys(this.componentClassRegistry).map((name) => `${name}`);
-		return this.componentSelectorsCache_;
-	}
-	getComponentConstructor(tagName) {
-		return this.componentClassRegistry[tagName];
-	}
-	markComponentRendered(comp) {
-		delete this.componentsToRender[comp.id];
-	}
-	getActiveDocumentEventTypes_() {
-		const eventTypes = new Set(ComponentManager.customEventTypes_);
-		Object.values(this.componentRegistry).forEach((comp) => {
-			if (comp.events) Object.keys(comp.events).forEach((type) => eventTypes.add(type));
-		});
-		return [...eventTypes];
-	}
-	static getInstance() {
-		if (!ComponentManager.instance) ComponentManager.instance = new ComponentManager();
-		return ComponentManager.instance;
-	}
-	static registerEventTypes(eventTypes) {
-		let changed = false;
-		eventTypes.forEach((type) => {
-			if (ComponentManager.customEventTypes_.includes(type)) return;
-			ComponentManager.customEventTypes_.push(type);
-			changed = true;
-		});
-		if (!changed || !ComponentManager.instance) return;
-		ComponentManager.instance.addDocumentEventListeners_(eventTypes);
-	}
-	static installEventPlugin(plugin) {
-		if (ComponentManager.eventPlugins_.includes(plugin)) return;
-		ComponentManager.eventPlugins_.push(plugin);
-		if (ComponentManager.instance && ComponentManager.instance.loaded_) ComponentManager.instance.installEventPlugin_(plugin);
-	}
-};
-//#endregion
-//#region src/lib/base/list.ts
-function samePathParts$1(a, b) {
-	if (!a || !b || a.length !== b.length) return false;
-	for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
-	return true;
-}
-function rebuildList(container, array, config) {
-	if (array.length === 0) {
-		if (container.textContent !== "") container.textContent = "";
-		return;
-	}
-	if (config.render && !config.hasComponentItems) {
-		const n = array.length;
-		const parts = new Array(n);
-		const render = config.render;
-		for (let i = 0; i < n; i++) parts[i] = render(array[i], i);
-		container.innerHTML = parts.join("");
-		for (let i = 0; i < n; i++) {
-			const row = container.children[i];
-			if (row) row.__geaItem = array[i];
-		}
-		return;
-	}
-	const fragment = document.createDocumentFragment();
-	for (let i = 0; i < array.length; i++) fragment.appendChild(config.create(array[i], i));
-	if (container.textContent !== "") container.textContent = "";
-	container.appendChild(fragment);
-}
-function rerenderListInPlace(container, array, create) {
-	const currentLength = container.children.length;
-	const nextLength = array.length;
-	const sharedLength = currentLength < nextLength ? currentLength : nextLength;
-	for (let i = 0; i < sharedLength; i++) {
-		const row = container.children[i];
-		const nextRow = create(array[i], i);
-		if (row) row.replaceWith(nextRow);
-		else container.appendChild(nextRow);
-	}
-	if (nextLength > currentLength) {
-		const fragment = document.createDocumentFragment();
-		for (let i = currentLength; i < nextLength; i++) fragment.appendChild(create(array[i], i));
-		container.appendChild(fragment);
-		return;
-	}
-	for (let i = currentLength - 1; i >= nextLength; i--) {
-		const row = container.children[i];
-		if (row) row.remove();
-	}
-}
-function applyReorder(container, permutation) {
-	const rows = Array.from(container.children);
-	for (let i = 0; i < permutation.length; i++) {
-		const row = rows[permutation[i]];
-		if (!row) continue;
-		const currentRow = container.children[i];
-		if (currentRow !== row) container.insertBefore(row, currentRow || null);
-	}
-}
-function applySwap(container, firstIndex, secondIndex) {
-	if (firstIndex === secondIndex) return;
-	const lowIndex = firstIndex < secondIndex ? firstIndex : secondIndex;
-	const highIndex = firstIndex < secondIndex ? secondIndex : firstIndex;
-	const lowRow = container.children[lowIndex];
-	const highRow = container.children[highIndex];
-	if (!(lowRow && highRow)) return;
-	const highNext = highRow.nextElementSibling;
-	container.insertBefore(highRow, lowRow);
-	container.insertBefore(lowRow, highNext);
-}
-function applyPropChanges(container, items, changes, config) {
-	if (!config.propPatchers) return false;
-	const rawItems = items && items.__getTarget ? items.__getTarget : items;
-	let handledAny = false;
-	for (let i = 0; i < changes.length; i++) {
-		const change = changes[i];
-		if (!change?.isArrayItemPropUpdate) continue;
-		if (!samePathParts$1(change.arrayPathParts, config.arrayPathParts)) continue;
-		if (change.arrayIndex == null) continue;
-		const lp = change.leafPathParts;
-		const key = lp && lp.length > 0 ? lp.length === 1 ? lp[0] : lp.join(".") : change.property;
-		const patchers = config.propPatchers[key] || config.propPatchers[change.property];
-		if (!patchers || patchers.length === 0) continue;
-		const row = container.children[change.arrayIndex];
-		if (!row) continue;
-		handledAny = true;
-		const item = rawItems[change.arrayIndex];
-		for (let j = 0; j < patchers.length; j++) patchers[j](row, change.newValue, item);
-	}
-	return handledAny;
-}
-function applyRootReplacementPatch(container, items, change, config) {
-	if (!config.patchRow || !config.getKey || !Array.isArray(change.previousValue)) return false;
-	const prevItems = change.previousValue;
-	if (prevItems.length !== items.length || container.children.length !== items.length) return false;
-	for (let index = 0; index < items.length; index++) {
-		const prevKey = config.getKey(prevItems[index], index);
-		if (prevKey !== config.getKey(items[index], index)) return false;
-		const row = container.children[index];
-		if (!row) return false;
-		const domKey = geaDomRowKeyFromElement(row, config.getKey, index);
-		if (domKey == null || domKey !== prevKey) return false;
-	}
-	for (let index = 0; index < items.length; index++) {
-		const row = container.children[index];
-		config.patchRow(row, items[index], prevItems[index], index);
-	}
-	return true;
-}
-function applyListChanges(container, array, changes, config) {
-	const proxiedItems = Array.isArray(array) ? array : [];
-	const items = proxiedItems && proxiedItems.__getTarget ? proxiedItems.__getTarget : proxiedItems;
-	if (!changes || changes.length === 0) {
-		rerenderListInPlace(container, items, config.create);
-		return;
-	}
-	const firstChange = changes[0];
-	if (firstChange?.type === "reorder" && samePathParts$1(firstChange.pathParts, config.arrayPathParts) && Array.isArray(firstChange.permutation)) {
-		applyReorder(container, firstChange.permutation);
-		return;
-	}
-	if (changes.every((change) => change?.type === "update" && change.arrayOp === "swap")) {
-		const seen = /* @__PURE__ */ new Set();
-		for (let i = 0; i < changes.length; i++) {
-			const change = changes[i];
-			const opId = change.opId || `${change.property}:${change.otherIndex}`;
-			if (seen.has(opId)) continue;
-			seen.add(opId);
-			const firstIndex = Number(change.property);
-			const secondIndex = Number(change.otherIndex);
-			if (!Number.isInteger(firstIndex) || !Number.isInteger(secondIndex)) continue;
-			applySwap(container, firstIndex, secondIndex);
-		}
-		return;
-	}
-	if (applyPropChanges(container, items, changes, config)) return;
-	if ((firstChange?.type === "update" || firstChange?.type === "add") && samePathParts$1(firstChange.pathParts, config.arrayPathParts)) {
-		if (applyRootReplacementPatch(container, items, firstChange, config)) return;
-		rebuildList(container, items, config);
-		return;
-	}
-	let handledMutation = false;
-	const deleteIndexes = [];
-	const addIndexes = [];
-	for (let i = 0; i < changes.length; i++) {
-		const change = changes[i];
-		if (!change) continue;
-		if (change.type === "delete") {
-			const idx = Number(change.property);
-			if (Number.isInteger(idx) && idx >= 0) {
-				deleteIndexes.push(idx);
-				handledMutation = true;
-			}
-			continue;
-		}
-		if (change.type === "add") {
-			const idx = Number(change.property);
-			if (Number.isInteger(idx) && idx >= 0) {
-				addIndexes.push(idx);
-				handledMutation = true;
-			}
-			continue;
-		}
-		if (change.type === "append") {
-			const start = change.start ?? 0;
-			const count = change.count ?? 0;
-			if (count > 0) {
-				const fragment = document.createDocumentFragment();
-				for (let j = 0; j < count; j++) fragment.appendChild(config.create(items[start + j], start + j));
-				container.appendChild(fragment);
-			}
-			handledMutation = true;
-		}
-	}
-	if (!handledMutation) {
-		rebuildList(container, items, config);
-		return;
-	}
-	if (addIndexes.length > 0 && addIndexes.includes(0)) {
-		const firstChild = container.children[0];
-		if (firstChild && !rowLooksLikeKeyedListRow(firstChild)) {
-			if (container.children.length !== items.length) {
-				rebuildList(container, items, config);
-				return;
-			}
-			if (container.children.length === 1) firstChild.remove();
-			else return;
-		}
-	}
-	if (deleteIndexes.length > 1) deleteIndexes.sort((a, b) => b - a);
-	for (let i = 0; i < deleteIndexes.length; i++) {
-		const row = container.children[deleteIndexes[i]];
-		if (row) row.remove();
-	}
-	if (addIndexes.length > 1) addIndexes.sort((a, b) => a - b);
-	for (let i = 0; i < addIndexes.length; i++) {
-		const index = addIndexes[i];
-		const row = config.create(items[index], index);
-		container.insertBefore(row, container.children[index] || null);
-	}
-}
-//#endregion
 //#region src/lib/store.ts
 function createObserverNode(pathParts) {
 	return {
@@ -753,7 +82,7 @@ function isNumericIndex(value) {
 	}
 	return true;
 }
-function samePathParts(a, b) {
+function samePathParts$1(a, b) {
 	if (!a || !b || a.length !== b.length) return false;
 	for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
 	return true;
@@ -764,7 +93,7 @@ function isArrayIndexUpdate(change) {
 function isReciprocalSwap(a, b) {
 	if (!isArrayIndexUpdate(a) || !isArrayIndexUpdate(b)) return false;
 	if (a.target !== b.target || a.property === b.property) return false;
-	if (!samePathParts(a.pathParts.slice(0, -1), b.pathParts.slice(0, -1))) return false;
+	if (!samePathParts$1(a.pathParts.slice(0, -1), b.pathParts.slice(0, -1))) return false;
 	return a.previousValue === b.newValue && b.previousValue === a.newValue;
 }
 /** Props that must bypass Store reactivity (compiler/runtime internals on Component). */
@@ -802,12 +131,49 @@ function rootGetValue(t, prop, receiver) {
 	}
 	return value;
 }
+function getCachedPathParts(t, prop) {
+	let parts = t._pathPartsCache.get(prop);
+	if (parts === void 0) {
+		parts = [prop];
+		t._pathPartsCache.set(prop, parts);
+	}
+	return parts;
+}
 function rootSetValue(t, prop, value) {
 	if (typeof value === "function") {
 		t[prop] = value;
 		return true;
 	}
-	if (value && typeof value === "object" && value.__isProxy) {
+	if (value === null || value === void 0 || typeof value !== "object") {
+		const oldValue = t[prop];
+		if (oldValue === value && prop in t) return true;
+		const hadProp = prop in t;
+		if (oldValue && typeof oldValue === "object") {
+			t._proxyCache.delete(oldValue);
+			t._arrayIndexProxyCache.delete(oldValue);
+			t._topLevelProxies.delete(prop);
+		}
+		t[prop] = value;
+		t._pendingChanges.push({
+			type: hadProp ? "update" : "add",
+			property: prop,
+			target: t,
+			pathParts: getCachedPathParts(t, prop),
+			newValue: value,
+			previousValue: oldValue
+		});
+		if (t._pendingBatchKind !== 2) {
+			t._pendingBatchKind = 2;
+			t._pendingBatchArrayPathParts = null;
+		}
+		if (!t._flushScheduled) {
+			t._flushScheduled = true;
+			Store._pendingStores.add(t);
+			queueMicrotask(t._flushChanges);
+		}
+		return true;
+	}
+	if (value.__isProxy) {
 		const raw = value.__getTarget;
 		if (raw !== void 0) value = raw;
 	}
@@ -816,11 +182,11 @@ function rootSetValue(t, prop, value) {
 	if (hadProp && oldValue === value) return true;
 	if (oldValue && typeof oldValue === "object") {
 		t._proxyCache.delete(oldValue);
-		t._clearArrayIndexCache(oldValue);
+		t._arrayIndexProxyCache.delete(oldValue);
 	}
 	t._topLevelProxies.delete(prop);
 	t[prop] = value;
-	if (Array.isArray(oldValue) && Array.isArray(value) && value.length > oldValue.length) {
+	if (Array.isArray(oldValue) && oldValue.length > 0 && Array.isArray(value) && value.length > oldValue.length) {
 		let isAppend = true;
 		for (let i = 0; i < oldValue.length; i++) if (oldValue[i] !== value[i]) {
 			isAppend = false;
@@ -832,7 +198,7 @@ function rootSetValue(t, prop, value) {
 				type: "append",
 				property: prop,
 				target: t,
-				pathParts: [prop],
+				pathParts: getCachedPathParts(t, prop),
 				start,
 				count: value.length - start,
 				newValue: value.slice(start)
@@ -840,14 +206,23 @@ function rootSetValue(t, prop, value) {
 			return true;
 		}
 	}
-	t._emitChanges([{
+	t._pendingChanges.push({
 		type: hadProp ? "update" : "add",
 		property: prop,
 		target: t,
-		pathParts: [prop],
+		pathParts: getCachedPathParts(t, prop),
 		newValue: value,
 		previousValue: oldValue
-	}]);
+	});
+	if (t._pendingBatchKind !== 2) {
+		t._pendingBatchKind = 2;
+		t._pendingBatchArrayPathParts = null;
+	}
+	if (!t._flushScheduled) {
+		t._flushScheduled = true;
+		Store._pendingStores.add(t);
+		queueMicrotask(t._flushChanges);
+	}
 	return true;
 }
 function rootDeleteProperty(t, prop) {
@@ -855,7 +230,7 @@ function rootDeleteProperty(t, prop) {
 	const oldValue = t[prop];
 	if (oldValue && typeof oldValue === "object") {
 		t._proxyCache.delete(oldValue);
-		t._clearArrayIndexCache(oldValue);
+		t._arrayIndexProxyCache.delete(oldValue);
 	}
 	t._topLevelProxies.delete(prop);
 	delete t[prop];
@@ -863,7 +238,7 @@ function rootDeleteProperty(t, prop) {
 		type: "delete",
 		property: prop,
 		target: t,
-		pathParts: [prop],
+		pathParts: getCachedPathParts(t, prop),
 		previousValue: oldValue
 	}]);
 	return true;
@@ -885,6 +260,22 @@ var Store = class Store {
 	}
 	static {
 		this._rootProxyHandlerFactory = null;
+	}
+	static {
+		this._pendingStores = /* @__PURE__ */ new Set();
+	}
+	static {
+		this._flushing = false;
+	}
+	static flushAll() {
+		if (Store._flushing) return;
+		Store._flushing = true;
+		try {
+			for (const store of Store._pendingStores) store.flushSync();
+			Store._pendingStores.clear();
+		} finally {
+			Store._flushing = false;
+		}
 	}
 	static _getBrowserRootProxyHandler() {
 		if (!Store._browserRootProxyHandler) Store._browserRootProxyHandler = {
@@ -926,6 +317,7 @@ var Store = class Store {
 	}
 	constructor(initialData) {
 		this._pendingChanges = [];
+		this._pendingChangesPool = [];
 		this._flushScheduled = false;
 		this._nextArrayOpId = 0;
 		this._observerRoot = createObserverNode([]);
@@ -933,18 +325,70 @@ var Store = class Store {
 		this._arrayIndexProxyCache = /* @__PURE__ */ new WeakMap();
 		this._internedArrayPaths = /* @__PURE__ */ new Map();
 		this._topLevelProxies = /* @__PURE__ */ new Map();
+		this._pathPartsCache = /* @__PURE__ */ new Map();
 		this._pendingBatchKind = 0;
 		this._pendingBatchArrayPathParts = null;
 		this._flushChanges = () => {
 			this._flushScheduled = false;
+			Store._pendingStores.delete(this);
 			const pendingBatch = this._pendingChanges;
 			const pendingBatchKind = this._pendingBatchKind;
 			const pendingBatchArrayPathParts = this._pendingBatchArrayPathParts;
-			this._pendingChanges = [];
+			this._pendingChangesPool.length = 0;
+			this._pendingChanges = this._pendingChangesPool;
+			this._pendingChangesPool = pendingBatch;
 			this._pendingBatchKind = 0;
 			this._pendingBatchArrayPathParts = null;
 			if (pendingBatch.length === 0) return;
 			if (pendingBatchKind === 1 && pendingBatchArrayPathParts && this._deliverKnownArrayItemPropBatch(pendingBatch, pendingBatchArrayPathParts)) return;
+			if (pendingBatch.length === 1) {
+				const change = pendingBatch[0];
+				if (change.target === this && change.pathParts.length === 1 && this._observerRoot.handlers.size === 0) {
+					const node = this._observerRoot.children.get(change.property);
+					if (node && node.handlers.size > 0) {
+						if (node.children.size === 0) {
+							let value;
+							if (change.type === "delete") value = void 0;
+							else {
+								const nv = change.newValue;
+								if (nv === null || nv === void 0 || typeof nv !== "object") value = nv;
+								else if (Array.isArray(nv) && nv.length === 0) value = nv;
+								else value = this._getTopLevelObservedValue(change);
+							}
+							const handlers = node.handlers;
+							if (handlers.size === 1) handlers.values().next().value(value, pendingBatch);
+							else for (const handler of handlers) handler(value, pendingBatch);
+							return;
+						}
+					} else if (node) return;
+				}
+			}
+			if (pendingBatch.length === 2 && this._observerRoot.handlers.size === 0) {
+				const c0 = pendingBatch[0];
+				const c1 = pendingBatch[1];
+				if (c0.target === c1.target && Array.isArray(c0.target) && c0.type === "update" && c1.type === "update" && isNumericIndex(c0.property) && isNumericIndex(c1.property) && c0.previousValue === c1.newValue && c0.newValue === c1.previousValue) {
+					const opId = `swap:${this._nextArrayOpId++}`;
+					const arrayPathParts = c0.pathParts.length > 1 ? c0.pathParts.slice(0, -1) : c0.pathParts;
+					c0.arrayOp = "swap";
+					c1.arrayOp = "swap";
+					c0.opId = opId;
+					c1.opId = opId;
+					c0.otherIndex = Number(c1.property);
+					c1.otherIndex = Number(c0.property);
+					c0.arrayPathParts = arrayPathParts;
+					c1.arrayPathParts = arrayPathParts;
+					let node = this._observerRoot;
+					for (let i = 0; i < arrayPathParts.length; i++) {
+						node = node.children.get(arrayPathParts[i]);
+						if (!node) break;
+					}
+					if (node && node.handlers.size > 0) {
+						const value = getByPathParts(this, node.pathParts);
+						for (const handler of node.handlers) handler(value, pendingBatch);
+					}
+					return;
+				}
+			}
 			if (this._deliverTopLevelBatch(pendingBatch)) return;
 			const batch = this._normalizeBatch(pendingBatch);
 			if (this._deliverArrayItemPropBatch(batch)) return;
@@ -986,6 +430,9 @@ var Store = class Store {
 	/** Used by vite plugin when passing store to components. Same as `this`. */
 	get __store() {
 		return this;
+	}
+	flushSync() {
+		if (this._pendingChanges.length > 0) this._flushChanges();
 	}
 	silent(fn) {
 		try {
@@ -1069,18 +516,15 @@ var Store = class Store {
 	}
 	_notifyHandlers(node, relevant) {
 		const value = getByPathParts(this, node.pathParts);
-		for (const handler of node.handlers) try {
-			handler(value, relevant);
-		} catch (e) {
-			console.error("[Gea Store] Observer threw:", e);
-		}
+		for (const handler of node.handlers) handler(value, relevant);
 	}
 	_notifyHandlersWithValue(node, value, relevant) {
-		for (const handler of node.handlers) try {
-			handler(value, relevant);
-		} catch (e) {
-			console.error("[Gea Store] Observer threw:", e);
+		const handlers = node.handlers;
+		if (handlers.size === 1) {
+			handlers.values().next().value(value, relevant);
+			return;
 		}
+		for (const handler of handlers) handler(value, relevant);
 	}
 	_getDirectTopLevelObservedValue(change) {
 		const nextValue = change.newValue;
@@ -1147,7 +591,7 @@ var Store = class Store {
 		let allSameArray = true;
 		for (let i = 1; i < batch.length; i++) {
 			const change = batch[i];
-			if (!change.isArrayItemPropUpdate || change.arrayPathParts !== arrayPathParts && !samePathParts(change.arrayPathParts, arrayPathParts)) {
+			if (!change.isArrayItemPropUpdate || change.arrayPathParts !== arrayPathParts && !samePathParts$1(change.arrayPathParts, arrayPathParts)) {
 				allSameArray = false;
 				break;
 			}
@@ -1184,6 +628,26 @@ var Store = class Store {
 	}
 	_deliverTopLevelBatch(batch) {
 		if (this._observerRoot.handlers.size > 0) return false;
+		if (batch.length === 1) {
+			const change = batch[0];
+			if (change.target !== this || change.pathParts.length !== 1) return false;
+			const node = this._observerRoot.children.get(change.property);
+			if (!node) return true;
+			if (node.children.size > 0) return false;
+			if (node.handlers.size === 0) return true;
+			let value;
+			if (change.type === "delete") value = void 0;
+			else {
+				const nv = change.newValue;
+				if (nv === null || nv === void 0 || typeof nv !== "object") value = nv;
+				else {
+					const directValue = this._getDirectTopLevelObservedValue(change);
+					value = directValue !== Store._noDirectTopLevelValue ? directValue : this._getTopLevelObservedValue(change);
+				}
+			}
+			this._notifyHandlersWithValue(node, value, batch);
+			return true;
+		}
 		const deliveries = /* @__PURE__ */ new Map();
 		for (let i = 0; i < batch.length; i++) {
 			const change = batch[i];
@@ -1207,8 +671,16 @@ var Store = class Store {
 		return true;
 	}
 	_emitChanges(changes) {
-		for (let i = 0; i < changes.length; i++) this._queueChange(changes[i]);
-		this._scheduleFlush();
+		for (let i = 0; i < changes.length; i++) {
+			const change = changes[i];
+			this._pendingChanges.push(change);
+			this._trackPendingChange(change);
+		}
+		if (!this._flushScheduled) {
+			this._flushScheduled = true;
+			Store._pendingStores.add(this);
+			queueMicrotask(this._flushChanges);
+		}
 	}
 	_queueChange(change) {
 		this._pendingChanges.push(change);
@@ -1227,7 +699,7 @@ var Store = class Store {
 			return;
 		}
 		const pendingArrayPathParts = this._pendingBatchArrayPathParts;
-		if (pendingArrayPathParts !== change.arrayPathParts && !samePathParts(pendingArrayPathParts, change.arrayPathParts)) {
+		if (pendingArrayPathParts !== change.arrayPathParts && !samePathParts$1(pendingArrayPathParts, change.arrayPathParts)) {
 			this._pendingBatchKind = 2;
 			this._pendingBatchArrayPathParts = null;
 		}
@@ -1235,11 +707,12 @@ var Store = class Store {
 	_scheduleFlush() {
 		if (!this._flushScheduled) {
 			this._flushScheduled = true;
+			Store._pendingStores.add(this);
 			queueMicrotask(this._flushChanges);
 		}
 	}
 	_queueDirectArrayItemPrimitiveChange(target, property, value, previousValue, isNew, arrayMeta, getPathParts, getLeafPathParts) {
-		this._queueChange({
+		const change = {
 			type: isNew ? "add" : "update",
 			property,
 			target,
@@ -1250,8 +723,23 @@ var Store = class Store {
 			arrayIndex: arrayMeta.arrayIndex,
 			leafPathParts: getLeafPathParts(property),
 			isArrayItemPropUpdate: true
-		});
-		this._scheduleFlush();
+		};
+		this._pendingChanges.push(change);
+		if (this._pendingBatchKind === 0) {
+			this._pendingBatchKind = 1;
+			this._pendingBatchArrayPathParts = change.arrayPathParts;
+		} else if (this._pendingBatchKind === 1) {
+			const pp = this._pendingBatchArrayPathParts;
+			if (pp !== change.arrayPathParts && !samePathParts$1(pp, change.arrayPathParts)) {
+				this._pendingBatchKind = 2;
+				this._pendingBatchArrayPathParts = null;
+			}
+		}
+		if (!this._flushScheduled) {
+			this._flushScheduled = true;
+			Store._pendingStores.add(this);
+			queueMicrotask(this._flushChanges);
+		}
 	}
 	_interceptArrayMethod(arr, method, _basePath, baseParts) {
 		const store = this;
@@ -1494,7 +982,7 @@ var Store = class Store {
 			leafCache.set(propStr, parts);
 			return parts;
 		}
-		const createProxy = (t, bp, bps, nextArrayMeta) => store._createProxy(t, bp, bps, nextArrayMeta);
+		const createProxy = store._createProxy.bind(store);
 		const proxy = new Proxy(target, {
 			get(obj, prop) {
 				if (typeof prop === "symbol") return obj[prop];
@@ -1564,7 +1052,7 @@ var Store = class Store {
 					const isNew = !(prop in obj);
 					if (!isNew && oldValue && typeof oldValue === "object") {
 						store._proxyCache.delete(oldValue);
-						store._clearArrayIndexCache(oldValue);
+						store._arrayIndexProxyCache.delete(oldValue);
 					}
 					obj[prop] = value;
 					if (cachedArrayMeta && cachedArrayMeta.baseTail.length === 0) {
@@ -1589,20 +1077,20 @@ var Store = class Store {
 					store._scheduleFlush();
 					return true;
 				}
-				if (value.__isProxy) {
+				if (value && typeof value === "object" && value.__isProxy) {
 					const raw = value.__getTarget;
 					if (raw !== void 0) value = raw;
 				}
 				if (prop === "length" && Array.isArray(obj)) {
-					store._clearArrayIndexCache(obj);
+					store._arrayIndexProxyCache.delete(obj);
 					obj[prop] = value;
 					return true;
 				}
 				const isNew = !Object.prototype.hasOwnProperty.call(obj, prop);
-				if (Array.isArray(obj) && isNumericIndex(prop)) store._clearArrayIndexCache(obj);
+				if (Array.isArray(obj) && isNumericIndex(prop)) store._arrayIndexProxyCache.delete(obj);
 				if (oldValue && typeof oldValue === "object") {
 					store._proxyCache.delete(oldValue);
-					store._clearArrayIndexCache(oldValue);
+					store._arrayIndexProxyCache.delete(oldValue);
 				}
 				obj[prop] = value;
 				if (Array.isArray(oldValue) && Array.isArray(value) && value.length > oldValue.length) {
@@ -1635,8 +1123,16 @@ var Store = class Store {
 							change.leafPathParts = getCachedLeafPathParts(prop);
 							change.isArrayItemPropUpdate = true;
 						}
-						store._queueChange(change);
-						store._scheduleFlush();
+						store._pendingChanges.push(change);
+						if (store._pendingBatchKind !== 2) {
+							store._pendingBatchKind = 2;
+							store._pendingBatchArrayPathParts = null;
+						}
+						if (!store._flushScheduled) {
+							store._flushScheduled = true;
+							Store._pendingStores.add(store);
+							queueMicrotask(store._flushChanges);
+						}
 						return true;
 					}
 				}
@@ -1654,8 +1150,16 @@ var Store = class Store {
 					change.leafPathParts = getCachedLeafPathParts(prop);
 					change.isArrayItemPropUpdate = true;
 				}
-				store._queueChange(change);
-				store._scheduleFlush();
+				store._pendingChanges.push(change);
+				if (store._pendingBatchKind !== 2) {
+					store._pendingBatchKind = 2;
+					store._pendingBatchArrayPathParts = null;
+				}
+				if (!store._flushScheduled) {
+					store._flushScheduled = true;
+					Store._pendingStores.add(store);
+					queueMicrotask(store._flushChanges);
+				}
 				return true;
 			},
 			deleteProperty(obj, prop) {
@@ -1664,10 +1168,10 @@ var Store = class Store {
 					return true;
 				}
 				const oldValue = obj[prop];
-				if (Array.isArray(obj) && isNumericIndex(prop)) store._clearArrayIndexCache(obj);
+				if (Array.isArray(obj) && isNumericIndex(prop)) store._arrayIndexProxyCache.delete(obj);
 				if (oldValue && typeof oldValue === "object") {
 					store._proxyCache.delete(oldValue);
-					store._clearArrayIndexCache(oldValue);
+					store._arrayIndexProxyCache.delete(oldValue);
 				}
 				delete obj[prop];
 				const change = {
@@ -1692,6 +1196,600 @@ var Store = class Store {
 		return proxy;
 	}
 };
+//#endregion
+//#region src/lib/base/component-manager.ts
+const RESERVED_HTML_TAG_NAMES = new Set([
+	"a",
+	"abbr",
+	"address",
+	"area",
+	"article",
+	"aside",
+	"audio",
+	"b",
+	"base",
+	"bdi",
+	"bdo",
+	"blockquote",
+	"body",
+	"br",
+	"button",
+	"canvas",
+	"caption",
+	"cite",
+	"code",
+	"col",
+	"colgroup",
+	"data",
+	"datalist",
+	"dd",
+	"del",
+	"details",
+	"dfn",
+	"dialog",
+	"div",
+	"dl",
+	"dt",
+	"em",
+	"embed",
+	"fieldset",
+	"figcaption",
+	"figure",
+	"footer",
+	"form",
+	"h1",
+	"h2",
+	"h3",
+	"h4",
+	"h5",
+	"h6",
+	"head",
+	"header",
+	"hgroup",
+	"hr",
+	"html",
+	"i",
+	"iframe",
+	"img",
+	"input",
+	"ins",
+	"kbd",
+	"label",
+	"legend",
+	"li",
+	"link",
+	"main",
+	"map",
+	"mark",
+	"menu",
+	"meta",
+	"meter",
+	"nav",
+	"noscript",
+	"object",
+	"ol",
+	"optgroup",
+	"option",
+	"output",
+	"p",
+	"picture",
+	"pre",
+	"progress",
+	"q",
+	"rp",
+	"rt",
+	"ruby",
+	"s",
+	"samp",
+	"script",
+	"search",
+	"section",
+	"select",
+	"slot",
+	"small",
+	"source",
+	"span",
+	"strong",
+	"style",
+	"sub",
+	"summary",
+	"sup",
+	"table",
+	"tbody",
+	"td",
+	"template",
+	"textarea",
+	"tfoot",
+	"th",
+	"thead",
+	"time",
+	"title",
+	"tr",
+	"track",
+	"u",
+	"ul",
+	"var",
+	"video",
+	"wbr"
+]);
+const createElement = (() => {
+	let template = null;
+	return (htmlString) => {
+		if (!template) template = document.createElement("template");
+		template.innerHTML = htmlString.trim();
+		return template.content.firstElementChild;
+	};
+})();
+var ComponentManager = class ComponentManager {
+	static {
+		this.instance = void 0;
+	}
+	static {
+		this.customEventTypes_ = [];
+	}
+	static {
+		this.eventPlugins_ = [];
+	}
+	constructor() {
+		this.componentRegistry = {};
+		this.componentsToRender = {};
+		this.eventPlugins_ = [];
+		this.registeredDocumentEvents_ = /* @__PURE__ */ new Set();
+		this.loaded_ = false;
+		this.componentClassRegistry = {};
+		this.componentSelectorsCache_ = null;
+		this.boundHandleEvent_ = this.handleEvent.bind(this);
+		if (typeof document !== "undefined") if (document.body) this.onLoad();
+		else document.addEventListener("DOMContentLoaded", () => this.onLoad());
+		this.getUid = getUid;
+		this.createElement = createElement;
+	}
+	handleEvent(e) {
+		e.targetEl = e.target;
+		const comps = this.getParentComps(e.target);
+		const target = e.target;
+		const bubbleStepMap = /* @__PURE__ */ new Map();
+		let si = 0;
+		for (let n = target; n && n !== document.body; n = n.parentNode) bubbleStepMap.set(n, si++);
+		const compCount = comps.length;
+		const eventsByComp = new Array(compCount);
+		const rootSteps = new Array(compCount);
+		for (let i = 0; i < compCount; i++) {
+			const c = comps[i];
+			eventsByComp[i] = c?.events;
+			if (!c) {
+				rootSteps[i] = void 0;
+				continue;
+			}
+			const root = c.element_ ?? (typeof document !== "undefined" ? document.getElementById(c.id) : null);
+			rootSteps[i] = root ? bubbleStepMap.get(root) : void 0;
+		}
+		let broken = false;
+		let step = 0;
+		e.targetEl = e.target;
+		do {
+			if (broken || e.cancelBubble) break;
+			broken = this.callHandlers(comps, eventsByComp, e, rootSteps, step);
+			step++;
+		} while ((e.targetEl = e.targetEl.parentNode) && e.targetEl != document.body);
+		Store.flushAll();
+	}
+	onLoad() {
+		this.loaded_ = true;
+		this.addDocumentEventListeners_(this.getActiveDocumentEventTypes_());
+		this.installConfiguredPlugins_();
+		new MutationObserver((_mutations) => {
+			for (const cmpId in this.componentsToRender) {
+				const comp = this.componentsToRender[cmpId];
+				if (comp.__geaCompiledChild) {
+					delete this.componentsToRender[cmpId];
+					continue;
+				}
+				if (comp.render()) delete this.componentsToRender[cmpId];
+			}
+		}).observe(document.body, {
+			childList: true,
+			subtree: true
+		});
+	}
+	static {
+		this.NON_BUBBLING_EVENTS_ = new Set([
+			"blur",
+			"focus",
+			"scroll",
+			"mouseenter",
+			"mouseleave"
+		]);
+	}
+	addDocumentEventListeners_(eventTypes) {
+		if (!document.body) return;
+		eventTypes.forEach((type) => {
+			if (this.registeredDocumentEvents_.has(type)) return;
+			const useCapture = ComponentManager.NON_BUBBLING_EVENTS_.has(type);
+			document.body.addEventListener(type, this.boundHandleEvent_, useCapture);
+			this.registeredDocumentEvents_.add(type);
+		});
+	}
+	installConfiguredPlugins_() {
+		ComponentManager.eventPlugins_.forEach((plugin) => this.installEventPlugin_(plugin));
+	}
+	installEventPlugin_(plugin) {
+		if (this.eventPlugins_.includes(plugin)) return;
+		this.eventPlugins_.push(plugin);
+		plugin(this);
+	}
+	getParentComps(child) {
+		let node = child, comp, ids;
+		const parentComps = [];
+		if (ids = node.parentComps) {
+			const parts = ids.split(",");
+			let stale = false;
+			for (let i = 0; i < parts.length; i++) {
+				const c = this.componentRegistry[parts[i]];
+				if (!c) {
+					stale = true;
+					break;
+				}
+				parentComps.push(c);
+			}
+			if (!stale) return parentComps;
+			parentComps.length = 0;
+			delete child.parentComps;
+		}
+		ids = [];
+		node = child;
+		do
+			if (comp = this.componentRegistry[node.id]) {
+				parentComps.push(comp);
+				ids.push(node.id);
+			} else if (node.id && node.nodeType === 1) {
+				const cid = node.getAttribute("data-gea-cid");
+				if (cid && (comp = this.componentRegistry[cid])) {
+					parentComps.push(comp);
+					ids.push(cid);
+				}
+			}
+		while (node = node.parentNode);
+		child.parentComps = ids.join(",");
+		return parentComps;
+	}
+	callHandlers(comps, eventsByComp, e, rootSteps, step) {
+		let broken = false;
+		for (let i = 0; i < comps.length; i++) {
+			const comp = comps[i];
+			if (!comp) continue;
+			const rootStep = rootSteps[i];
+			if (rootStep !== void 0 && step > rootStep) continue;
+			if (this.callEventsGetterHandler(comp, e, eventsByComp[i]) === false) {
+				broken = true;
+				break;
+			}
+			if (this.callItemHandler(comp, e) === false) {
+				broken = true;
+				break;
+			}
+		}
+		return broken;
+	}
+	callEventsGetterHandler(comp, e, events) {
+		const ev = events !== void 0 ? events : comp.events;
+		if (!comp || !ev) return true;
+		const targetEl = e.targetEl;
+		if (!targetEl || typeof targetEl.matches !== "function") return true;
+		const handlers = ev[e.type];
+		if (!handlers) return true;
+		const geaEvt = targetEl._geaEvt ?? targetEl.getAttribute?.("data-gea-event");
+		if (geaEvt) {
+			const handler = handlers[`[data-gea-event="${geaEvt}"]`];
+			if (typeof handler === "function") {
+				Object.defineProperty(e, "currentTarget", {
+					value: targetEl,
+					configurable: true
+				});
+				if (handler.call(comp, e) === false) return false;
+			}
+			return true;
+		}
+		for (const selector in handlers) if (selector.charAt(0) === "#" ? targetEl.id === selector.slice(1) : targetEl.matches(selector)) {
+			const handler = handlers[selector];
+			if (typeof handler === "function") {
+				const targetComponent = this.getOwningComponent(targetEl);
+				Object.defineProperty(e, "currentTarget", {
+					value: targetEl,
+					configurable: true
+				});
+				if (handler.call(comp, e, targetComponent !== comp ? targetComponent : void 0) === false) return false;
+			}
+		}
+		return true;
+	}
+	callItemHandler(comp, e) {
+		if (!comp || typeof comp.__handleItemHandler !== "function") return true;
+		const targetEl = e.targetEl;
+		if (!targetEl) return true;
+		let itemEl = targetEl;
+		const root = comp.element_ ?? comp.el;
+		while (itemEl && itemEl !== root) {
+			if (itemEl.__geaKey != null || itemEl.getAttribute?.("data-gea-item-id")) break;
+			itemEl = itemEl.parentElement;
+		}
+		if (itemEl && itemEl !== root) {
+			const itemId = itemEl.__geaKey ?? itemEl.getAttribute?.("data-gea-item-id");
+			if (itemId != null) return comp.__handleItemHandler(itemId, e);
+		}
+		return true;
+	}
+	getOwningComponent(node) {
+		let current = node;
+		while (current) {
+			if (current.id) {
+				const comp = this.getComponent(current.id);
+				if (comp) return comp;
+				if (current.nodeType === 1) {
+					const cid = current.getAttribute("data-gea-cid");
+					if (cid) {
+						const comp2 = this.getComponent(cid);
+						if (comp2) return comp2;
+					}
+				}
+			}
+			current = current.parentNode;
+		}
+	}
+	getComponent(id) {
+		return this.componentRegistry[id];
+	}
+	setComponent(comp) {
+		this.componentRegistry[comp.id] = comp;
+		if (!comp.rendered) this.componentsToRender[comp.id] = comp;
+		if (this.loaded_) {
+			if (comp.events) this.addDocumentEventListeners_(Object.keys(comp.events));
+		}
+	}
+	removeComponent(comp) {
+		delete this.componentRegistry[comp.id];
+		delete this.componentsToRender[comp.id];
+	}
+	registerComponentClass(ctor, tagName) {
+		if (!ctor || !ctor.name) return;
+		if (ctor.__geaTagName && this.componentClassRegistry[ctor.__geaTagName]) return;
+		const normalized = tagName || ctor.__geaTagName || this.generateTagName_(ctor);
+		ctor.__geaTagName = normalized;
+		if (!this.componentClassRegistry[normalized]) {
+			this.componentClassRegistry[normalized] = ctor;
+			this.componentSelectorsCache_ = null;
+		}
+	}
+	generateTagName_(ctor) {
+		const tagName = (ctor.displayName || ctor.name || "component").replace(/([a-z0-9])([A-Z])/g, "$1-$2").replace(/[\s_]+/g, "-").toLowerCase();
+		return RESERVED_HTML_TAG_NAMES.has(tagName) ? `gea-${tagName}` : tagName;
+	}
+	getComponentSelectors() {
+		if (!this.componentSelectorsCache_) this.componentSelectorsCache_ = Object.keys(this.componentClassRegistry).map((name) => `${name}`);
+		return this.componentSelectorsCache_;
+	}
+	getComponentConstructor(tagName) {
+		return this.componentClassRegistry[tagName];
+	}
+	markComponentRendered(comp) {
+		delete this.componentsToRender[comp.id];
+	}
+	getActiveDocumentEventTypes_() {
+		const eventTypes = new Set(ComponentManager.customEventTypes_);
+		Object.values(this.componentRegistry).forEach((comp) => {
+			if (comp.events) Object.keys(comp.events).forEach((type) => eventTypes.add(type));
+		});
+		return [...eventTypes];
+	}
+	static getInstance() {
+		if (!ComponentManager.instance) ComponentManager.instance = new ComponentManager();
+		return ComponentManager.instance;
+	}
+	static registerEventTypes(eventTypes) {
+		let changed = false;
+		eventTypes.forEach((type) => {
+			if (ComponentManager.customEventTypes_.includes(type)) return;
+			ComponentManager.customEventTypes_.push(type);
+			changed = true;
+		});
+		if (!changed || !ComponentManager.instance) return;
+		ComponentManager.instance.addDocumentEventListeners_(eventTypes);
+	}
+	static installEventPlugin(plugin) {
+		if (ComponentManager.eventPlugins_.includes(plugin)) return;
+		ComponentManager.eventPlugins_.push(plugin);
+		if (ComponentManager.instance && ComponentManager.instance.loaded_) ComponentManager.instance.installEventPlugin_(plugin);
+	}
+};
+//#endregion
+//#region src/lib/base/list.ts
+function samePathParts(a, b) {
+	if (!a || !b || a.length !== b.length) return false;
+	for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+	return true;
+}
+function rebuildList(container, array, config) {
+	if (array.length === 0) {
+		container.textContent = "";
+		return;
+	}
+	const fragment = document.createDocumentFragment();
+	for (let i = 0; i < array.length; i++) fragment.appendChild(config.create(array[i], i));
+	container.textContent = "";
+	container.appendChild(fragment);
+}
+function rerenderListInPlace(container, array, create) {
+	const currentLength = container.children.length;
+	const nextLength = array.length;
+	const sharedLength = currentLength < nextLength ? currentLength : nextLength;
+	for (let i = 0; i < sharedLength; i++) {
+		const row = container.children[i];
+		const nextRow = create(array[i], i);
+		if (row) row.replaceWith(nextRow);
+		else container.appendChild(nextRow);
+	}
+	if (nextLength > currentLength) {
+		const fragment = document.createDocumentFragment();
+		for (let i = currentLength; i < nextLength; i++) fragment.appendChild(create(array[i], i));
+		container.appendChild(fragment);
+		return;
+	}
+	for (let i = currentLength - 1; i >= nextLength; i--) {
+		const row = container.children[i];
+		if (row) row.remove();
+	}
+}
+function applyReorder(container, permutation) {
+	const rows = Array.from(container.children);
+	for (let i = 0; i < permutation.length; i++) {
+		const row = rows[permutation[i]];
+		if (!row) continue;
+		const currentRow = container.children[i];
+		if (currentRow !== row) container.insertBefore(row, currentRow || null);
+	}
+}
+function applySwap(container, firstIndex, secondIndex) {
+	if (firstIndex === secondIndex) return;
+	const lowIndex = firstIndex < secondIndex ? firstIndex : secondIndex;
+	const highIndex = firstIndex < secondIndex ? secondIndex : firstIndex;
+	const lowRow = container.children[lowIndex];
+	const highRow = container.children[highIndex];
+	if (!(lowRow && highRow)) return;
+	const highNext = highRow.nextElementSibling;
+	container.insertBefore(highRow, lowRow);
+	container.insertBefore(lowRow, highNext);
+}
+function applyPropChanges(container, items, changes, config) {
+	if (!config.propPatchers) return false;
+	const rawItems = items && items.__getTarget ? items.__getTarget : items;
+	let handledAny = false;
+	for (let i = 0; i < changes.length; i++) {
+		const change = changes[i];
+		if (!change?.isArrayItemPropUpdate) continue;
+		if (!samePathParts(change.arrayPathParts, config.arrayPathParts)) continue;
+		if (change.arrayIndex == null) continue;
+		const lp = change.leafPathParts;
+		const key = lp && lp.length > 0 ? lp.length === 1 ? lp[0] : lp.join(".") : change.property;
+		const patchers = config.propPatchers[key] || config.propPatchers[change.property];
+		if (!patchers || patchers.length === 0) continue;
+		const row = container.children[change.arrayIndex];
+		if (!row) continue;
+		handledAny = true;
+		const item = rawItems[change.arrayIndex];
+		for (let j = 0; j < patchers.length; j++) patchers[j](row, change.newValue, item);
+	}
+	return handledAny;
+}
+function applyRootReplacementPatch(container, items, change, config) {
+	if (!config.patchRow || !config.getKey || !Array.isArray(change.previousValue)) return false;
+	const prevItems = change.previousValue;
+	if (prevItems.length !== items.length || container.children.length !== items.length) return false;
+	for (let index = 0; index < items.length; index++) {
+		const prevKey = config.getKey(prevItems[index], index);
+		if (prevKey !== config.getKey(items[index], index)) return false;
+		const row = container.children[index];
+		if (!row) return false;
+		const domKey = row.__geaKey ?? row.getAttribute("data-gea-item-id");
+		if (domKey == null || domKey !== prevKey) return false;
+	}
+	for (let index = 0; index < items.length; index++) {
+		const row = container.children[index];
+		config.patchRow(row, items[index], prevItems[index], index);
+	}
+	return true;
+}
+function applyListChanges(container, array, changes, config) {
+	const proxiedItems = Array.isArray(array) ? array : [];
+	const items = proxiedItems && proxiedItems.__getTarget ? proxiedItems.__getTarget : proxiedItems;
+	if (!changes || changes.length === 0) {
+		rerenderListInPlace(container, items, config.create);
+		return;
+	}
+	const firstChange = changes[0];
+	if (firstChange?.type === "reorder" && samePathParts(firstChange.pathParts, config.arrayPathParts) && Array.isArray(firstChange.permutation)) {
+		applyReorder(container, firstChange.permutation);
+		return;
+	}
+	if (changes.every((change) => change?.type === "update" && change.arrayOp === "swap")) {
+		const seen = /* @__PURE__ */ new Set();
+		for (let i = 0; i < changes.length; i++) {
+			const change = changes[i];
+			const opId = change.opId || `${change.property}:${change.otherIndex}`;
+			if (seen.has(opId)) continue;
+			seen.add(opId);
+			const firstIndex = Number(change.property);
+			const secondIndex = Number(change.otherIndex);
+			if (!Number.isInteger(firstIndex) || !Number.isInteger(secondIndex)) continue;
+			applySwap(container, firstIndex, secondIndex);
+		}
+		return;
+	}
+	if (applyPropChanges(container, items, changes, config)) return;
+	if ((firstChange?.type === "update" || firstChange?.type === "add") && samePathParts(firstChange.pathParts, config.arrayPathParts)) {
+		if (applyRootReplacementPatch(container, items, firstChange, config)) return;
+		rebuildList(container, items, config);
+		return;
+	}
+	let handledMutation = false;
+	const deleteIndexes = [];
+	const addIndexes = [];
+	for (let i = 0; i < changes.length; i++) {
+		const change = changes[i];
+		if (!change) continue;
+		if (change.type === "delete") {
+			const idx = Number(change.property);
+			if (Number.isInteger(idx) && idx >= 0) {
+				deleteIndexes.push(idx);
+				handledMutation = true;
+			}
+			continue;
+		}
+		if (change.type === "add") {
+			const idx = Number(change.property);
+			if (Number.isInteger(idx) && idx >= 0) {
+				addIndexes.push(idx);
+				handledMutation = true;
+			}
+			continue;
+		}
+		if (change.type === "append") {
+			const start = change.start ?? 0;
+			const count = change.count ?? 0;
+			if (count > 0) {
+				const fragment = document.createDocumentFragment();
+				for (let j = 0; j < count; j++) fragment.appendChild(config.create(items[start + j], start + j));
+				container.appendChild(fragment);
+			}
+			handledMutation = true;
+		}
+	}
+	if (!handledMutation) {
+		rebuildList(container, items, config);
+		return;
+	}
+	if (addIndexes.length > 0 && addIndexes.includes(0)) {
+		const firstChild = container.children[0];
+		if (firstChild && firstChild.__geaKey == null && !firstChild.hasAttribute("data-gea-item-id")) {
+			if (container.children.length !== items.length) {
+				rebuildList(container, items, config);
+				return;
+			}
+			if (container.children.length === 1) firstChild.remove();
+			else return;
+		}
+	}
+	if (deleteIndexes.length > 1) deleteIndexes.sort((a, b) => b - a);
+	for (let i = 0; i < deleteIndexes.length; i++) {
+		const row = container.children[deleteIndexes[i]];
+		if (row) row.remove();
+	}
+	if (addIndexes.length > 1) addIndexes.sort((a, b) => a - b);
+	for (let i = 0; i < addIndexes.length; i++) {
+		const index = addIndexes[i];
+		const row = config.create(items[index], index);
+		container.insertBefore(row, container.children[index] || null);
+	}
+}
 //#endregion
 //#region src/lib/base/component.tsx
 /**
@@ -1753,6 +1851,7 @@ var Component = class Component extends Store {
 				if (existing) this.element_ = existing;
 				else this.element_ = ComponentManager.getInstance().createElement(String(this.template(this.props)).trim());
 			}
+			if (this.element_) Component.__syncValueProps(this.element_);
 		}
 		return this.element_;
 	}
@@ -1770,6 +1869,10 @@ var Component = class Component extends Store {
 		return rv;
 	}
 	__applyListChanges(container, array, changes, config) {
+		if (changes && changes.length > 0 && changes[0].isArrayItemPropUpdate && !config.hasComponentItems) {
+			applyListChanges(container, array, changes, config);
+			return;
+		}
 		const prevCount = container.childElementCount;
 		applyListChanges(container, array, changes, config);
 		if (container.childElementCount !== prevCount || config.hasComponentItems) this.instantiateChildComponents_();
@@ -1918,8 +2021,12 @@ var Component = class Component extends Store {
 		this.__elCache.clear();
 		this.__resetEls?.();
 		const placeholder = document.createComment("");
-		parent.insertBefore(placeholder, this.element_);
-		parent.removeChild(this.element_);
+		try {
+			if (this.element_.parentNode === parent) this.element_.replaceWith(placeholder);
+			else parent.appendChild(placeholder);
+		} catch {
+			if (!placeholder.parentNode) parent.appendChild(placeholder);
+		}
 		const manager = ComponentManager.getInstance();
 		const cloneFn = this.__cloneTemplate;
 		const newElement = typeof cloneFn === "function" ? cloneFn.call(this) : manager.createElement(String(this.template(this.props)).trim());
@@ -1928,6 +2035,7 @@ var Component = class Component extends Store {
 			this.rendered_ = true;
 			return;
 		}
+		Component.__syncValueProps(newElement);
 		parent.replaceChild(newElement, placeholder);
 		this.element_ = newElement;
 		this.rendered_ = true;
@@ -1991,13 +2099,13 @@ var Component = class Component extends Store {
 	attachBindings_() {
 		this.cleanupBindings_();
 	}
-	static _register(ctor) {
+	static _register(ctor, compiledTagName) {
 		if (!ctor || !ctor.name || ctor.__geaAutoRegistered) return;
 		if (Object.getPrototypeOf(ctor.prototype) === Component.prototype) {
 			ctor.__geaAutoRegistered = true;
 			Component.__componentClasses.set(ctor.name, ctor);
 			const manager = ComponentManager.getInstance();
-			const tagName = manager.generateTagName_(ctor);
+			const tagName = compiledTagName || manager.generateTagName_(ctor);
 			manager.registerComponentClass(ctor, tagName);
 		}
 	}
@@ -2031,7 +2139,7 @@ var Component = class Component extends Store {
 			child.render(parent, index);
 			if (itemId != null && child.el) {
 				const wrapper = document.createElement("div");
-				wrapper.id = geaBuildMapRowId(this.id_, "cc", String(itemId));
+				wrapper.__geaKey = itemId;
 				parent.replaceChild(wrapper, child.el);
 				wrapper.appendChild(child.el);
 			}
@@ -2301,14 +2409,28 @@ var Component = class Component extends Store {
 		if (container.id) {
 			let hasDirectItems = false;
 			for (let n = container.firstChild; n; n = n.nextSibling) {
-				if (n.nodeType === 1 && rowLooksLikeKeyedListRow(n)) {
+				if (n.nodeType === 1 && (n.__geaKey != null || n.hasAttribute("data-gea-item-id"))) {
 					hasDirectItems = true;
 					break;
 				}
 				if (n.nodeType === 8 && !n.data) break;
 			}
 			if (!hasDirectItems) {
-				const nested = container.querySelector(`[id^="${container.id}-"][id*="-gk-"]`);
+				let nested = null;
+				const prefix = container.id + "-";
+				const walk = (el) => {
+					for (let c = el.firstChild; c; c = c.nextSibling) {
+						if (c.nodeType !== 1) continue;
+						const child = c;
+						if ((child.__geaKey != null || child.hasAttribute("data-gea-item-id")) && child.id && child.id.startsWith(prefix)) {
+							nested = child;
+							return;
+						}
+						walk(child);
+						if (nested) return;
+					}
+				};
+				walk(container);
 				if (nested?.parentElement && nested.parentElement !== container) container = nested.parentElement;
 				else if (!nested) {
 					let insideCondSlot = false;
@@ -2338,11 +2460,9 @@ var Component = class Component extends Store {
 		let prev = c.__geaPrev;
 		if (!prev) {
 			prev = [];
-			let domIdx = 0;
 			for (let n = container.firstChild; n; n = n.nextSibling) if (n.nodeType === 1) {
-				const aid = geaDomRowKeyFromElement(n, (item) => itemKey(item), domIdx);
-				domIdx++;
-				if (aid) prev.push(aid);
+				const aid = n.__geaKey ?? n.getAttribute("data-gea-item-id");
+				if (aid != null) prev.push(aid);
 			} else if (n.nodeType === 8 && !n.data) break;
 			c.__geaCount = prev.length;
 		}
@@ -2355,7 +2475,7 @@ var Component = class Component extends Store {
 			if (same) {
 				let child = container.firstChild;
 				for (let j = 0; j < items.length; j++) {
-					while (child && (child.nodeType !== 1 || !rowLooksLikeKeyedListRow(child))) {
+					while (child && (child.nodeType !== 1 || child.__geaKey == null && !child.hasAttribute?.("data-gea-item-id"))) {
 						if (child.nodeType === 8 && !child.data) break;
 						child = child.nextSibling;
 					}
@@ -2363,10 +2483,16 @@ var Component = class Component extends Store {
 					const oldEl = child;
 					child = child.nextSibling;
 					const newEl = createItemFn(items[j], j);
-					if (oldEl.innerHTML !== newEl.innerHTML) oldEl.innerHTML = newEl.innerHTML;
+					if (oldEl.innerHTML !== newEl.innerHTML) {
+						oldEl.innerHTML = newEl.innerHTML;
+						Component.__syncValueProps(oldEl);
+					}
 					for (let ai = 0; ai < newEl.attributes.length; ai++) {
 						const a = newEl.attributes[ai];
-						if (oldEl.getAttribute(a.name) !== a.value) oldEl.setAttribute(a.name, a.value);
+						if (oldEl.getAttribute(a.name) !== a.value) {
+							oldEl.setAttribute(a.name, a.value);
+							if (a.name === "value" && "value" in oldEl) oldEl.value = a.value;
+						}
 					}
 				}
 				c.__geaPrev = items.slice();
@@ -2382,6 +2508,7 @@ var Component = class Component extends Store {
 			if (appendOk) {
 				const frag = document.createDocumentFragment();
 				for (let j = prev.length; j < items.length; j++) frag.appendChild(createItemFn(items[j], j));
+				Component.__syncValueProps(frag);
 				let marker = null;
 				for (let sc = container.firstChild; sc; sc = sc.nextSibling) if (sc.nodeType === 8 && !sc.data) {
 					marker = sc;
@@ -2397,11 +2524,9 @@ var Component = class Component extends Store {
 			const newSet = /* @__PURE__ */ new Set();
 			for (let j = 0; j < items.length; j++) newSet.add(itemKey(items[j]));
 			const removals = [];
-			let ridx = 0;
 			for (let sc = container.firstChild; sc; sc = sc.nextSibling) if (sc.nodeType === 1) {
-				const aid = geaDomRowKeyFromElement(sc, (item) => itemKey(item), ridx);
-				ridx++;
-				if (aid && !newSet.has(aid)) removals.push(sc);
+				const aid = sc.__geaKey ?? sc.getAttribute("data-gea-item-id");
+				if (aid != null && !newSet.has(aid)) removals.push(sc);
 			} else if (sc.nodeType === 8 && !sc.data) break;
 			if (removals.length === prev.length - items.length) {
 				for (let j = 0; j < removals.length; j++) container.removeChild(removals[j]);
@@ -2425,6 +2550,7 @@ var Component = class Component extends Store {
 		}
 		const fragment = document.createDocumentFragment();
 		for (let i = 0; i < items.length; i++) fragment.appendChild(createItemFn(items[i], i));
+		Component.__syncValueProps(fragment);
 		container.insertBefore(fragment, container.firstChild);
 		c.__geaCount = items.length;
 	}
@@ -2447,8 +2573,7 @@ var Component = class Component extends Store {
 			el = tw.firstElementChild;
 		}
 		const raw = item != null && typeof item === "object" ? item[idProp] : void 0;
-		const itemKeyStr = String(raw != null ? raw : item);
-		el.id = geaBuildMapRowId(this.id_, bindingId ?? "list", itemKeyStr);
+		el.__geaKey = String(raw != null ? raw : item);
 		el.__geaItem = item;
 		if (patches) for (let i = 0; i < patches.length; i++) {
 			const p = patches[i];
@@ -2460,8 +2585,12 @@ var Component = class Component extends Store {
 			if (type === "c") target.className = String(val).trim();
 			else if (type === "t") target.textContent = String(val);
 			else if (val == null || val === false) target.removeAttribute(type);
-			else target.setAttribute(type, String(val));
+			else {
+				target.setAttribute(type, String(val));
+				if (type === "value" && "value" in target) target.value = String(val);
+			}
 		}
+		Component.__syncValueProps(el);
 		return el;
 	}
 	__geaRegisterCond(idx, slotId, getCond, getTruthyHtml, getFalsyHtml) {
@@ -2516,7 +2645,10 @@ var Component = class Component extends Store {
 				let node = marker.nextSibling;
 				while (node && node !== endMarker) {
 					const next = node.nextSibling;
-					node.remove();
+					if (!node.parentNode) break;
+					try {
+						node.remove();
+					} catch {}
 					node = next;
 				}
 				return;
@@ -2526,8 +2658,11 @@ var Component = class Component extends Store {
 				let node = marker.nextSibling;
 				while (node && node !== endMarker) {
 					const next = node.nextSibling;
-					if (node.nodeType !== 1) node.remove();
-					else if (!rowLooksLikeKeyedListRow(node)) node.remove();
+					if (!node.parentNode) break;
+					try {
+						if (node.nodeType !== 1) node.remove();
+						else if (node.__geaKey == null && !node.hasAttribute?.("data-gea-item-id")) node.remove();
+					} catch {}
 					node = next;
 				}
 				return;
@@ -2535,7 +2670,10 @@ var Component = class Component extends Store {
 			let node = marker.nextSibling;
 			while (node && node !== endMarker) {
 				const next = node.nextSibling;
-				node.remove();
+				if (!node.parentNode) break;
+				try {
+					node.remove();
+				} catch {}
 				node = next;
 			}
 			if ("namespaceURI" in parent && parent.namespaceURI === "http://www.w3.org/2000/svg") {
@@ -3498,6 +3636,6 @@ const gea = {
 	h
 };
 //#endregion
-export { Component, ComponentManager, GEA_MAP_KEY_SEP, Link, Outlet, Router, RouterView, Store, applyListChanges, clearUidProvider, createRouter, gea as default, geaBuildMapRowId, geaDomRowKeyFromElement, geaFindDelegatedMapRow, geaIsGeneratedMapRowId, geaItemHandlerKeyFromRow, geaTryParseMapRowKeyFromGeneratedRowId, geaTryParseMapRowKeyFromId, h, isInternalProp, matchRoute, resetUidCounter, rootDeleteProperty, rootGetValue, rootSetValue, router, rowLooksLikeKeyedListRow, setUidProvider };
+export { Component, ComponentManager, Link, Outlet, Router, RouterView, Store, applyListChanges, clearUidProvider, createRouter, gea as default, h, isInternalProp, matchRoute, resetUidCounter, rootDeleteProperty, rootGetValue, rootSetValue, router, setUidProvider };
 
 //# sourceMappingURL=index.mjs.map
