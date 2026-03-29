@@ -106,6 +106,7 @@ export default class Component<P = Record<string, any>> extends Store {
           this.element_ = ComponentManager.getInstance().createElement(String(this.template(this.props)).trim())
         }
       }
+      if (this.element_) Component.__syncValueProps(this.element_)
     }
     return this.element_
   }
@@ -374,6 +375,7 @@ export default class Component<P = Record<string, any>> extends Store {
       return
     }
 
+    Component.__syncValueProps(newElement)
     parent.replaceChild(newElement, placeholder)
 
     this.element_ = newElement
@@ -1018,12 +1020,15 @@ export default class Component<P = Record<string, any>> extends Store {
           const newEl = createItemFn(items[j], j)
           if (oldEl.innerHTML !== newEl.innerHTML) {
             oldEl.innerHTML = newEl.innerHTML
+            Component.__syncValueProps(oldEl)
           }
-          // Sync outer-element attributes (class, draggable, etc.)
           for (let ai = 0; ai < newEl.attributes.length; ai++) {
             const a = newEl.attributes[ai]
             if (oldEl.getAttribute(a.name) !== a.value) {
               oldEl.setAttribute(a.name, a.value)
+              if (a.name === 'value' && 'value' in oldEl) {
+                ;(oldEl as HTMLInputElement | HTMLTextAreaElement).value = a.value
+              }
             }
           }
         }
@@ -1048,6 +1053,7 @@ export default class Component<P = Record<string, any>> extends Store {
         for (let j = prev.length; j < items.length; j++) {
           frag.appendChild(createItemFn(items[j], j))
         }
+        Component.__syncValueProps(frag)
         let marker: ChildNode | null = null
         for (let sc: ChildNode | null = container.firstChild; sc; sc = sc.nextSibling) {
           if (sc.nodeType === 8 && !(sc as any).data) {
@@ -1101,6 +1107,7 @@ export default class Component<P = Record<string, any>> extends Store {
     for (let i = 0; i < items.length; i++) {
       fragment.appendChild(createItemFn(items[i], i))
     }
+    Component.__syncValueProps(fragment)
     container.insertBefore(fragment, container.firstChild)
     c.__geaCount = items.length
   }
@@ -1148,10 +1155,16 @@ export default class Component<P = Record<string, any>> extends Store {
         else if (type === 't') target.textContent = String(val)
         else {
           if (val == null || val === false) target.removeAttribute(type)
-          else target.setAttribute(type, String(val))
+          else {
+            target.setAttribute(type, String(val))
+            if (type === 'value' && 'value' in target) {
+              ;(target as HTMLInputElement | HTMLTextAreaElement).value = String(val)
+            }
+          }
         }
       }
     }
+    Component.__syncValueProps(el)
     return el
   }
 
