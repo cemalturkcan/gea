@@ -1,9 +1,16 @@
 import { test, expect } from '@playwright/test'
+import type { Page } from '@playwright/test'
+
+/** Add-to-cart shows a toast that can cover the cart drawer; wait until it is gone before Checkout. */
+async function waitForToastDismissed(page: Page) {
+  await expect(page.locator('[data-part="toast-root"]')).toHaveCount(1, { timeout: 3000 })
+  await expect(page.locator('[data-part="toast-root"]')).toHaveCount(0, { timeout: 10_000 })
+}
 
 test.describe('E-commerce Storefront', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/')
-    await page.waitForSelector('.store-layout', { timeout: 15000 })
+    await page.waitForSelector('.store-layout', { timeout: 500 })
   })
 
   test.describe('Product Grid', () => {
@@ -164,6 +171,7 @@ test.describe('E-commerce Storefront', () => {
   test.describe('Checkout', () => {
     test.beforeEach(async ({ page }) => {
       await page.locator('.product-card:not(.out-of-stock) button:has-text("Add to Cart")').first().click()
+      await waitForToastDismissed(page)
       await page.locator('.cart-button').click()
       await page.locator('button:has-text("Checkout")').click()
     })
@@ -262,6 +270,7 @@ test.describe('E-commerce Storefront', () => {
   test.describe('Checkout Advanced', () => {
     test.beforeEach(async ({ page }) => {
       await page.locator('.product-card:not(.out-of-stock) button:has-text("Add to Cart")').first().click()
+      await waitForToastDismissed(page)
       await page.locator('.cart-button').click()
       await page.locator('button:has-text("Checkout")').click()
     })

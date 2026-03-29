@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test'
 test.describe('flight check-in multi-step flow and surgical DOM updates', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/')
-    await expect(page.locator('.flight-checkin')).toBeVisible({ timeout: 15000 })
+    await expect(page.locator('.flight-checkin')).toBeVisible({ timeout: 500 })
   })
 
   test('initial render shows step 1 with luggage options', async ({ page }) => {
@@ -244,7 +244,7 @@ test.describe('flight check-in multi-step flow and surgical DOM updates', () => 
 
     // Click copy button
     await page.locator('.confirmation-copy-button').click()
-    await expect(page.locator('.confirmation-copy-button.copied')).toBeVisible({ timeout: 3000 })
+    await expect(page.locator('.confirmation-copy-button.copied')).toBeVisible({ timeout: 500 })
   })
 
   test('free option items display "Included" instead of a price', async ({ page }) => {

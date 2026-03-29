@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test'
 test.describe('SaaS Dashboard', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/')
-    await page.waitForSelector('.shell', { timeout: 15000 })
+    await page.waitForSelector('.shell', { timeout: 500 })
   })
 
   test.describe('Navigation', () => {

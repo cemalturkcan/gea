@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test'
 test.describe('docs component documentation', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/')
-    await expect(page.locator('.docs-layout')).toBeVisible({ timeout: 15000 })
+    await expect(page.locator('.docs-layout')).toBeVisible({ timeout: 500 })
   })
 
   test('renders sidebar with logo and version', async ({ page }) => {

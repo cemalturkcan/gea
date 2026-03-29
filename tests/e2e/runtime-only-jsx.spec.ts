@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test'
 test.describe('runtime-only-jsx todo app', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/')
-    await expect(page.locator('.todo-app')).toBeVisible({ timeout: 15000 })
+    await expect(page.locator('.todo-app')).toBeVisible({ timeout: 500 })
   })
 
   test('renders the app with title and input', async ({ page }) => {

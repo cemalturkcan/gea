@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test'
 test.describe('showcase component gallery', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/')
-    await expect(page.locator('.showcase')).toBeVisible({ timeout: 15000 })
+    await expect(page.locator('.showcase')).toBeVisible({ timeout: 500 })
   })
 
   test('renders hero with title and description', async ({ page }) => {

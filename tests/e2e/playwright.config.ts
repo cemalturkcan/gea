@@ -22,7 +22,7 @@ interface ExampleDef {
   dir?: string // defaults to name
   command?: (port: number) => string // defaults to vite dev with dynamic port
   cwd?: string // absolute path, defaults to resolve(EXAMPLES_ROOT, dir ?? e.name)
-  timeout?: number // defaults to 120_000
+  timeout?: number // defaults to 120_000 (webServer ready wait; Vite cold start needs this)
 }
 
 const examples: ExampleDef[] = [
@@ -43,12 +43,7 @@ const examples: ExampleDef[] = [
   { name: 'forms' },
   { name: 'showcase' },
   { name: 'docs' },
-  {
-    name: 'playground',
-    command: (port) => `python3 -m http.server ${port} --bind 127.0.0.1`,
-    cwd: resolve(REPO_ROOT, 'website'),
-    timeout: 30_000,
-  },
+  { name: 'playground', cwd: resolve(REPO_ROOT, 'website') },
   { name: 'runtime-only' },
   { name: 'runtime-only-jsx' },
   { name: 'ssr-router-simple', dir: 'ssr/router-simple' },
@@ -217,19 +212,26 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   workers: resolveWorkerCount(),
   reporter: 'list',
-  timeout: 30000,
-  expect: { timeout: 300 },
+  timeout: 30_000,
+  expect: { timeout: 500 },
   use: {
     trace: 'on-first-retry',
-    actionTimeout: 15000,
-    navigationTimeout: 15000,
+    actionTimeout: 500,
+    navigationTimeout: 500,
     headless: true,
   },
   projects: activeExamples.map((e, i) => {
     const port = ports[i]!
+    // Tab bars and modals can take >500ms to satisfy Playwright's "stable" hit-target checks
+    // (layout after view switches, focus rings, etc.). Keep the global default fast; relax only
+    // examples that were flaky under the strict 500ms action timeout.
+    const relaxedAction = e.name === 'mobile-showcase' || e.name === 'ecommerce' ? { actionTimeout: 2000 as const } : {}
+    // Playground site is heavy; first navigation often exceeds 500ms. Runtime-only* stay at 500ms (local vendor).
+    const relaxedNav =
+      e.name === 'playground' || e.name === 'mobile-showcase' ? { navigationTimeout: 2000 as const } : {}
     return {
       name: e.name,
-      use: { ...devices['Desktop Chrome'], baseURL: `http://127.0.0.1:${port}` },
+      use: { ...devices['Desktop Chrome'], baseURL: `http://127.0.0.1:${port}`, ...relaxedAction, ...relaxedNav },
       testMatch: `${e.name}.spec.ts`,
     }
   }),
