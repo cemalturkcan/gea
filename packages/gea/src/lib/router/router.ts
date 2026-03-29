@@ -7,6 +7,14 @@ import { parseQuery } from './query'
 import Link from './link'
 import Outlet from './outlet'
 
+function stripQueryHash(path: string): string {
+  const q = path.indexOf('?')
+  if (q !== -1) path = path.slice(0, q)
+  const h = path.indexOf('#')
+  if (h !== -1) path = path.slice(0, h)
+  return path
+}
+
 function buildUrl(target: string | NavigationTarget): { path: string; search: string; hash: string } {
   if (typeof target === 'string') {
     // Parse path?query#hash from string
@@ -187,12 +195,13 @@ export class Router<T extends RouteMap = RouteMap> extends Store {
   }
 
   isActive(path: string): boolean {
-    if (path === '/') return this.path === '/'
-    return this.path === path || this.path.startsWith(path + '/')
+    const p = stripQueryHash(path)
+    if (p === '/') return this.path === '/'
+    return this.path === p || this.path.startsWith(p + '/')
   }
 
   isExact(path: string): boolean {
-    return this.path === path
+    return this.path === stripQueryHash(path)
   }
 
   dispose(): void {
