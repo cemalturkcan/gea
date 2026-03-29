@@ -1,5 +1,23 @@
 # @geajs/core
 
+## 1.0.15
+
+### Patch Changes
+
+- [`1949c5b`](https://github.com/dashersw/gea/commit/1949c5be17dfbbb5df4b7d6e9bae406355bb2c3c) Thanks [@dashersw](https://github.com/dashersw)! - Add `@geajs/core/router` subpath export so router APIs can be imported without resolving the main package barrel. Build `router` as a separate ESM entry. Examples use `geaCoreAliases()` in Vite for dev resolution.
+
+- [`37edd37`](https://github.com/dashersw/gea/commit/37edd373e810daeb2e24d922b87f7fe79df5b420) Thanks [@dashersw](https://github.com/dashersw)! - Fix form element value binding: sync `.value` DOM property for `<textarea>`, `<select>`, and `<input>` across all creation paths (initial render, full re-render, list item sync, clone items).
+
+- [`4a84c14`](https://github.com/dashersw/gea/commit/4a84c146a45018814790957c8092592da572959b) Thanks [@dashersw](https://github.com/dashersw)! - Fix JSX typings for Gea lowercase DOM event props (`input`, `click`, `keydown`, etc.): model them as native browser events (not React synthetic types) using `globalThis.*` inside the `react` module augmentation, plus a bivariant handler so wide `(e: Event)` and narrower DOM handlers both type-check.
+
+- [`b553afe`](https://github.com/dashersw/gea/commit/b553afec76dbd32304a4775fe11d9dd272df70d0) Thanks [@dashersw](https://github.com/dashersw)! - Replace `data-gea-item-id` attribute with `__geaKey` property for faster keyed list reconciliation. Add `Store.flushAll()` for deterministic store flush ordering after DOM events. Use `_geaEvt` property lookup and `textContent` clearing for faster event delegation and list rebuilds.
+
+- [`bff1ae4`](https://github.com/dashersw/gea/commit/bff1ae46f9f7b832745ee61981ea9ae12f64d2b0) Thanks [@dashersw](https://github.com/dashersw)! - `Link`: when `router.path` changes, keep the anchor `class` attribute in sync with `router.isActive` / `router.isExact`, not only `data-active`. The template’s `class={...}` ran only on first render, so `.nav a.active` could still match the previous route until the parent re-rendered.
+
+- [`64e67f4`](https://github.com/dashersw/gea/commit/64e67f4d3c1cc93acd790d4ecd8df77dc271194b) Thanks [@dashersw](https://github.com/dashersw)! - Fix `isActive()` and `isExact()` to strip query strings and hash fragments before comparing paths.
+
+- [`30c609b`](https://github.com/dashersw/gea/commit/30c609b1f101082fb297d4bac9b75297024f2214) Thanks [@dashersw](https://github.com/dashersw)! - Move the SSR root Store proxy handler from `@geajs/core` into `@geajs/ssr`, wired via `Store._rootProxyHandlerFactory`. Export `rootGetValue`, `rootSetValue`, and `rootDeleteProperty` for composition. Replace `Store._ssrOverlayResolver` and `Store._ssrDeleted` with the factory and `SSR_DELETED` from `@geajs/ssr`. Smaller browser bundles; SSR tests live under `@geajs/ssr`.
+
 ## 1.0.14
 
 ### Patch Changes

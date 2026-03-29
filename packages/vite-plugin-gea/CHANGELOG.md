@@ -1,5 +1,15 @@
 # @geajs/vite-plugin
 
+## 1.0.15
+
+### Patch Changes
+
+- [`32405ba`](https://github.com/dashersw/gea/commit/32405ba8f77e8c376555ed4b32857230041655d0) Thanks [@dashersw](https://github.com/dashersw)! - Fix bare text expressions with empty initial values not updating when the browser omits the text node. Create and insert the text node on demand in both \_\_onPropChange and store observer codegen.
+
+- [`6db0c58`](https://github.com/dashersw/gea/commit/6db0c58aba0732e50ace4a7d65e980280d98cf4b) Thanks [@dashersw](https://github.com/dashersw)! - Support multiple component classes in the same file. Same-file components are now recognized as valid JSX tags without requiring a separate import. Fixes [#25](https://github.com/dashersw/gea/issues/25).
+
+- [`53d04f6`](https://github.com/dashersw/gea/commit/53d04f601fb2f4e1de0b2d5462d32cf7c2521aaf) Thanks [@dashersw](https://github.com/dashersw)! - Generate `__geaKey`-based keyed list reconciliation. Support user-provided `id` on list containers. Improve observer codegen for derived maps, dynamic keys, and conditional slots. Skip redundant className writes and use `firstChild.nodeValue` for faster text patching.
+
 ## 1.0.14
 
 ### Patch Changes

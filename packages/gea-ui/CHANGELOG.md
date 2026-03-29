@@ -1,5 +1,11 @@
 # @geajs/ui
 
+## 0.1.5
+
+### Patch Changes
+
+- [`d6eb594`](https://github.com/dashersw/gea/commit/d6eb5945c0d8125b010d64f7e76dcbc8fe579218) Thanks [@dashersw](https://github.com/dashersw)! - Add per-component subpath exports (`@geajs/ui/button`, `@geajs/ui/label`, etc.) so apps can import only the modules they use. The main `@geajs/ui` entry remains available. Also export `./styles/theme.css` in package `exports`.
+
 ## 0.1.4
 
 ### Patch Changes
