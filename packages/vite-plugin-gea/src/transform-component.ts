@@ -378,13 +378,13 @@ export function transformComponentFile(
           }
         }
 
-        injectChildComponents(ast, componentInstances, directForwardingSet)
+        injectChildComponents(ast, componentInstances, directForwardingSet, className)
         compiledChildren.push(...allChildren)
         transformed = true
       }
       if (allComponentInstances.size > 0) {
         ensureComponentImport(ast, imports)
-        injectComponentRegistrations(ast, allComponentInstances)
+        injectComponentRegistrations(ast, allComponentInstances, className)
         transformed = true
       }
 

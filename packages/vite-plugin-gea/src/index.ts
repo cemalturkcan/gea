@@ -511,6 +511,9 @@ export function geaPlugin(): Plugin {
           const originalAST = parseSource(code)!.ast
           if (componentClassNames.length > 0) {
             for (const cn of componentClassNames) {
+              if (!imports.has(cn)) imports.set(cn, cleanId)
+            }
+            for (const cn of componentClassNames) {
               const result = transformComponentFile(
                 ast,
                 imports,
