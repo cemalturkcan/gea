@@ -63,7 +63,7 @@ When the items themselves are primitives (strings, numbers), use the item direct
 ))}
 ```
 
-Callbacks inside `.map()` use event delegation. The framework resolves which array item was targeted using `data-gea-item-id` attributes that the Vite plugin generates automatically.
+Callbacks inside `.map()` use event delegation. The framework resolves which array item was targeted from the **row root’s DOM `id`**: the compiler injects a stable generated id (`${componentId}-${listBinding}-gk-${encodeURIComponent(key)}`) when you don’t set `id` yourself, or preserves your `id` when you do.
 
 ## Initial Rendering
 

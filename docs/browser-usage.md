@@ -253,3 +253,6 @@ See the complete working examples in the repository:
 
 - [`examples/runtime-only/`](https://github.com/dashersw/gea/tree/main/examples/runtime-only) — Template literals, no build step
 - [`examples/runtime-only-jsx/`](https://github.com/dashersw/gea/tree/main/examples/runtime-only-jsx) — JSX with Babel Standalone, no build step
+
+In the monorepo, `npx vite dev` for those folders serves **`/vendor/gea.js`** from the built IIFE bundle at `packages/gea/dist/gea.js` (run `npm run build -w @geajs/core` first) and **`/vendor/babel.min.js`** from the pinned file in [`tests/e2e/vendor/babel.min.js`](https://github.com/dashersw/gea/tree/main/tests/e2e/vendor). For a standalone HTML file outside the repo, keep using the unpkg script URLs from the quick start above.
+
