@@ -23,6 +23,7 @@ import {
   getJSXTagName,
 } from './utils.ts'
 import { getTemplateParamBinding } from './template-param-utils.ts'
+import { EVENT_NAMES, toGeaEventType } from './component-event-helpers.ts'
 import { analyzeJSXInMap } from './analyze-map.ts'
 import {
   resolveExpr,
@@ -675,43 +676,16 @@ function analyzeAttributes(
     if (!attr.value || !t.isJSXExpressionContainer(attr.value)) return
     const name = attr.name.name
     if (name === 'ref') return
-    const eventNames = [
-      'click',
-      'dblclick',
-      'change',
-      'input',
-      'keydown',
-      'keyup',
-      'blur',
-      'focus',
-      'mousedown',
-      'mouseup',
-      'submit',
-      'tap',
-      'longTap',
-      'swipeRight',
-      'swipeUp',
-      'swipeLeft',
-      'swipeDown',
-      'dragstart',
-      'dragend',
-      'dragover',
-      'dragleave',
-      'drop',
-    ]
-    if (eventNames.includes(name)) return
-    // Handle on* prefixed event names (e.g. onclick, oninput)
-    if (name.startsWith('on') && name.length > 2) {
-      const normalized = name.charAt(2).toLowerCase() + name.slice(3)
-      if (eventNames.includes(normalized)) return
-    }
+    if (EVENT_NAMES.has(name) || EVENT_NAMES.has(toGeaEventType(name))) return
     if (name === 'dangerouslySetInnerHTML') {
       // Track as a state-dependent binding for reactive innerHTML updates
       const expr = attr.value.expression
       if (templateSetupContext && !t.isJSXEmptyExpression(expr)) {
         const setupStatements = collectTemplateSetupStatements(expr, templateSetupContext)
         const dependencies = collectExpressionDependencies(expr, stateRefs, setupStatements)
-        const stateDeps = dependencies.filter((d) => d.storeVar || (d.pathParts.length > 0 && d.pathParts[0] !== 'props'))
+        const stateDeps = dependencies.filter(
+          (d) => d.storeVar || (d.pathParts.length > 0 && d.pathParts[0] !== 'props'),
+        )
         if (stateDeps.length > 0) {
           const selector = generateSelector(elementPath)
           propBindings.push({
@@ -1717,6 +1691,16 @@ function collectDependentPropNames(
   return Array.from(names)
 }
 
+function isInsideRefAttribute(path: NodePath): boolean {
+  let current: NodePath | null = path
+  while (current) {
+    if (t.isJSXAttribute(current.node) && t.isJSXIdentifier(current.node.name) && current.node.name.name === 'ref')
+      return true
+    current = current.parentPath
+  }
+  return false
+}
+
 function collectAllStateAccesses(
   templateMethod: ClassMethod,
   stateRefs: Map<string, StateRefMeta>,
@@ -1745,16 +1729,6 @@ function collectAllStateAccesses(
         })()
       : []
   const prog = t.program([...setupStatements, t.expressionStatement(expr)])
-
-  function isInsideRefAttribute(path: NodePath): boolean {
-    let current: NodePath | null = path
-    while (current) {
-      if (t.isJSXAttribute(current.node) && t.isJSXIdentifier(current.node.name) && current.node.name.name === 'ref')
-        return true
-      current = current.parentPath
-    }
-    return false
-  }
 
   traverse(prog, {
     noScope: true,
