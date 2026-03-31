@@ -1,5 +1,11 @@
 # @geajs/vite-plugin
 
+## 1.0.20
+
+### Patch Changes
+
+- [`b344816`](https://github.com/dashersw/gea/commit/b34481655167be8a14f55e977045f323606d666d) Thanks [@dashersw](https://github.com/dashersw)! - Rebuild dist with setAttribute/style.cssText/innerHTML equality guards that were missing from 1.0.19 due to stale build output; add prepublishOnly script to prevent future stale publishes
+
 ## 1.0.19
 
 ### Patch Changes
