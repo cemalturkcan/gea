@@ -1012,15 +1012,16 @@ export default class Component<P = Record<string, any>> extends Store {
     createItemFn: (item: any, index?: number) => HTMLElement,
     keyProp?: string | ((item: any) => string),
   ): void {
-    const itemKey = typeof keyProp === 'function'
-      ? (item: any, index?: number) => keyProp(item, index)
-      : (item: any, _index?: number): string => {
-          if (item != null && typeof item === 'object') {
-            if (keyProp && keyProp in item) return String(item[keyProp])
-            if ('id' in item) return String(item.id)
+    const itemKey =
+      typeof keyProp === 'function'
+        ? (item: any, index?: number) => keyProp(item, index)
+        : (item: any, _index?: number): string => {
+            if (item != null && typeof item === 'object') {
+              if (keyProp && keyProp in item) return String(item[keyProp])
+              if ('id' in item) return String(item.id)
+            }
+            return String(item)
           }
-          return String(item)
-        }
 
     const c = container as any
     let prev: any[] | undefined = c.__geaPrev

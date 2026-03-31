@@ -1,5 +1,11 @@
 # @geajs/core
 
+## 1.0.29
+
+### Patch Changes
+
+- [`8c7b5f0`](https://github.com/dashersw/gea/commit/8c7b5f02f878ec123bd8521db8c88112f4a8339c) Thanks [@dashersw](https://github.com/dashersw)! - Call compiler-generated `__setupRefs()` when mounting **compiled child** components (`mountCompiledChildComponents_`). Previously only the full `render()` path assigned `ref={this.x}` targets; nested components (e.g. `<ItemInput />` under a fragment) never ran `__setupRefs`, so `this.itemTextarea` stayed `null` after mount.
+
 ## 1.0.27
 
 ### Patch Changes
