@@ -3131,7 +3131,13 @@ export function applyStaticReactivity(
               }
             }
 
-            if (importedStores.size > 0 || localObserveHandlers.size > 0 || mapRegistrations.length > 0) {
+            // Ensure store groups exist for observeList configs so __observeList
+            // calls are generated even when there are no other observe handlers
+            for (const olc of observeListConfigs) {
+              ensureStoreGroup(olc.storeVar)
+            }
+
+            if (importedStores.size > 0 || localObserveHandlers.size > 0 || mapRegistrations.length > 0 || observeListConfigs.length > 0) {
               const storeConfigs = Array.from(importedStores.entries()).map(([storeVar, config]) => ({
                 storeVar,
                 captureExpression: config.captureExpression,
@@ -3146,12 +3152,6 @@ export function applyStaticReactivity(
                   }),
                 ),
               }))
-
-              // Ensure store groups exist for observeList configs so __observeList
-              // calls are generated even when there are no other observe handlers
-              for (const olc of observeListConfigs) {
-                ensureStoreGroup(olc.storeVar)
-              }
 
               if (storeConfigs.length > 0 || mapRegistrations.length > 0 || observeListConfigs.length > 0) {
                 const createdHooksMethod = generateCreatedHooks(

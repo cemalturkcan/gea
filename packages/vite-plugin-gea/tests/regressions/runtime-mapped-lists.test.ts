@@ -1227,3 +1227,84 @@ test('.map((tab, index) => ...) renders correct active class and click handler p
     restoreDom()
   }
 })
+
+test('store-only component array map observes store changes and re-renders', async () => {
+  const restoreDom = installDom()
+
+  try {
+    const seed = `runtime-${Date.now()}-store-only-component-array`
+    const [{ default: Component }, { Store }] = await loadRuntimeModules(seed)
+    const store = new Store({
+      recordings: [
+        { folder: 'rec-1', name: 'Recording 1' },
+        { folder: 'rec-2', name: 'Recording 2' },
+      ],
+    })
+
+    const SidebarItem = await compileJsxComponent(
+      `
+        import { Component } from '@geajs/core'
+
+        export default class SidebarItem extends Component {
+          template({ folder, name }) {
+            return <div class="sidebar-item" data-folder={folder}>{name}</div>
+          }
+        }
+      `,
+      '/virtual/SidebarItem.jsx',
+      'SidebarItem',
+      { Component },
+    )
+
+    // Component that ONLY uses the store for the .map() — no other store bindings
+    const RecordingSidebar = await compileJsxComponent(
+      `
+        import { Component } from '@geajs/core'
+        import store from './store.ts'
+        import SidebarItem from './SidebarItem'
+
+        export default class RecordingSidebar extends Component {
+          template() {
+            return (
+              <div class="recordings">
+                {store.recordings.map((recording) => (
+                  <SidebarItem key={recording.folder} folder={recording.folder} name={recording.name} />
+                ))}
+              </div>
+            )
+          }
+        }
+      `,
+      '/virtual/RecordingSidebar.jsx',
+      'RecordingSidebar',
+      { Component, store, SidebarItem },
+    )
+
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+
+    const view = new RecordingSidebar()
+    view.render(root)
+    await flushMicrotasks()
+
+    const items = () => Array.from(view.el.querySelectorAll('.sidebar-item'))
+    assert.equal(items().length, 2, 'should render 2 items initially')
+    assert.equal(items()[0]?.textContent?.trim(), 'Recording 1')
+    assert.equal(items()[1]?.textContent?.trim(), 'Recording 2')
+
+    // Add an item to the store
+    store.recordings = [
+      ...store.recordings,
+      { folder: 'rec-3', name: 'Recording 3' },
+    ]
+    await flushMicrotasks()
+
+    assert.equal(items().length, 3, 'should render 3 items after store update')
+    assert.equal(items()[2]?.textContent?.trim(), 'Recording 3')
+
+    view.dispose()
+    await flushMicrotasks()
+  } finally {
+    restoreDom()
+  }
+})

@@ -934,3 +934,27 @@ test('.map() with (item, index) callback exposes index inside the render method'
   // The index must not be undefined — it must be the actual second parameter
   assert.doesNotMatch(output, /undefined\s*===\s*activeTabIndex|activeTabIndex\s*===\s*undefined/, 'index must not resolve to undefined')
 })
+
+test('store-only component array map generates __observeList and createdHooks', () => {
+  const output = transformComponentSource(`
+    import { Component } from '@geajs/core'
+    import recordingStore from './recording-store'
+    import SidebarItem from './SidebarItem'
+
+    export default class RecordingSidebar extends Component {
+      template() {
+        return (
+          <div class="recordings">
+            {recordingStore.recordings.map((recording) => (
+              <SidebarItem key={recording.folder} folder={recording.folder} name={recording.name} />
+            ))}
+          </div>
+        )
+      }
+    }
+  `)
+
+  assert.match(output, /__observeList/, 'must generate __observeList call for store-based component array')
+  assert.match(output, /createdHooks/, 'must generate createdHooks method')
+  assert.match(output, /_recordingsItems/, 'must generate _recordingsItems array')
+})
