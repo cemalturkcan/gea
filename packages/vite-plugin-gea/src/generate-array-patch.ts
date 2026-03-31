@@ -344,17 +344,16 @@ export function generatePatchItemMethod(
                 t.ifStatement(
                   t.binaryExpression(
                     '!==',
-                    t.callExpression(
-                      t.memberExpression(t.cloneNode(navExpr, true), t.identifier('getAttribute')),
-                      [t.stringLiteral(entry.attributeName!)],
-                    ),
+                    t.callExpression(t.memberExpression(t.cloneNode(navExpr, true), t.identifier('getAttribute')), [
+                      t.stringLiteral(entry.attributeName!),
+                    ]),
                     t.identifier('__newAttr'),
                   ),
                   t.expressionStatement(
-                    t.callExpression(
-                      t.memberExpression(t.cloneNode(navExpr, true), t.identifier('setAttribute')),
-                      [t.stringLiteral(entry.attributeName!), t.identifier('__newAttr')],
-                    ),
+                    t.callExpression(t.memberExpression(t.cloneNode(navExpr, true), t.identifier('setAttribute')), [
+                      t.stringLiteral(entry.attributeName!),
+                      t.identifier('__newAttr'),
+                    ]),
                   ),
                 ),
               ]),
@@ -1095,17 +1094,16 @@ export function generateCreateItemMethod(
                 t.ifStatement(
                   t.binaryExpression(
                     '!==',
-                    t.callExpression(
-                      t.memberExpression(t.cloneNode(navExpr, true), t.identifier('getAttribute')),
-                      [t.stringLiteral(entry.attributeName!)],
-                    ),
+                    t.callExpression(t.memberExpression(t.cloneNode(navExpr, true), t.identifier('getAttribute')), [
+                      t.stringLiteral(entry.attributeName!),
+                    ]),
                     t.identifier('__newAttr'),
                   ),
                   t.expressionStatement(
-                    t.callExpression(
-                      t.memberExpression(t.cloneNode(navExpr, true), t.identifier('setAttribute')),
-                      [t.stringLiteral(entry.attributeName!), t.identifier('__newAttr')],
-                    ),
+                    t.callExpression(t.memberExpression(t.cloneNode(navExpr, true), t.identifier('setAttribute')), [
+                      t.stringLiteral(entry.attributeName!),
+                      t.identifier('__newAttr'),
+                    ]),
                   ),
                 ),
               ]),
