@@ -337,12 +337,27 @@ export function generatePatchItemMethod(
                   t.stringLiteral(entry.attributeName!),
                 ]),
               ),
-              t.expressionStatement(
-                t.callExpression(t.memberExpression(navExpr, t.identifier('setAttribute')), [
-                  t.stringLiteral(entry.attributeName!),
-                  t.callExpression(t.identifier('String'), [attrVal]),
+              t.blockStatement([
+                t.variableDeclaration('const', [
+                  t.variableDeclarator(t.identifier('__newAttr'), t.callExpression(t.identifier('String'), [attrVal])),
                 ]),
-              ),
+                t.ifStatement(
+                  t.binaryExpression(
+                    '!==',
+                    t.callExpression(
+                      t.memberExpression(t.cloneNode(navExpr, true), t.identifier('getAttribute')),
+                      [t.stringLiteral(entry.attributeName!)],
+                    ),
+                    t.identifier('__newAttr'),
+                  ),
+                  t.expressionStatement(
+                    t.callExpression(
+                      t.memberExpression(t.cloneNode(navExpr, true), t.identifier('setAttribute')),
+                      [t.stringLiteral(entry.attributeName!), t.identifier('__newAttr')],
+                    ),
+                  ),
+                ),
+              ]),
             ),
           )
         }
@@ -1103,12 +1118,27 @@ export function generateCreateItemMethod(
                   t.stringLiteral(entry.attributeName!),
                 ]),
               ),
-              t.expressionStatement(
-                t.callExpression(t.memberExpression(navExpr, t.identifier('setAttribute')), [
-                  t.stringLiteral(entry.attributeName!),
-                  t.callExpression(t.identifier('String'), [attrVal]),
+              t.blockStatement([
+                t.variableDeclaration('const', [
+                  t.variableDeclarator(t.identifier('__newAttr'), t.callExpression(t.identifier('String'), [attrVal])),
                 ]),
-              ),
+                t.ifStatement(
+                  t.binaryExpression(
+                    '!==',
+                    t.callExpression(
+                      t.memberExpression(t.cloneNode(navExpr, true), t.identifier('getAttribute')),
+                      [t.stringLiteral(entry.attributeName!)],
+                    ),
+                    t.identifier('__newAttr'),
+                  ),
+                  t.expressionStatement(
+                    t.callExpression(
+                      t.memberExpression(t.cloneNode(navExpr, true), t.identifier('setAttribute')),
+                      [t.stringLiteral(entry.attributeName!), t.identifier('__newAttr')],
+                    ),
+                  ),
+                ),
+              ]),
             ),
           )
         }

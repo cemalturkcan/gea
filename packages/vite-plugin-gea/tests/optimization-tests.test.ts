@@ -623,6 +623,64 @@ test('store observer should not call setAttribute when attribute value has not c
   }
 })
 
+test('map-item patch method should generate equality guard for setAttribute on attribute bindings', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'gea-map-attr-guard-'))
+
+  try {
+    const storePath = join(dir, 'grid-store.ts')
+    const componentPath = join(dir, 'Grid.jsx')
+
+    await writeFile(
+      storePath,
+      `import { Store } from '@geajs/core'
+export default class GridStore extends Store {
+  activeId = 0
+  items = [{ id: 1 }, { id: 2 }, { id: 3 }]
+}`,
+    )
+
+    const output = await transformWithFile(
+      `
+        import { Component } from '@geajs/core'
+        import store from './grid-store'
+
+        export default class Grid extends Component {
+          template() {
+            return (
+              <table>
+                <tbody>
+                  {store.items.map(item => (
+                    <tr key={item.id} tabIndex={store.activeId === item.id ? 0 : -1}>
+                      <td>{item.id}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )
+          }
+        }
+      `,
+      componentPath,
+    )
+
+    assert.match(
+      output,
+      /getAttribute\(["']tabIndex["']\)/,
+      'map-item patch setAttribute for tabIndex should be guarded by a getAttribute equality check',
+    )
+
+    const setAttrMatches = output.match(/\.setAttribute\(["']tabIndex["']/g) || []
+    const getAttrMatches = output.match(/\.getAttribute\(["']tabIndex["']/g) || []
+    assert.ok(
+      getAttrMatches.length >= setAttrMatches.length,
+      `Every setAttribute("tabIndex") should have a corresponding getAttribute guard. ` +
+        `Found ${setAttrMatches.length} setAttribute but only ${getAttrMatches.length} getAttribute`,
+    )
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 test('selecting a cell in a grid should only mutate the old and new selected cells, not all cells', async () => {
   const restoreDom = installDom()
 
