@@ -1,5 +1,11 @@
 # @geajs/vite-plugin
 
+## 1.0.23
+
+### Patch Changes
+
+- [`dc4ce46`](https://github.com/dashersw/gea/commit/dc4ce46ccb9ff5570fc7d676ed9174623ff7efa2) Thanks [@dashersw](https://github.com/dashersw)! - Fix store-only component array maps not observing store changes. When a component's only store access was a `.map()` rendering child components (e.g. `store.recordings.map(r => <SidebarItem .../>)`), the compiler failed to generate `createdHooks` with `__observeList`, so store updates never triggered re-renders. The guard that gates `createdHooks` generation now includes `observeListConfigs`, and `ensureStoreGroup` runs before `storeConfigs` is built.
+
 ## 1.0.22
 
 ### Patch Changes
