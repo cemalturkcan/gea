@@ -48,6 +48,8 @@ export interface EventHandler {
   mapContext?: {
     arrayPathParts: PathParts
     itemIdProperty: string
+    /** When the map uses a non-trivial `key` (e.g. template literal), use this for DOM↔item lookup. */
+    keyExpression?: t.Expression
     itemVariable: string
     indexVariable?: string
     isImportedState: boolean

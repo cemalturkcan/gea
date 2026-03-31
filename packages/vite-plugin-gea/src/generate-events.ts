@@ -1,7 +1,9 @@
 import * as t from '@babel/types'
+import babelGenerator from '@babel/generator'
 import { getTemplateParamBinding } from './template-param-utils.ts'
 import { id, jsBlockBody, jsMethod } from 'eszter'
 import type { EventHandler } from './ir.ts'
+import { rewriteItemVarInExpression } from './generate-array-patch.ts'
 import {
   buildMemberChainFromParts,
   buildOptionalMemberChain,
@@ -12,6 +14,11 @@ import {
 } from './utils.ts'
 import { ITEM_IS_KEY } from './analyze-helpers.ts'
 import { collectTemplateSetupStatements } from './transform-attributes.ts'
+
+const generate =
+  typeof (babelGenerator as { default?: typeof babelGenerator }).default === 'function'
+    ? (babelGenerator as { default: typeof babelGenerator }).default
+    : babelGenerator
 
 interface TemplateParamContext {
   propNames: Set<string>
@@ -44,7 +51,10 @@ function getTemplateParamContext(classBody: t.ClassBody): TemplateParamContext {
 function getMapContextKey(ctx: NonNullable<EventHandler['mapContext']>): string {
   const store = ctx.storeVar || 'store'
   const path = ctx.arrayPathParts.join('_')
-  return `${store}_${path}_${ctx.itemIdProperty}`
+  const keyPart = ctx.keyExpression
+    ? `expr:${generate(ctx.keyExpression).code}`
+    : ctx.itemIdProperty
+  return `${store}_${path}_${keyPart}`
 }
 
 function ensureMapItemHelper(
@@ -56,8 +66,22 @@ function ensureMapItemHelper(
 
   const itemsExpr = buildArrayItemsExpr(ctx)
 
-  const findPredicate =
-    ctx.itemIdProperty && ctx.itemIdProperty !== ITEM_IS_KEY
+  const findPredicate = ctx.keyExpression
+    ? t.arrowFunctionExpression(
+        [t.identifier('__candidate')],
+        t.binaryExpression(
+          '===',
+          t.callExpression(t.identifier('String'), [
+            rewriteItemVarInExpression(
+              t.cloneNode(ctx.keyExpression, true) as t.Expression,
+              ctx.itemVariable,
+              '__candidate',
+            ),
+          ]),
+          t.identifier('__itemId'),
+        ),
+      )
+    : ctx.itemIdProperty && ctx.itemIdProperty !== ITEM_IS_KEY
       ? t.arrowFunctionExpression(
           [t.identifier('__candidate')],
           t.binaryExpression(
