@@ -57,7 +57,6 @@ import {
   resolvePath,
   pruneUnusedSetupDestructuring,
   earlyReturnFalsyBindingName,
-  cacheThisIdInMethod,
   optionalizeBindingRootInStatements,
   optionalizeMemberChainsFromBindingRoot,
 } from './utils.ts'
@@ -723,7 +722,9 @@ export function applyStaticReactivity(
             } else if (pb.type === 'text') {
               const isHtmlProducing =
                 pb.propName === 'children' ||
-                (pb.expression && originalClassBody && expressionCallsJSXReturningClassProp(pb.expression, originalClassBody))
+                (pb.expression &&
+                  originalClassBody &&
+                  expressionCallsJSXReturningClassProp(pb.expression, originalClassBody))
               const targetProp = isHtmlProducing ? 'innerHTML' : 'textContent'
               const assignStmt = t.expressionStatement(
                 t.assignmentExpression(
@@ -732,34 +733,33 @@ export function applyStaticReactivity(
                   t.cloneNode(valueExpr, true),
                 ),
               )
-              const consequent =
-                isHtmlProducing
-                  ? t.blockStatement([
-                      assignStmt,
-                      // After replacing innerHTML for children, re-initialize child
-                      // components that were created from the new HTML string.
+              const consequent = isHtmlProducing
+                ? t.blockStatement([
+                    assignStmt,
+                    // After replacing innerHTML for children, re-initialize child
+                    // components that were created from the new HTML string.
+                    t.expressionStatement(
+                      t.callExpression(
+                        t.memberExpression(t.thisExpression(), t.identifier('instantiateChildComponents_')),
+                        [],
+                      ),
+                    ),
+                    // Reconnect compiled children from the parent component whose
+                    // DOM elements were replaced by the innerHTML update.
+                    t.ifStatement(
+                      t.memberExpression(t.thisExpression(), t.identifier('parentComponent')),
                       t.expressionStatement(
                         t.callExpression(
-                          t.memberExpression(t.thisExpression(), t.identifier('instantiateChildComponents_')),
+                          t.memberExpression(
+                            t.memberExpression(t.thisExpression(), t.identifier('parentComponent')),
+                            t.identifier('mountCompiledChildComponents_'),
+                          ),
                           [],
                         ),
                       ),
-                      // Reconnect compiled children from the parent component whose
-                      // DOM elements were replaced by the innerHTML update.
-                      t.ifStatement(
-                        t.memberExpression(t.thisExpression(), t.identifier('parentComponent')),
-                        t.expressionStatement(
-                          t.callExpression(
-                            t.memberExpression(
-                              t.memberExpression(t.thisExpression(), t.identifier('parentComponent')),
-                              t.identifier('mountCompiledChildComponents_'),
-                            ),
-                            [],
-                          ),
-                        ),
-                      ),
-                    ])
-                  : assignStmt
+                    ),
+                  ])
+                : assignStmt
               updateStmt = t.ifStatement(
                 t.binaryExpression(
                   '!==',
@@ -3156,7 +3156,12 @@ export function applyStaticReactivity(
               ensureStoreGroup(olc.storeVar)
             }
 
-            if (importedStores.size > 0 || localObserveHandlers.size > 0 || mapRegistrations.length > 0 || observeListConfigs.length > 0) {
+            if (
+              importedStores.size > 0 ||
+              localObserveHandlers.size > 0 ||
+              mapRegistrations.length > 0 ||
+              observeListConfigs.length > 0
+            ) {
               const storeConfigs = Array.from(importedStores.entries()).map(([storeVar, config]) => ({
                 storeVar,
                 captureExpression: config.captureExpression,
@@ -3600,12 +3605,8 @@ function generateMapRegistration(
         else if (idxVar && path.node.name === idxVar) path.node.name = '__ki'
       },
     })
-    const keyFnParams = idxVar
-      ? [t.identifier('__k'), t.identifier('__ki')]
-      : [t.identifier('__k')]
-    registerArgs.push(
-      t.arrowFunctionExpression(keyFnParams, t.callExpression(t.identifier('String'), [keyExpr])),
-    )
+    const keyFnParams = idxVar ? [t.identifier('__k'), t.identifier('__ki')] : [t.identifier('__k')]
+    registerArgs.push(t.arrowFunctionExpression(keyFnParams, t.callExpression(t.identifier('String'), [keyExpr])))
   } else if (arrayMap.itemIdProperty && arrayMap.itemIdProperty !== ITEM_IS_KEY) {
     registerArgs.push(t.stringLiteral(arrayMap.itemIdProperty))
   }
@@ -4290,7 +4291,10 @@ function expressionCallsJSXReturningClassProp(expr: t.Expression, classBody: t.C
           let found = false
           const check = (n: t.Node): void => {
             if (found) return
-            if (t.isJSXElement(n) || t.isJSXFragment(n)) { found = true; return }
+            if (t.isJSXElement(n) || t.isJSXFragment(n)) {
+              found = true
+              return
+            }
             for (const key of t.VISITOR_KEYS[n.type] || []) {
               const child = (n as any)[key]
               if (Array.isArray(child)) child.forEach((c: any) => c && typeof c === 'object' && 'type' in c && check(c))

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
-import test, { describe, it } from 'node:test'
-import { transformComponentSource, generate, parseSource, transformComponentFile } from './regressions/plugin-helpers'
+import { describe, it } from 'node:test'
+import { transformComponentSource } from './regressions/plugin-helpers'
 
 describe('XSS prevention: dynamic text expression escaping', () => {
   it('wraps dynamic member expression with __escapeHtml', () => {
@@ -31,10 +31,7 @@ describe('XSS prevention: dynamic text expression escaping', () => {
       }
     `)
 
-    assert.ok(
-      output.includes('__escapeHtml'),
-      'dynamic call expression should be wrapped with __escapeHtml',
-    )
+    assert.ok(output.includes('__escapeHtml'), 'dynamic call expression should be wrapped with __escapeHtml')
   })
 
   it('does NOT escape static string literals (already escaped at compile time)', () => {
@@ -87,10 +84,7 @@ describe('XSS prevention: dangerous URL protocols sanitized', () => {
       }
     `)
 
-    assert.ok(
-      output.includes('__sanitizeAttr'),
-      'dynamic href should be wrapped with __sanitizeAttr, got: ' + output,
-    )
+    assert.ok(output.includes('__sanitizeAttr'), 'dynamic href should be wrapped with __sanitizeAttr, got: ' + output)
   })
 
   it('wraps dynamic src with __sanitizeAttr', () => {
@@ -104,10 +98,7 @@ describe('XSS prevention: dangerous URL protocols sanitized', () => {
       }
     `)
 
-    assert.ok(
-      output.includes('__sanitizeAttr'),
-      'dynamic src should be wrapped with __sanitizeAttr, got: ' + output,
-    )
+    assert.ok(output.includes('__sanitizeAttr'), 'dynamic src should be wrapped with __sanitizeAttr, got: ' + output)
   })
 
   it('wraps dynamic action with __sanitizeAttr', () => {
@@ -121,10 +112,7 @@ describe('XSS prevention: dangerous URL protocols sanitized', () => {
       }
     `)
 
-    assert.ok(
-      output.includes('__sanitizeAttr'),
-      'dynamic action should be wrapped with __sanitizeAttr, got: ' + output,
-    )
+    assert.ok(output.includes('__sanitizeAttr'), 'dynamic action should be wrapped with __sanitizeAttr, got: ' + output)
   })
 
   it('does NOT wrap non-URL attributes with __sanitizeAttr', () => {
@@ -138,10 +126,7 @@ describe('XSS prevention: dangerous URL protocols sanitized', () => {
       }
     `)
 
-    assert.ok(
-      !output.includes('__sanitizeAttr'),
-      'non-URL attribute should NOT be wrapped with __sanitizeAttr',
-    )
+    assert.ok(!output.includes('__sanitizeAttr'), 'non-URL attribute should NOT be wrapped with __sanitizeAttr')
   })
 })
 

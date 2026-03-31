@@ -213,7 +213,6 @@ export function generatePatchItemMethod(
   const arrayName = arrayPath.replace(/\./g, '')
   const capName = arrayName.charAt(0).toUpperCase() + arrayName.slice(1)
   const methodName = `patch${capName}Item`
-  const containerProp = `__${arrayPath.replace(/\./g, '_')}_container`
   const itemIdProperty = arrayMap.itemIdProperty
 
   const itemTemplateRootIsComponent =

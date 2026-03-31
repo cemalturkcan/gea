@@ -7,7 +7,6 @@ import { rewriteItemVarInExpression } from './generate-array-patch.ts'
 import {
   buildMemberChainFromParts,
   buildOptionalMemberChain,
-  cacheThisIdInMethod,
   extractHandlerBody,
   replacePropRefsInExpression,
   replacePropRefsInStatements,
@@ -51,9 +50,7 @@ function getTemplateParamContext(classBody: t.ClassBody): TemplateParamContext {
 function getMapContextKey(ctx: NonNullable<EventHandler['mapContext']>): string {
   const store = ctx.storeVar || 'store'
   const path = ctx.arrayPathParts.join('_')
-  const keyPart = ctx.keyExpression
-    ? `expr:${generate(ctx.keyExpression).code}`
-    : ctx.itemIdProperty
+  const keyPart = ctx.keyExpression ? `expr:${generate(ctx.keyExpression).code}` : ctx.itemIdProperty
   return `${store}_${path}_${keyPart}`
 }
 

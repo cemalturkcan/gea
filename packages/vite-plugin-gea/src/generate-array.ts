@@ -923,22 +923,6 @@ function buildRelationalClassStatements(
   })
 }
 
-function buildFindIndexLookup(
-  containerRef: t.MemberExpression,
-  idExpr: t.Expression,
-  rowVar: string,
-  containerBindingId?: string,
-): t.Statement[] {
-  return [
-    t.variableDeclaration('var', [
-      t.variableDeclarator(
-        t.identifier(rowVar),
-        buildQueryByItemId(t.cloneNode(containerRef), t.cloneNode(idExpr, true), containerBindingId),
-      ),
-    ]),
-  ]
-}
-
 function buildElsLookup(
   elsRef: t.MemberExpression,
   containerRef: t.MemberExpression,
@@ -958,10 +942,7 @@ function buildElsLookup(
           t.binaryExpression(
             '<',
             t.identifier('__i'),
-            t.memberExpression(
-              t.memberExpression(ctrLocal, t.identifier('children')),
-              t.identifier('length'),
-            ),
+            t.memberExpression(t.memberExpression(ctrLocal, t.identifier('children')), t.identifier('length')),
           ),
           t.updateExpression('++', t.identifier('__i')),
           t.blockStatement([

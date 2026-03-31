@@ -932,7 +932,11 @@ test('.map() with (item, index) callback exposes index inside the render method'
   // The index variable must appear in the render method body
   assert.match(output, /activeTabIndex/, 'activeTabIndex prop reference must appear in compiled output')
   // The index must not be undefined — it must be the actual second parameter
-  assert.doesNotMatch(output, /undefined\s*===\s*activeTabIndex|activeTabIndex\s*===\s*undefined/, 'index must not resolve to undefined')
+  assert.doesNotMatch(
+    output,
+    /undefined\s*===\s*activeTabIndex|activeTabIndex\s*===\s*undefined/,
+    'index must not resolve to undefined',
+  )
 })
 
 test('store-only component array map generates __observeList and createdHooks', () => {
@@ -1015,15 +1019,11 @@ test('template literal key with index parameter does not produce ReferenceError'
   `)
 
   // The key function in __geaRegisterMap must accept both item and index params
-  assert.match(
-    output,
-    /\(__k,\s*__ki\)\s*=>/,
-    'key function must accept both item and index parameters',
-  )
+  assert.match(output, /\(__k,\s*__ki\)\s*=>/, 'key function must accept both item and index parameters')
   // create/patch methods must use __idx, not the original 'i'
   assert.match(
     output,
-    /__geaKey = String\(`\$\{item}-\$\{__idx}\`\)/,
+    /__geaKey = String\(`\$\{item}-\$\{__idx}`\)/,
     'create/patch __geaKey must use __idx, not original index variable',
   )
 })

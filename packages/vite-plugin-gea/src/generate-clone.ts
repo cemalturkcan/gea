@@ -127,7 +127,7 @@ export function jsxToStaticHtml(
   node: t.JSXElement,
   refCounter: { value: number },
   elementPath: string[] = [],
-  isRoot = true,
+  _isRoot = true,
 ): string | null {
   const tagName = getJSXTagName(node.openingElement.name)
   const isComp = Boolean(tagName && isComponentTag(tagName))
