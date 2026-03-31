@@ -1,5 +1,15 @@
 # @geajs/vite-plugin
 
+## 1.0.25
+
+### Patch Changes
+
+- [`fc6532c`](https://github.com/dashersw/gea/commit/fc6532cf3af6b59e36ef20beb08d92d1c2a261d6) Thanks [@dashersw](https://github.com/dashersw)! - ### @geajs/vite-plugin (patch)
+  - **Support expression-based map keys**: Template literals (`key={`${tab.title}-button`}`), string concatenation, and other non-simple expressions are now correctly preserved in `data-gea-item-id`, `__geaKey`, and `__geaRegisterMap`. Previously, only simple `item.prop` keys were recognized; complex keys fell back to `String(item)` producing `[object Object]`.
+
+  ### @geajs/core (patch)
+  - **Accept key functions in `__geaSyncItems`**: The `keyProp` parameter now accepts a function `(item) => string` in addition to a property name string, enabling runtime key extraction for expression-based map keys.
+
 ## 1.0.24
 
 ### Patch Changes
