@@ -1,5 +1,15 @@
 # @geajs/vite-plugin
 
+## 1.0.22
+
+### Patch Changes
+
+- [`570180a`](https://github.com/dashersw/gea/commit/570180a8e6a41ec148ca95437282081b9f201879) Thanks [@dashersw](https://github.com/dashersw)! - ### @geajs/vite-plugin (patch)
+  - **Fix `.map((item, index) => ...)` prop reactivity**: Props used inside map item templates (e.g. `activeTabIndex` in a class binding like `index === activeTabIndex`) are now correctly tracked as dependencies. Previously, only props referenced in the array source expression were tracked, so `__onPropChange` never called `__geaSyncMap` when those item-template props changed.
+
+  ### @geajs/core (patch)
+  - **Fix event handlers on initial template-rendered map items**: In `__geaSyncItems`, the "same keys" fast-path now copies `__geaItem` and `__geaKey` from the freshly-created element onto the existing DOM element. This ensures delegated event handlers can resolve the item (and its index) even for buttons that were rendered as HTML strings on first render and never went through `create__*Item`.
+
 ## 1.0.21
 
 ### Patch Changes
