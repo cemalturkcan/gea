@@ -669,28 +669,24 @@ export function applyStaticReactivity(
                   t.assignmentExpression(
                     '=',
                     t.identifier('__tn'),
-                    t.callExpression(
-                      t.memberExpression(t.identifier('document'), t.identifier('createTextNode')),
-                      [t.cloneNode(valueExpr, true)],
-                    ),
+                    t.callExpression(t.memberExpression(t.identifier('document'), t.identifier('createTextNode')), [
+                      t.cloneNode(valueExpr, true),
+                    ]),
                   ),
                 ),
                 t.expressionStatement(
-                  t.callExpression(
-                    t.memberExpression(t.identifier('__el'), t.identifier('insertBefore')),
-                    [
-                      t.identifier('__tn'),
-                      t.logicalExpression(
-                        '||',
-                        t.memberExpression(
-                          t.memberExpression(t.identifier('__el'), t.identifier('childNodes')),
-                          t.cloneNode(tnIdx, true),
-                          true,
-                        ),
-                        t.nullLiteral(),
+                  t.callExpression(t.memberExpression(t.identifier('__el'), t.identifier('insertBefore')), [
+                    t.identifier('__tn'),
+                    t.logicalExpression(
+                      '||',
+                      t.memberExpression(
+                        t.memberExpression(t.identifier('__el'), t.identifier('childNodes')),
+                        t.cloneNode(tnIdx, true),
+                        true,
                       ),
-                    ],
-                  ),
+                      t.nullLiteral(),
+                    ),
+                  ]),
                 ),
               ])
               const updateExisting = t.ifStatement(
@@ -853,6 +849,41 @@ export function applyStaticReactivity(
             } else if (pb.type === 'attribute' && pb.attributeName) {
               const attrName = pb.attributeName
               if (attrName === 'style') {
+                const cssTextExpr = t.conditionalExpression(
+                  t.binaryExpression('===', t.unaryExpression('typeof', valueExpr), t.stringLiteral('object')),
+                  t.callExpression(
+                    t.memberExpression(
+                      t.callExpression(
+                        t.memberExpression(
+                          t.callExpression(t.memberExpression(t.identifier('Object'), t.identifier('entries')), [
+                            valueExpr,
+                          ]),
+                          t.identifier('map'),
+                        ),
+                        [
+                          t.arrowFunctionExpression(
+                            [t.arrayPattern([t.identifier('k'), t.identifier('v')])],
+                            t.binaryExpression(
+                              '+',
+                              t.binaryExpression(
+                                '+',
+                                t.callExpression(t.memberExpression(t.identifier('k'), t.identifier('replace')), [
+                                  t.regExpLiteral('[A-Z]', 'g'),
+                                  t.stringLiteral('-$&'),
+                                ]),
+                                t.stringLiteral(': '),
+                              ),
+                              t.identifier('v'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      t.identifier('join'),
+                    ),
+                    [t.stringLiteral('; ')],
+                  ),
+                  t.callExpression(t.identifier('String'), [valueExpr]),
+                )
                 updateStmt = t.ifStatement(
                   t.logicalExpression(
                     '||',
@@ -864,60 +895,53 @@ export function applyStaticReactivity(
                       t.stringLiteral('style'),
                     ]),
                   ),
-                  t.expressionStatement(
-                    t.assignmentExpression(
-                      '=',
-                      t.memberExpression(
-                        t.memberExpression(t.identifier('__el'), t.identifier('style')),
-                        t.identifier('cssText'),
-                      ),
-                      t.conditionalExpression(
-                        t.binaryExpression('===', t.unaryExpression('typeof', valueExpr), t.stringLiteral('object')),
-                        t.callExpression(
-                          t.memberExpression(
-                            t.callExpression(
-                              t.memberExpression(
-                                t.callExpression(t.memberExpression(t.identifier('Object'), t.identifier('entries')), [
-                                  valueExpr,
-                                ]),
-                                t.identifier('map'),
-                              ),
-                              [
-                                t.arrowFunctionExpression(
-                                  [t.arrayPattern([t.identifier('k'), t.identifier('v')])],
-                                  t.binaryExpression(
-                                    '+',
-                                    t.binaryExpression(
-                                      '+',
-                                      t.callExpression(t.memberExpression(t.identifier('k'), t.identifier('replace')), [
-                                        t.regExpLiteral('[A-Z]', 'g'),
-                                        t.stringLiteral('-$&'),
-                                      ]),
-                                      t.stringLiteral(': '),
-                                    ),
-                                    t.identifier('v'),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            t.identifier('join'),
-                          ),
-                          [t.stringLiteral('; ')],
+                  t.blockStatement([
+                    t.variableDeclaration('const', [t.variableDeclarator(t.identifier('__newCss'), cssTextExpr)]),
+                    t.ifStatement(
+                      t.binaryExpression(
+                        '!==',
+                        t.memberExpression(
+                          t.memberExpression(t.identifier('__el'), t.identifier('style')),
+                          t.identifier('cssText'),
                         ),
-                        t.callExpression(t.identifier('String'), [valueExpr]),
+                        t.identifier('__newCss'),
+                      ),
+                      t.expressionStatement(
+                        t.assignmentExpression(
+                          '=',
+                          t.memberExpression(
+                            t.memberExpression(t.identifier('__el'), t.identifier('style')),
+                            t.identifier('cssText'),
+                          ),
+                          t.identifier('__newCss'),
+                        ),
+                      ),
+                    ),
+                  ]),
+                )
+              } else if (attrName === 'dangerouslySetInnerHTML') {
+                updateStmt = t.blockStatement([
+                  t.variableDeclaration('const', [
+                    t.variableDeclarator(
+                      t.identifier('__newHtml'),
+                      t.callExpression(t.identifier('String'), [valueExpr]),
+                    ),
+                  ]),
+                  t.ifStatement(
+                    t.binaryExpression(
+                      '!==',
+                      t.memberExpression(t.identifier('__el'), t.identifier('innerHTML')),
+                      t.identifier('__newHtml'),
+                    ),
+                    t.expressionStatement(
+                      t.assignmentExpression(
+                        '=',
+                        t.memberExpression(t.identifier('__el'), t.identifier('innerHTML')),
+                        t.identifier('__newHtml'),
                       ),
                     ),
                   ),
-                )
-              } else if (attrName === 'dangerouslySetInnerHTML') {
-                // dangerouslySetInnerHTML: assign directly to innerHTML (no escaping)
-                updateStmt = t.expressionStatement(
-                  t.assignmentExpression(
-                    '=',
-                    t.memberExpression(t.identifier('__el'), t.identifier('innerHTML')),
-                    t.callExpression(t.identifier('String'), [valueExpr]),
-                  ),
-                )
+                ])
               } else {
                 const isBooleanAttr = BOOLEAN_HTML_ATTRS.has(attrName)
                 const removeCondition = isBooleanAttr
@@ -927,6 +951,14 @@ export function applyStaticReactivity(
                       t.binaryExpression('===', valueExpr, t.nullLiteral()),
                       t.binaryExpression('===', valueExpr, t.identifier('undefined')),
                     )
+                const newAttrValueExpr = isBooleanAttr
+                  ? t.stringLiteral('')
+                  : URL_ATTRS.has(attrName)
+                    ? t.callExpression(t.identifier('__sanitizeAttr'), [
+                        t.stringLiteral(attrName),
+                        t.callExpression(t.identifier('String'), [valueExpr]),
+                      ])
+                    : t.callExpression(t.identifier('String'), [valueExpr])
                 updateStmt = t.ifStatement(
                   removeCondition,
                   t.expressionStatement(
@@ -934,19 +966,24 @@ export function applyStaticReactivity(
                       t.stringLiteral(attrName),
                     ]),
                   ),
-                  t.expressionStatement(
-                    t.callExpression(t.memberExpression(t.identifier('__el'), t.identifier('setAttribute')), [
-                      t.stringLiteral(attrName),
-                      isBooleanAttr
-                        ? t.stringLiteral('')
-                        : URL_ATTRS.has(attrName)
-                          ? t.callExpression(t.identifier('__sanitizeAttr'), [
-                              t.stringLiteral(attrName),
-                              t.callExpression(t.identifier('String'), [valueExpr]),
-                            ])
-                          : t.callExpression(t.identifier('String'), [valueExpr]),
-                    ]),
-                  ),
+                  t.blockStatement([
+                    t.variableDeclaration('const', [t.variableDeclarator(t.identifier('__newAttr'), newAttrValueExpr)]),
+                    t.ifStatement(
+                      t.binaryExpression(
+                        '!==',
+                        t.callExpression(t.memberExpression(t.identifier('__el'), t.identifier('getAttribute')), [
+                          t.stringLiteral(attrName),
+                        ]),
+                        t.identifier('__newAttr'),
+                      ),
+                      t.expressionStatement(
+                        t.callExpression(t.memberExpression(t.identifier('__el'), t.identifier('setAttribute')), [
+                          t.stringLiteral(attrName),
+                          t.identifier('__newAttr'),
+                        ]),
+                      ),
+                    ),
+                  ]),
                 )
               }
             } else {
