@@ -5,11 +5,11 @@ import { compileJsxComponent, loadRuntimeModules } from '../helpers/compile'
 
 /** Matches repro `setTimeout(..., 1000)` — wait past the async boundary. */
 async function sleepAuthDelay(): Promise<void> {
-  await new Promise<void>((r) => setTimeout(r, 1500))
+  await new Promise<void>((r) => setTimeout(r, 2000))
 }
 
 async function pause(): Promise<void> {
-  await new Promise<void>((r) => setTimeout(r, 100))
+  await new Promise<void>((r) => setTimeout(r, 500))
 }
 
 /**
