@@ -1,5 +1,14 @@
 # @geajs/vite-plugin
 
+## 1.1.3
+
+### Patch Changes
+
+- [`ad460bb`](https://github.com/dashersw/gea/commit/ad460bbb29c2c72b9a134ce5d4b9a9dac6a986d6) Thanks [@dashersw](https://github.com/dashersw)! - Fix reactivity bugs preventing drag-and-drop across kanban columns
+  - **Compiler**: prevent `GEA_SYNC_MAP` and `GEA_PATCH_COND` calls from being swallowed by subprop change guards in `__onPropChange`, so map lists re-sync even when only a nested array (e.g. `taskIds`) changes
+  - **Runtime**: stop `GEA_SYNC_MAP` from bailing on empty map containers that share a parent with conditional slots
+  - **Runtime**: restrict `__observeList` append fast-path to fire only when the change targets the observed array itself, not nested arrays
+
 ## 1.1.2
 
 ### Patch Changes

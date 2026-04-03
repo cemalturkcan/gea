@@ -1,5 +1,13 @@
 # @geajs/ui
 
+## 0.2.2
+
+### Patch Changes
+
+- [#51](https://github.com/dashersw/gea/pull/51) [`66c4f61`](https://github.com/dashersw/gea/commit/66c4f613c883c222d9f31e4dad011dc494d95142) Thanks [@kraus-milan](https://github.com/kraus-milan)! - Fixed HTML issues reported by the browser:
+  - **Progress**: Use `<span>` for label instead of `<label>` (`<label>` should be connected to input)
+  - **Select**: Add hidden `<select>` to make label's `for` attribute point to existing element
+
 ## 0.2.1
 
 ### Patch Changes
