@@ -1592,7 +1592,10 @@ export default class Component<P = Record<string, any>> extends Store {
     const marker = findMarker(markerText)
     const endMarker = findMarker(endMarkerText)
     const parent = endMarker && endMarker.parentNode
-    if (!marker || !endMarker || !parent) return false
+    if (!marker || !endMarker || !parent) {
+      condPatchPrev[idx] = undefined as unknown as boolean
+      return false
+    }
     // Do NOT set condPatchPrev until after replaceSlotContent runs. Committing the branch value
     // before DOM update lets html==='' / partial clears leave stale nodes while the next patch
     // sees needsPatch false and skips full replace (flight-checkin: duplicate OptionSteps; jira/e2e).

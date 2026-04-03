@@ -268,7 +268,13 @@ function appendEventsGetterHandlers(
     }
 
     const selectorMap = eventTypeProp.value as t.ObjectExpression
-    selectorMap.properties.push(t.objectProperty(selectorExpr, handlerRef, !handler.selector))
+    const selectorCode = generate(selectorExpr).code
+    const isDuplicate = selectorMap.properties.some(
+      (prop) => t.isObjectProperty(prop) && generate(prop.key).code === selectorCode,
+    )
+    if (!isDuplicate) {
+      selectorMap.properties.push(t.objectProperty(selectorExpr, handlerRef, !handler.selector))
+    }
   })
 }
 

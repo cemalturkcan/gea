@@ -984,6 +984,16 @@ function analyzeChildren(
         // Determine if a conditional slot was created for this expression
         const slotCountAfter = conditionalSlots?.length ?? 0
         const slotId = slotCountAfter > slotCountBefore ? conditionalSlots![slotCountAfter - 1].slotId : undefined
+        if (slotCountAfter > slotCountBefore && conditionalSlots && conditionalSlotNodeMap && templateSetupContext) {
+          registerNestedConditionalsInBranches(
+            expr,
+            stateRefs,
+            templateSetupContext,
+            conditionalSlots,
+            conditionalSlotNodeMap,
+            classBody,
+          )
+        }
         nestedMapCalls.forEach(({ mapExpr, parentElement, containerPath }) => {
           let mapNode = node
           let mapElementPath = elementPath
@@ -1642,6 +1652,71 @@ function extractConditionalControlExpression(expr: t.Expression): t.Expression |
     return expr.test
   }
   return null
+}
+
+function registerNestedConditionalsInBranches(
+  expr: t.Expression,
+  stateRefs: Map<string, StateRefMeta>,
+  templateSetupContext: { params: Array<t.Identifier | t.Pattern | t.RestElement>; statements: t.Statement[] },
+  conditionalSlots: import('./ir').ConditionalSlot[],
+  conditionalSlotNodeMap: Map<t.Node, string>,
+  classBody?: t.ClassBody,
+): void {
+  function visitChildren(
+    children: readonly (t.JSXText | t.JSXExpressionContainer | t.JSXSpreadChild | t.JSXElement | t.JSXFragment)[],
+  ) {
+    for (const child of children) {
+      if (t.isJSXElement(child)) visitChildren(child.children)
+      else if (t.isJSXFragment(child)) visitChildren(child.children)
+      else if (t.isJSXExpressionContainer(child) && !t.isJSXEmptyExpression(child.expression)) {
+        const innerExpr = child.expression as t.Expression
+        if (!expressionMayProduceJSX(innerExpr)) continue
+        const conditionExpr = extractConditionalControlExpression(innerExpr)
+        if (!conditionExpr) continue
+        const condSetupStatements = collectTemplateSetupStatements(conditionExpr, templateSetupContext)
+        const fullSetupStatements = collectTemplateSetupStatements(innerExpr, templateSetupContext)
+        const allDeps = collectExpressionDependencies(conditionExpr, stateRefs, condSetupStatements)
+        if (allDeps.length === 0) continue
+        const slotId = `c${conditionalSlots.length}`
+        conditionalSlots.push({
+          slotId,
+          conditionExpr: t.cloneNode(conditionExpr, true) as t.Expression,
+          setupStatements: condSetupStatements.map((s) => t.cloneNode(s, true) as t.Statement),
+          htmlSetupStatements: fullSetupStatements.map((s) => t.cloneNode(s, true) as t.Statement),
+          ...(expressionContainsComponentJSX(innerExpr) ? { hasCompiledChildren: true } : {}),
+          dependentPropNames: [],
+          dependencies: allDeps.map((dep) => ({
+            observeKey: dep.observeKey,
+            pathParts: [...dep.pathParts],
+            ...(dep.storeVar ? { storeVar: dep.storeVar } : {}),
+          })),
+          originalExpr: t.cloneNode(innerExpr, true) as t.Expression,
+        })
+        conditionalSlotNodeMap.set(innerExpr, slotId)
+        registerNestedConditionalsInBranches(
+          innerExpr,
+          stateRefs,
+          templateSetupContext,
+          conditionalSlots,
+          conditionalSlotNodeMap,
+          classBody,
+        )
+      }
+    }
+  }
+
+  function visitBranch(node: t.Expression) {
+    if (t.isJSXElement(node)) visitChildren(node.children)
+    else if (t.isJSXFragment(node)) visitChildren(node.children)
+    else if (t.isParenthesizedExpression(node)) visitBranch(node.expression as t.Expression)
+  }
+
+  if (t.isConditionalExpression(expr)) {
+    visitBranch(expr.consequent as t.Expression)
+    visitBranch(expr.alternate as t.Expression)
+  } else if (t.isLogicalExpression(expr) && expr.operator === '&&') {
+    visitBranch(expr.right as t.Expression)
+  }
 }
 
 function buildDerivedPropBindings(

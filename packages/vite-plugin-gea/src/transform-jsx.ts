@@ -1510,9 +1510,16 @@ function processChildren(
         appendString(parts, `-->`)
         pushString(parts, '')
         const slotCtx = { ...ctx, elementPathPrefix: '__cs_' + slot.slotId }
+        const eventIdBefore = ctx.eventIdCounter?.value ?? 0
         let condExpr = transformJSXExpression(rawExpr, slotCtx)
+        const extractCtx: Ctx = {
+          ...ctx,
+          isRoot: false,
+          eventHandlers: ctx.eventHandlers ? [] : undefined,
+          eventIdCounter: ctx.eventIdCounter ? { value: eventIdBefore } : undefined,
+        }
         const extracted =
-          extractHtmlTemplatesFromRawConditional(rawExpr, ctx, slot.slotId) ??
+          extractHtmlTemplatesFromRawConditional(rawExpr, extractCtx, slot.slotId) ??
           extractHtmlTemplatesFromConditional(condExpr)
         slot.truthyHtmlExpr = extracted.truthyHtmlExpr
         slot.falsyHtmlExpr = extracted.falsyHtmlExpr
