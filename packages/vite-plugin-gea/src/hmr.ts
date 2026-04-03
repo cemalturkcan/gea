@@ -69,9 +69,9 @@ export function injectHMR(
 
     hmrStmts.push(js`const __origCreated = ${id(componentClassName)}.prototype.created;`)
     hmrStmts.push(
-      js`${id(componentClassName)}.prototype.created = function(__geaProps) {
+      js`${id(componentClassName)}.prototype.created = function(geaProps) {
         registerComponentInstance(this.constructor.name, this);
-        return __origCreated.call(this, __geaProps);
+        return __origCreated.call(this, geaProps);
       };`,
     )
     hmrStmts.push(js`const __origDispose = ${id(componentClassName)}.prototype.dispose;`)

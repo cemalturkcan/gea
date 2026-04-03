@@ -1,3 +1,15 @@
+import {
+  GEA_CHILD_COMPONENTS,
+  GEA_DOM_COMPONENT,
+  GEA_PARENT_COMPONENT,
+  GEA_PROXY_GET_RAW_TARGET,
+  stashComponentForTransfer,
+} from '@geajs/core'
+
+function engineThis(c: object): any {
+  return (c as any)[GEA_PROXY_GET_RAW_TARGET] ?? c
+}
+
 export interface DragResult {
   draggableId: string
   source: { droppableId: string; index: number }
@@ -271,9 +283,22 @@ class DndManager {
       }
       this._animateDrop().then(() => {
         this._restoreElStyles()
-        this._performTransfer(destination)
-        this._cleanup()
+        // Stash the component for cross-list transfer so the destination's
+        // reconciliation can adopt it (DOM subtree intact) instead of
+        // disposing + recreating it from scratch.
+        const draggedComp = this._getComponentFromElement(this._sourceEl)
+        if (draggedComp) {
+          stashComponentForTransfer(draggedComp)
+        }
+        if (this._placeholder?.parentElement) {
+          this._placeholder.remove()
+        }
+        this._placeholder = null
+        if (this._sourceEl?.parentElement === document.body) {
+          this._sourceEl.remove()
+        }
         this._onDragEnd?.(result)
+        this._cleanup()
       })
     } else {
       this._animateReturn().then(() => {
@@ -286,7 +311,9 @@ class DndManager {
   private _getComponentFromElement(el: HTMLElement | null): any {
     let current: HTMLElement | null = el
     while (current) {
-      if ((current as any).__geaComponent) return (current as any).__geaComponent
+      const anyEl = current as HTMLElement & { [GEA_DOM_COMPONENT]?: unknown }
+      const comp = anyEl[GEA_DOM_COMPONENT]
+      if (comp) return comp
       current = current.parentElement
     }
     return null
@@ -324,8 +351,7 @@ class DndManager {
 
     const draggedComp = this._getComponentFromElement(sourceEl)
     if (!draggedComp) return
-
-    const sourceParent = draggedComp.parentComponent
+    const sourceParent = (draggedComp as any)[GEA_PARENT_COMPONENT]
     if (!sourceParent) return
 
     const srcArr = this._findCompiledArray(sourceParent, draggedComp)
@@ -340,23 +366,41 @@ class DndManager {
       destArr.splice(destination.index, 0, draggedComp)
     }
 
-    const srcChildren = sourceParent.__childComponents
+    const raw = (x: any) => (x && typeof x === 'object' ? ((x as any)[GEA_PROXY_GET_RAW_TARGET] ?? x) : x) ?? x
+    const rd = raw(draggedComp)
+    const srcChildren = sourceParent[GEA_CHILD_COMPONENTS]
     if (Array.isArray(srcChildren)) {
-      const ci = srcChildren.indexOf(draggedComp)
+      const ci = srcChildren.findIndex((c: any) => raw(c) === rd)
       if (ci !== -1) srcChildren.splice(ci, 1)
     }
-    const destChildren = destParent.__childComponents
-    if (Array.isArray(destChildren) && !destChildren.includes(draggedComp)) {
+    const destChildren = destParent[GEA_CHILD_COMPONENTS]
+    if (Array.isArray(destChildren) && !destChildren.some((c: any) => raw(c) === rd)) {
       destChildren.push(draggedComp)
     }
-    draggedComp.parentComponent = destParent
+    engineThis(draggedComp)[GEA_PARENT_COMPONENT] = destParent
   }
 
-  private _findCompiledArray(parent: any, child: any): { key: string; arr: any[]; index: number } | null {
-    for (const key of Object.keys(parent)) {
-      if (key.startsWith('_') && key.endsWith('Items') && Array.isArray(parent[key])) {
-        const idx = parent[key].indexOf(child)
-        if (idx !== -1) return { key, arr: parent[key], index: idx }
+  private _findCompiledArray(parent: any, child: any): { key: PropertyKey; arr: any[]; index: number } | null {
+    const raw = (x: any) => (x && typeof x === 'object' ? ((x as any)[GEA_PROXY_GET_RAW_TARGET] ?? x) : x) ?? x
+    const rc = raw(child)
+    const indexIn = (arr: any[]) => arr.findIndex((x) => raw(x) === rc)
+
+    // Use Reflect.ownKeys so non-enumerable `_*Items` and symbol keys are visible on proxies.
+    for (const key of Reflect.ownKeys(parent)) {
+      if (
+        typeof key === 'string' &&
+        key.startsWith('_') &&
+        key.endsWith('Items') &&
+        Array.isArray((parent as any)[key])
+      ) {
+        const arr = (parent as any)[key] as any[]
+        const idx = indexIn(arr)
+        if (idx !== -1) return { key, arr, index: idx }
+      }
+      if (typeof key === 'symbol' && String(key).includes('gea.listItems') && Array.isArray((parent as any)[key])) {
+        const arr = (parent as any)[key] as any[]
+        const idx = indexIn(arr)
+        if (idx !== -1) return { key, arr, index: idx }
       }
     }
     return null

@@ -2,7 +2,7 @@ import * as t from '@babel/types'
 import { id, js, jsBlockBody, jsExpr } from 'eszter'
 import type { NodePath } from '@babel/traverse'
 import type { ReactiveBinding, TextExpression } from './ir.ts'
-import { buildMemberChainFromParts, normalizePathParts } from './utils.ts'
+import { buildMemberChainFromParts, buildThisGeaMember, normalizePathParts } from './utils.ts'
 import type { StateRefMeta } from './parse.ts'
 import { createRequire } from 'module'
 
@@ -62,10 +62,10 @@ export function buildValueExpression(textExpr: TextExpression, stateRefs: Map<st
     return rewriteStateRefs(t.cloneNode(textExpr.expression, true) as t.Expression, stateRefs)
   }
   if (textExpr.isImportedState && textExpr.storeVar) {
-    return buildMemberChainFromParts(
-      t.memberExpression(t.identifier(textExpr.storeVar), t.identifier('__store')),
-      textExpr.pathParts,
-    )
+    // Read through the store proxy (e.g. `issueStore.issue`), not `issueStore.__store.issue`.
+    // Raw snapshots could diverge from what the template / other observers see via the proxy,
+    // producing stale text when incremental observers rebuild mixed template literals.
+    return buildMemberChainFromParts(t.identifier(textExpr.storeVar), textExpr.pathParts)
   }
   return buildMemberChainFromParts(t.thisExpression(), textExpr.pathParts)
 }
@@ -91,21 +91,20 @@ function rewriteStateRefs(expr: t.Expression, stateRefs: Map<string, StateRefMet
       } else if (ref.kind === 'local') {
         path.replaceWith(t.thisExpression())
       } else if ((ref.kind === 'imported-destructured' || ref.kind === 'store-alias') && ref.storeVar && ref.propName) {
-        path.replaceWith(
-          t.memberExpression(
-            t.memberExpression(t.identifier(ref.storeVar), t.identifier('__store')),
-            t.identifier(ref.propName),
-          ),
-        )
+        // Read `storeVar.prop` on the store proxy (e.g. issueStore.issue), not storeVar.__store.prop,
+        // so observer text/template rebuilds match template() and incremental store notifications.
+        path.replaceWith(t.memberExpression(t.identifier(ref.storeVar), t.identifier(ref.propName)))
         path.skip()
       } else if (ref.kind === 'local-destructured' && ref.propName) {
         // Destructured local vars like `const { x } = this`
         // must be rewritten to `this.x` in observer methods.
         path.replaceWith(t.memberExpression(t.thisExpression(), t.identifier(ref.propName)))
         path.skip()
-      } else {
-        path.replaceWith(t.memberExpression(t.identifier(path.node.name), t.identifier('__store')))
+      } else if (ref.kind === 'imported') {
+        // Default store import is the reactive proxy; leave the identifier as-is.
         path.skip()
+      } else {
+        throw new Error(`rewriteStateRefs: unhandled state ref kind ${(ref as StateRefMeta).kind}`)
       }
     },
   })
@@ -158,7 +157,7 @@ export function buildSimpleUpdate(
 
   if (target === 'textContent' && binding.bindingId && binding.bindingId !== '' && !binding.userIdExpr) {
     const suffix = t.stringLiteral(binding.bindingId)
-    return js`${jsExpr`this.__updateText(${suffix}, ${valueExpr})`};`
+    return t.expressionStatement(t.callExpression(buildThisGeaMember('GEA_UPDATE_TEXT'), [suffix, valueExpr]))
   }
 
   return js`if (${el}) { ${jsExpr`${el}.${id(target)}`} = ${valueExpr}; }`

@@ -143,6 +143,8 @@ export interface ConditionalSlot {
   setupStatements: t.Statement[]
   /** Setup statements needed by the truthy/falsy HTML expressions (may include extra vars) */
   htmlSetupStatements?: t.Statement[]
+  /** When true, branch JSX contains a compiled child (PascalCase tag). Content-only deps must not trigger GEA_PATCH_COND. */
+  hasCompiledChildren?: boolean
   dependentPropNames: string[]
   dependencies: ObserveDependency[]
   /** The original JSX expression from the template (the full conditional expression) */

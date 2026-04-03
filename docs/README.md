@@ -28,6 +28,7 @@ The "magic" is invisible and lives entirely in the build step. The Vite plugin a
 | Package | Description |
 | --- | --- |
 | [`@geajs/core`](https://www.npmjs.com/package/@geajs/core) | Core framework — stores, components, reactivity, DOM patching |
+| [`@geajs/ui`](https://www.npmjs.com/package/@geajs/ui) | Headless UI primitives — accessible components built on [Zag.js](https://zagjs.com) |
 | [`@geajs/mobile`](https://www.npmjs.com/package/@geajs/mobile) | Mobile UI primitives — views, navigation, gestures, layout |
 | [`@geajs/ssr`](ssr.md) | Server-side rendering — streaming HTML, hydration, head management |
 | [`@geajs/vite-plugin`](https://www.npmjs.com/package/@geajs/vite-plugin) | Vite plugin — JSX transform, reactivity wiring, HMR |

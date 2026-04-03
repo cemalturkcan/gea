@@ -29,6 +29,181 @@ function clearUidProvider() {
 	uidProvider = null;
 	resetProvider = null;
 }
+function tryComponentRootBridgeGet(t, prop) {
+	return null;
+}
+function tryComponentRootBridgeSet(t, prop, value) {
+	return false;
+}
+//#endregion
+//#region src/lib/symbols.ts
+/**
+* Well-known symbols for engine-only Component / Router / Store internals.
+* User-visible state stays on string keys; these never participate in observe() paths.
+*/
+const GEA_SELF_PROXY = Symbol.for("gea.selfProxy");
+/** Store engine — `this[GEA_STORE_*]()`; `GEA_STORE_ROOT` replaces the `__store` getter. */
+const GEA_STORE_ROOT = Symbol.for("gea.store.rootProxy");
+const GEA_STORE_CREATE_PROXY = Symbol.for("gea.store.createProxy");
+const GEA_STORE_FLUSH_CHANGES = Symbol.for("gea.store.flushChanges");
+const GEA_STORE_EMIT_CHANGES = Symbol.for("gea.store.emitChanges");
+const GEA_STORE_ADD_OBSERVER = Symbol.for("gea.store.addObserver");
+const GEA_STORE_COLLECT_MATCHING_OBSERVER_NODES = Symbol.for("gea.store.collectMatchingObserverNodes");
+const GEA_STORE_COLLECT_DESCENDANT_OBSERVER_NODES = Symbol.for("gea.store.collectDescendantObserverNodes");
+const GEA_STORE_ADD_DESCENDANTS_FOR_OBJECT_REPLACEMENT = Symbol.for("gea.store.addDescendantsForObjectReplacement");
+const GEA_STORE_GET_OBSERVER_NODE = Symbol.for("gea.store.getObserverNode");
+const GEA_STORE_COLLECT_MATCHING_OBSERVER_NODES_FROM_NODE = Symbol.for("gea.store.collectMatchingObserverNodesFromNode");
+const GEA_STORE_NOTIFY_HANDLERS = Symbol.for("gea.store.notifyHandlers");
+const GEA_STORE_NOTIFY_HANDLERS_WITH_VALUE = Symbol.for("gea.store.notifyHandlersWithValue");
+const GEA_STORE_GET_DIRECT_TOP_LEVEL_OBSERVED_VALUE = Symbol.for("gea.store.getDirectTopLevelObservedValue");
+const GEA_STORE_GET_TOP_LEVEL_OBSERVED_VALUE = Symbol.for("gea.store.getTopLevelObservedValue");
+const GEA_STORE_CLEAR_ARRAY_INDEX_CACHE = Symbol.for("gea.store.clearArrayIndexCache");
+const GEA_STORE_NORMALIZE_BATCH = Symbol.for("gea.store.normalizeBatch");
+const GEA_STORE_DELIVER_ARRAY_ITEM_PROP_BATCH = Symbol.for("gea.store.deliverArrayItemPropBatch");
+const GEA_STORE_DELIVER_KNOWN_ARRAY_ITEM_PROP_BATCH = Symbol.for("gea.store.deliverKnownArrayItemPropBatch");
+const GEA_STORE_DELIVER_TOP_LEVEL_BATCH = Symbol.for("gea.store.deliverTopLevelBatch");
+const GEA_STORE_QUEUE_CHANGE = Symbol.for("gea.store.queueChange");
+const GEA_STORE_TRACK_PENDING_CHANGE = Symbol.for("gea.store.trackPendingChange");
+const GEA_STORE_SCHEDULE_FLUSH = Symbol.for("gea.store.scheduleFlush");
+const GEA_STORE_QUEUE_DIRECT_ARRAY_ITEM_PRIMITIVE_CHANGE = Symbol.for("gea.store.queueDirectArrayItemPrimitiveChange");
+const GEA_STORE_INTERCEPT_ARRAY_METHOD = Symbol.for("gea.store.interceptArrayMethod");
+const GEA_STORE_INTERCEPT_ARRAY_ITERATOR = Symbol.for("gea.store.interceptArrayIterator");
+const GEA_STORE_GET_CACHED_ARRAY_META = Symbol.for("gea.store.getCachedArrayMeta");
+/** Test/profiler hook: returns the browser root `ProxyHandler` (same object the store constructor uses). */
+const GEA_STORE_GET_BROWSER_ROOT_PROXY_HANDLER_FOR_TESTS = Symbol.for("gea.store.getBrowserRootProxyHandlerForTests");
+/** Store proxy introspection (root + nested). */
+const GEA_PROXY_IS_PROXY = Symbol.for("gea.proxy.isProxy");
+const GEA_PROXY_RAW = Symbol.for("gea.proxy.raw");
+const GEA_PROXY_GET_RAW_TARGET = Symbol.for("gea.proxy.getRawTarget");
+const GEA_PROXY_GET_TARGET = Symbol.for("gea.proxy.getTarget");
+const GEA_PROXY_GET_PATH = Symbol.for("gea.proxy.getPath");
+/** Router: Outlet / RouterView marker (avoid string keys on component instances). */
+const GEA_IS_ROUTER_OUTLET = Symbol.for("gea.router.isOutlet");
+/**
+* Serialized `data-prop-*` attribute values that reference `GEA_PROP_BINDINGS` map keys.
+* DOM cannot store symbols; this prefix marks engine-owned binding tokens (not user strings).
+*/
+const GEA_PROP_BINDING_ATTR_PREFIX = "gea:p:";
+/** Cached parent component id chain on DOM nodes (delegated events / bubbling). */
+const GEA_DOM_PARENT_CHAIN = Symbol.for("gea.dom.parentChain");
+const GEA_ID = Symbol.for("gea.id");
+const GEA_ELEMENT = Symbol.for("gea.element");
+const GEA_RENDERED = Symbol.for("gea.rendered");
+const GEA_RAW_PROPS = Symbol("gea.rawProps");
+const GEA_BINDINGS = Symbol("gea.bindings");
+const GEA_SELF_LISTENERS = Symbol("gea.selfListeners");
+const GEA_CHILD_COMPONENTS = Symbol("gea.childComponents");
+const GEA_DEPENDENCIES = Symbol("gea.dependencies");
+const GEA_EVENT_BINDINGS = Symbol("gea.eventBindings");
+const GEA_PROP_BINDINGS = Symbol("gea.propBindings");
+const GEA_ATTR_BINDINGS = Symbol("gea.attrBindings");
+const GEA_OBSERVER_REMOVERS = Symbol("gea.observerRemovers");
+const GEA_COMPILED_CHILD = Symbol("gea.compiledChild");
+const GEA_ITEM_KEY = Symbol("gea.itemKey");
+const GEA_MAPS = Symbol("gea.maps");
+const GEA_CONDS = Symbol("gea.conds");
+const GEA_RESET_ELS = Symbol("gea.resetEls");
+const GEA_LIST_CONFIGS = Symbol("gea.listConfigs");
+/** Router / Outlet / RouterView internals */
+const GEA_ROUTER_DEPTH = Symbol("gea.routerDepth");
+const GEA_ROUTER = Symbol("gea.router");
+const GEA_ROUTES_APPLIED = Symbol("gea.routesApplied");
+const GEA_CURRENT_COMP_CLASS = Symbol("gea.currentCompClass");
+const GEA_LAYOUTS = Symbol("gea.layouts");
+/**
+* Stable symbol key for a component-array backing store (same reference for a given
+* `arrayPropName` in every module/realm via the global symbol registry).
+*/
+function geaListItemsSymbol(arrayPropName) {
+	return Symbol.for(`gea.listItems.${arrayPropName}`);
+}
+/** Per-slot flag for conditional patch microtask reset (compiler-generated). */
+function geaCondPatchedSymbol(idx) {
+	return Symbol.for(`gea.condPatched.${idx}`);
+}
+/** Cached boolean result of `getCond()` for conditional slots (compiler + runtime). */
+function geaCondValueSymbol(idx) {
+	return Symbol.for(`gea.condValue.${idx}`);
+}
+/** Compiler: last value seen by `__observe_*` rerender guard (reference equality / truthiness). */
+function geaObservePrevSymbol(methodName) {
+	return Symbol.for(`gea.observePrev.${methodName}`);
+}
+/** Compiler: truthiness-only guard for early-return observer methods. */
+function geaPrevGuardSymbol(methodName) {
+	return Symbol.for(`gea.prevGuard.${methodName}`);
+}
+/** Component engine methods — `this[GEA_*]()` only; never user string keys. */
+const GEA_APPLY_LIST_CHANGES = Symbol.for("gea.component.applyListChanges");
+const GEA_CREATE_PROPS_PROXY = Symbol.for("gea.component.createPropsProxy");
+const GEA_REACTIVE_PROPS = Symbol.for("gea.component.reactiveProps");
+const GEA_UPDATE_PROPS = Symbol.for("gea.component.updateProps");
+const GEA_REQUEST_RENDER = Symbol.for("gea.component.requestRender");
+const GEA_RESET_CHILD_TREE = Symbol.for("gea.component.resetChildTree");
+const GEA_CHILD = Symbol.for("gea.component.child");
+const GEA_EL_CACHE = Symbol.for("gea.component.elCache");
+const GEA_EL = Symbol.for("gea.component.el");
+const GEA_UPDATE_TEXT = Symbol.for("gea.component.updateText");
+const GEA_OBSERVE = Symbol.for("gea.component.observe");
+const GEA_REORDER_CHILDREN = Symbol.for("gea.component.reorderChildren");
+const GEA_RECONCILE_LIST = Symbol.for("gea.component.reconcileList");
+const GEA_OBSERVE_LIST = Symbol.for("gea.component.observeList");
+const GEA_REFRESH_LIST = Symbol.for("gea.component.refreshList");
+const GEA_SWAP_CHILD = Symbol.for("gea.component.swapChild");
+const GEA_REGISTER_MAP = Symbol.for("gea.component.registerMap");
+const GEA_SYNC_MAP = Symbol.for("gea.component.syncMap");
+const GEA_SYNC_ITEMS = Symbol.for("gea.component.syncItems");
+const GEA_CLONE_ITEM = Symbol.for("gea.component.cloneItem");
+const GEA_REGISTER_COND = Symbol.for("gea.component.registerCond");
+const GEA_PATCH_COND = Symbol.for("gea.component.patchCond");
+const GEA_SYNC_DOM_REFS = Symbol.for("gea.component.syncDomRefs");
+const GEA_ENSURE_ARRAY_CONFIGS = Symbol.for("gea.component.ensureArrayConfigs");
+const GEA_SWAP_STATE_CHILDREN = Symbol.for("gea.component.swapStateChildren");
+const GEA_COMPONENT_CLASSES = Symbol.for("gea.component.componentClasses");
+const GEA_STATIC_ESCAPE_HTML = Symbol.for("gea.component.staticEscapeHtml");
+const GEA_STATIC_SANITIZE_ATTR = Symbol.for("gea.component.staticSanitizeAttr");
+const GEA_SYNC_VALUE_PROPS = Symbol.for("gea.component.syncValueProps");
+const GEA_SYNC_AUTOFOCUS = Symbol.for("gea.component.syncAutofocus");
+const GEA_PATCH_NODE = Symbol.for("gea.component.patchNode");
+const GEA_SETUP_LOCAL_STATE_OBSERVERS = Symbol.for("gea.component.setupLocalStateObservers");
+/** Compiler: `template()` clone for SSR/hydration; optional on subclasses. */
+const GEA_CLONE_TEMPLATE = Symbol.for("gea.component.cloneTemplate");
+/** Compiler: refresh `ref={}` targets after DOM updates. */
+const GEA_SETUP_REFS = Symbol.for("gea.component.setupRefs");
+/** Compiler: incremental prop-driven DOM patches after `props` updates. */
+const GEA_ON_PROP_CHANGE = Symbol.for("gea.component.onPropChange");
+/** Re-render helper: sync list rows not yet mounted (getter-backed lists). */
+const GEA_SYNC_UNRENDERED_LIST_ITEMS = Symbol.for("gea.component.syncUnrenderedListItems");
+/** Internal lifecycle / DOM helpers — override via `this[GEA_*]()`. */
+const GEA_ATTACH_BINDINGS = Symbol.for("gea.component.attachBindings");
+const GEA_CLEANUP_BINDINGS = Symbol.for("gea.component.cleanupBindings");
+const GEA_MOUNT_COMPILED_CHILD_COMPONENTS = Symbol.for("gea.component.mountCompiledChildComponents");
+const GEA_INSTANTIATE_CHILD_COMPONENTS = Symbol.for("gea.component.instantiateChildComponents");
+const GEA_SETUP_EVENT_DIRECTIVES = Symbol.for("gea.component.setupEventDirectives");
+const GEA_TEARDOWN_SELF_LISTENERS = Symbol.for("gea.component.teardownSelfListeners");
+const GEA_EXTRACT_COMPONENT_PROPS = Symbol.for("gea.component.extractComponentProps");
+const GEA_COERCE_STATIC_PROP_VALUE = Symbol.for("gea.component.coerceStaticPropValue");
+const GEA_NORMALIZE_PROP_NAME = Symbol.for("gea.component.normalizePropName");
+const GEA_CTOR_AUTO_REGISTERED = Symbol.for("gea.ctor.autoRegistered");
+const GEA_CTOR_TAG_NAME = Symbol.for("gea.ctor.tagName");
+/** ComponentManager.callEventsGetterHandler: skip callItemHandler (delegated handler ran on an ancestor). */
+const GEA_SKIP_ITEM_HANDLER = Symbol.for("gea.componentManager.skipItemHandler");
+/** DOM expandos on nodes (engine-only). */
+const GEA_DOM_COMPONENT = Symbol.for("gea.dom.component");
+const GEA_DOM_KEY = Symbol.for("gea.dom.key");
+const GEA_DOM_ITEM = Symbol.for("gea.dom.item");
+const GEA_DOM_PROPS = Symbol.for("gea.dom.props");
+const GEA_DOM_COMPILED_CHILD_ROOT = Symbol.for("gea.dom.compiledChildRoot");
+/** Cached delegated event token (mirrors `data-gea-event` without attribute read). */
+const GEA_DOM_EVENT_HINT = Symbol.for("gea.dom.eventHint");
+/** Delegated `.map()` row clicks — `this[GEA_HANDLE_ITEM_HANDLER](itemId, e)`. */
+const GEA_HANDLE_ITEM_HANDLER = Symbol.for("gea.component.handleItemHandler");
+/** Map sync state on internal config objects. */
+const GEA_MAP_CONFIG_PREV = Symbol.for("gea.mapConfig.prev");
+const GEA_MAP_CONFIG_COUNT = Symbol.for("gea.mapConfig.count");
+const GEA_MAP_CONFIG_TPL = Symbol.for("gea.mapConfig.tpl");
+/** __observeList config bag */
+const GEA_LIST_CONFIG_REFRESHING = Symbol.for("gea.listConfig.refreshing");
 //#endregion
 //#region src/lib/store.ts
 function createObserverNode(pathParts) {
@@ -37,6 +212,20 @@ function createObserverNode(pathParts) {
 		handlers: /* @__PURE__ */ new Set(),
 		children: /* @__PURE__ */ new Map()
 	};
+}
+const storeInstancePrivate = /* @__PURE__ */ new WeakMap();
+function storeRaw(st) {
+	return st[GEA_PROXY_GET_RAW_TARGET] ?? st[GEA_PROXY_RAW] ?? st;
+}
+function unwrapNestedProxyValue(value) {
+	if (value && typeof value === "object" && value[GEA_PROXY_IS_PROXY]) {
+		const raw = value[GEA_PROXY_GET_TARGET];
+		if (raw !== void 0) return raw;
+	}
+	return value;
+}
+function getPriv(st) {
+	return storeInstancePrivate.get(storeRaw(st));
 }
 function splitPath(path) {
 	if (Array.isArray(path)) return path;
@@ -95,6 +284,24 @@ function samePathParts$1(a, b) {
 	for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
 	return true;
 }
+/** `class C {}` values must not be `.bind()`'d on the root proxy — breaks `===` with route components. */
+function isClassConstructorValue(fn) {
+	if (typeof fn !== "function") return false;
+	const proto = fn.prototype;
+	if (proto && typeof proto === "object") {
+		const ctor = proto.constructor;
+		if (typeof ctor === "function" && ctor !== fn) try {
+			const d = Object.getOwnPropertyDescriptor(ctor, "prototype");
+			if (d && d.writable === false) return true;
+		} catch {}
+	}
+	if (!proto || proto.constructor !== fn) return false;
+	try {
+		const desc = Object.getOwnPropertyDescriptor(fn, "prototype");
+		if (desc && desc.writable === false) return true;
+	} catch {}
+	return /^\s*class\s/.test(Function.prototype.toString.call(fn));
+}
 function isArrayIndexUpdate(change) {
 	return change && change.type === "update" && Array.isArray(change.target) && isNumericIndex(change.property);
 }
@@ -119,9 +326,8 @@ function findPropertyDescriptor(obj, prop) {
 	}
 }
 /**
-* Top-level keys on Component / router integration that still use public fields today.
-* (Migrating these to `#` private fields removes the need for this set entirely.)
-* Not a user "underscore rule" — only exact Gea runtime/compiler field names.
+* Top-level string keys that must not be wrapped in reactive proxies at the store root.
+* Engine state for components lives in a WeakMap / symbols — not listed here.
 */
 const SKIP_REACTIVE_WRAP_AT_ROOT = new Set([
 	"props",
@@ -131,20 +337,7 @@ const SKIP_REACTIVE_WRAP_AT_ROOT = new Set([
 	"id_",
 	"element_",
 	"rendered_",
-	"__rawProps_",
-	"__bindings",
-	"__selfListeners",
-	"__childComponents",
-	"__geaDependencies",
-	"__geaEventBindings",
-	"__geaPropBindings",
-	"__geaAttrBindings",
-	"__observer_removers__",
-	"__geaMaps",
-	"__geaConds",
-	"__resetEls",
-	"__geaCompiledChild",
-	"__geaItemKey",
+	"compiledItems",
 	"_routerDepth",
 	"_router",
 	"_routesApplied",
@@ -167,133 +360,6 @@ function shouldSkipReactiveWrapForPath(basePath) {
 	if (/^_[a-zA-Z][a-zA-Z0-9]*Items$/.test(head)) return true;
 	return false;
 }
-function rootGetValue(t, prop, receiver) {
-	if (!Object.prototype.hasOwnProperty.call(t, prop)) return Reflect.get(t, prop, receiver);
-	const value = t[prop];
-	if (typeof value === "function") return value;
-	if (value !== null && value !== void 0 && typeof value === "object") {
-		if (Object.getPrototypeOf(value) !== Object.prototype && !Array.isArray(value)) return value;
-		if (shouldSkipReactiveWrapForPath(prop)) return value;
-		const entry = t._topLevelProxies.get(prop);
-		if (entry && entry[0] === value) return entry[1];
-		const p = t._createProxy(value, prop, [prop]);
-		t._topLevelProxies.set(prop, [value, p]);
-		return p;
-	}
-	return value;
-}
-function getCachedPathParts(t, prop) {
-	let parts = t._pathPartsCache.get(prop);
-	if (parts === void 0) {
-		parts = [prop];
-		t._pathPartsCache.set(prop, parts);
-	}
-	return parts;
-}
-function rootSetValue(t, prop, value) {
-	if (typeof value === "function") {
-		t[prop] = value;
-		return true;
-	}
-	if (value === null || value === void 0 || typeof value !== "object") {
-		const oldValue = t[prop];
-		if (oldValue === value && prop in t) return true;
-		const hadProp = prop in t;
-		if (oldValue && typeof oldValue === "object") {
-			t._proxyCache.delete(oldValue);
-			t._arrayIndexProxyCache.delete(oldValue);
-			t._topLevelProxies.delete(prop);
-		}
-		t[prop] = value;
-		t._pendingChanges.push({
-			type: hadProp ? "update" : "add",
-			property: prop,
-			target: t,
-			pathParts: getCachedPathParts(t, prop),
-			newValue: value,
-			previousValue: oldValue
-		});
-		if (t._pendingBatchKind !== 2) {
-			t._pendingBatchKind = 2;
-			t._pendingBatchArrayPathParts = null;
-		}
-		if (!t._flushScheduled) {
-			t._flushScheduled = true;
-			Store._pendingStores.add(t);
-			queueMicrotask(t._flushChanges);
-		}
-		return true;
-	}
-	if (value.__isProxy) {
-		const raw = value.__getTarget;
-		if (raw !== void 0) value = raw;
-	}
-	const hadProp = Object.prototype.hasOwnProperty.call(t, prop);
-	const oldValue = hadProp ? t[prop] : void 0;
-	if (hadProp && oldValue === value) return true;
-	if (oldValue && typeof oldValue === "object") {
-		t._proxyCache.delete(oldValue);
-		t._arrayIndexProxyCache.delete(oldValue);
-	}
-	t._topLevelProxies.delete(prop);
-	t[prop] = value;
-	if (Array.isArray(oldValue) && oldValue.length > 0 && Array.isArray(value) && value.length > oldValue.length) {
-		let isAppend = true;
-		for (let i = 0; i < oldValue.length; i++) if (oldValue[i] !== value[i]) {
-			isAppend = false;
-			break;
-		}
-		if (isAppend) {
-			const start = oldValue.length;
-			t._emitChanges([{
-				type: "append",
-				property: prop,
-				target: t,
-				pathParts: getCachedPathParts(t, prop),
-				start,
-				count: value.length - start,
-				newValue: value.slice(start)
-			}]);
-			return true;
-		}
-	}
-	t._pendingChanges.push({
-		type: hadProp ? "update" : "add",
-		property: prop,
-		target: t,
-		pathParts: getCachedPathParts(t, prop),
-		newValue: value,
-		previousValue: oldValue
-	});
-	if (t._pendingBatchKind !== 2) {
-		t._pendingBatchKind = 2;
-		t._pendingBatchArrayPathParts = null;
-	}
-	if (!t._flushScheduled) {
-		t._flushScheduled = true;
-		Store._pendingStores.add(t);
-		queueMicrotask(t._flushChanges);
-	}
-	return true;
-}
-function rootDeleteProperty(t, prop) {
-	if (!Object.prototype.hasOwnProperty.call(t, prop)) return true;
-	const oldValue = t[prop];
-	if (oldValue && typeof oldValue === "object") {
-		t._proxyCache.delete(oldValue);
-		t._arrayIndexProxyCache.delete(oldValue);
-	}
-	t._topLevelProxies.delete(prop);
-	delete t[prop];
-	t._emitChanges([{
-		type: "delete",
-		property: prop,
-		target: t,
-		pathParts: getCachedPathParts(t, prop),
-		previousValue: oldValue
-	}]);
-	return true;
-}
 /**
 * Reactive store: class fields become reactive properties automatically.
 * Methods and getters on the prototype are not reactive.
@@ -306,36 +372,178 @@ function rootDeleteProperty(t, prop) {
 * }
 */
 var Store = class Store {
-	static {
-		this._noDirectTopLevelValue = Symbol("noDirectTopLevelValue");
-	}
+	/**
+	* Engine-room state lives in a `WeakMap` keyed by the raw instance (never on the public proxy).
+	* Root proxy `get` binds methods to the **receiver** (proxy) so `this.todos` etc. go through
+	* reactive `rootGetValue`; internals use `getPriv(this)` / `storeRaw(this)`.
+	*/
+	static #noDirectTopLevelValue = Symbol("noDirectTopLevelValue");
 	static {
 		this.rootProxyHandlerFactory = null;
 	}
-	static {
-		this._pendingStores = /* @__PURE__ */ new Set();
-	}
-	static {
-		this._flushing = false;
-	}
+	static #pendingStores = /* @__PURE__ */ new Set();
+	static #flushing = false;
 	static flushAll() {
-		if (Store._flushing) return;
-		Store._flushing = true;
+		if (Store.#flushing) return;
+		Store.#flushing = true;
 		try {
-			for (const store of Store._pendingStores) store.flushSync();
-			Store._pendingStores.clear();
+			for (const store of Store.#pendingStores) store.flushSync();
+			Store.#pendingStores.clear();
 		} finally {
-			Store._flushing = false;
+			Store.#flushing = false;
 		}
 	}
-	static _getBrowserRootProxyHandler() {
-		if (!Store._browserRootProxyHandler) Store._browserRootProxyHandler = {
+	static rootGetValue(t, prop, receiver) {
+		if (!Object.prototype.hasOwnProperty.call(t, prop)) return Reflect.get(t, prop, receiver);
+		const value = t[prop];
+		if (typeof value === "function") return value;
+		if (value !== null && value !== void 0 && typeof value === "object") {
+			if (Object.getPrototypeOf(value) !== Object.prototype && !Array.isArray(value)) return value;
+			if (shouldSkipReactiveWrapForPath(prop)) return value;
+			const entry = getPriv(t).topLevelProxies.get(prop);
+			if (entry && entry[0] === value) return entry[1];
+			const p = t[GEA_STORE_CREATE_PROXY](value, prop, [prop]);
+			getPriv(t).topLevelProxies.set(prop, [value, p]);
+			return p;
+		}
+		return value;
+	}
+	static rootSetValue(t, prop, value) {
+		if (typeof value === "function") {
+			t[prop] = value;
+			return true;
+		}
+		const pathParts = Store.#rootPathPartsCache(t, prop);
+		if (value === null || value === void 0 || typeof value !== "object") {
+			const oldValue = t[prop];
+			if (oldValue === value && prop in t) return true;
+			const hadProp = prop in t;
+			if (oldValue && typeof oldValue === "object") {
+				getPriv(t).proxyCache.delete(oldValue);
+				getPriv(t).arrayIndexProxyCache.delete(oldValue);
+				getPriv(t).topLevelProxies.delete(prop);
+			}
+			t[prop] = value;
+			getPriv(t).pendingChanges.push({
+				type: hadProp ? "update" : "add",
+				property: prop,
+				target: t,
+				pathParts,
+				newValue: value,
+				previousValue: oldValue
+			});
+			if (getPriv(t).pendingBatchKind !== 2) {
+				getPriv(t).pendingBatchKind = 2;
+				getPriv(t).pendingBatchArrayPathParts = null;
+			}
+			if (!getPriv(t).flushScheduled) {
+				getPriv(t).flushScheduled = true;
+				Store.#pendingStores.add(t);
+				queueMicrotask(() => t[GEA_STORE_FLUSH_CHANGES]());
+			}
+			return true;
+		}
+		value = unwrapNestedProxyValue(value);
+		const hadProp = Object.prototype.hasOwnProperty.call(t, prop);
+		const oldValue = hadProp ? t[prop] : void 0;
+		if (hadProp && oldValue === value) return true;
+		if (oldValue && typeof oldValue === "object") {
+			getPriv(t).proxyCache.delete(oldValue);
+			getPriv(t).arrayIndexProxyCache.delete(oldValue);
+		}
+		getPriv(t).topLevelProxies.delete(prop);
+		t[prop] = value;
+		if (Array.isArray(oldValue) && oldValue.length > 0 && Array.isArray(value) && value.length > oldValue.length) {
+			let isAppend = true;
+			for (let i = 0; i < oldValue.length; i++) if (oldValue[i] !== value[i]) {
+				isAppend = false;
+				break;
+			}
+			if (isAppend) {
+				const start = oldValue.length;
+				t[GEA_STORE_EMIT_CHANGES]([{
+					type: "append",
+					property: prop,
+					target: t,
+					pathParts,
+					start,
+					count: value.length - start,
+					newValue: value.slice(start)
+				}]);
+				return true;
+			}
+		}
+		getPriv(t).pendingChanges.push({
+			type: hadProp ? "update" : "add",
+			property: prop,
+			target: t,
+			pathParts,
+			newValue: value,
+			previousValue: oldValue
+		});
+		if (getPriv(t).pendingBatchKind !== 2) {
+			getPriv(t).pendingBatchKind = 2;
+			getPriv(t).pendingBatchArrayPathParts = null;
+		}
+		if (!getPriv(t).flushScheduled) {
+			getPriv(t).flushScheduled = true;
+			Store.#pendingStores.add(t);
+			queueMicrotask(() => t[GEA_STORE_FLUSH_CHANGES]());
+		}
+		return true;
+	}
+	static rootDeleteProperty(t, prop) {
+		if (!Object.prototype.hasOwnProperty.call(t, prop)) return true;
+		const oldValue = t[prop];
+		if (oldValue && typeof oldValue === "object") {
+			getPriv(t).proxyCache.delete(oldValue);
+			getPriv(t).arrayIndexProxyCache.delete(oldValue);
+		}
+		getPriv(t).topLevelProxies.delete(prop);
+		delete t[prop];
+		t[GEA_STORE_EMIT_CHANGES]([{
+			type: "delete",
+			property: prop,
+			target: t,
+			pathParts: Store.#rootPathPartsCache(t, prop),
+			previousValue: oldValue
+		}]);
+		return true;
+	}
+	static #rootPathPartsCache(t, prop) {
+		let parts = getPriv(t).pathPartsCache.get(prop);
+		if (parts === void 0) {
+			parts = [prop];
+			getPriv(t).pathPartsCache.set(prop, parts);
+		}
+		return parts;
+	}
+	/**
+	* Browser root proxy: **4 traps only** (get/set/deleteProperty/defineProperty).
+	* No `has`/`ownKeys`/`getOwnPropertyDescriptor` — V8 optimizes this shape better for hot paths.
+	*
+	* SSR overlay handler lives in `@geajs/ssr` and is wired via `Store.rootProxyHandlerFactory`.
+	*/
+	static #browserRootProxyHandler;
+	static #getBrowserRootProxyHandler() {
+		if (!Store.#browserRootProxyHandler) Store.#browserRootProxyHandler = {
 			get(t, prop, receiver) {
-				if (typeof prop === "symbol") return Reflect.get(t, prop, receiver);
-				if (prop === "__isProxy") return true;
-				if (prop === "__raw") return t;
-				if (prop === "__getRawTarget") return t;
-				return rootGetValue(t, prop, receiver);
+				if (typeof prop === "symbol") {
+					if (prop === GEA_PROXY_IS_PROXY) return true;
+					if (prop === GEA_PROXY_RAW || prop === GEA_PROXY_GET_RAW_TARGET) return t;
+					return Reflect.get(t, prop, receiver);
+				}
+				if (typeof prop === "string") {
+					const bridged = tryComponentRootBridgeGet(t, prop);
+					if (bridged?.ok) {
+						const v = bridged.value;
+						if (typeof v !== "function") return v;
+						return isClassConstructorValue(v) ? v : v.bind(receiver);
+					}
+				}
+				const v = Store.rootGetValue(t, prop, receiver);
+				if (typeof v !== "function") return v;
+				return isClassConstructorValue(v) ? v : v.bind(receiver);
 			},
 			set(t, prop, value, receiver) {
 				if (typeof prop === "symbol") {
@@ -343,7 +551,8 @@ var Store = class Store {
 					return true;
 				}
 				if (findPropertyDescriptor(t, prop)?.set) return Reflect.set(t, prop, value, receiver);
-				return rootSetValue(t, prop, value);
+				if (typeof prop === "string" && tryComponentRootBridgeSet(t, prop, value)) return true;
+				return Store.rootSetValue(t, prop, value);
 			},
 			deleteProperty(t, prop) {
 				if (typeof prop === "symbol") {
@@ -352,118 +561,38 @@ var Store = class Store {
 				}
 				const desc = findPropertyDescriptor(t, prop);
 				if (desc && (desc.get || desc.set)) return Reflect.deleteProperty(t, prop);
-				return rootDeleteProperty(t, prop);
+				return Store.rootDeleteProperty(t, prop);
 			},
 			defineProperty(t, prop, descriptor) {
 				return Reflect.defineProperty(t, prop, descriptor);
 			}
 		};
-		return Store._browserRootProxyHandler;
+		return Store.#browserRootProxyHandler;
+	}
+	static [GEA_STORE_GET_BROWSER_ROOT_PROXY_HANDLER_FOR_TESTS]() {
+		return Store.#getBrowserRootProxyHandler();
 	}
 	constructor(initialData) {
-		this._pendingChanges = [];
-		this._pendingChangesPool = [];
-		this._flushScheduled = false;
-		this._nextArrayOpId = 0;
-		this._observerRoot = createObserverNode([]);
-		this._proxyCache = /* @__PURE__ */ new WeakMap();
-		this._arrayIndexProxyCache = /* @__PURE__ */ new WeakMap();
-		this._internedArrayPaths = /* @__PURE__ */ new Map();
-		this._topLevelProxies = /* @__PURE__ */ new Map();
-		this._pathPartsCache = /* @__PURE__ */ new Map();
-		this._pendingBatchKind = 0;
-		this._pendingBatchArrayPathParts = null;
-		this._flushChanges = () => {
-			this._flushScheduled = false;
-			Store._pendingStores.delete(this);
-			const pendingBatch = this._pendingChanges;
-			const pendingBatchKind = this._pendingBatchKind;
-			const pendingBatchArrayPathParts = this._pendingBatchArrayPathParts;
-			this._pendingChangesPool.length = 0;
-			this._pendingChanges = this._pendingChangesPool;
-			this._pendingChangesPool = pendingBatch;
-			this._pendingBatchKind = 0;
-			this._pendingBatchArrayPathParts = null;
-			if (pendingBatch.length === 0) return;
-			if (pendingBatchKind === 1 && pendingBatchArrayPathParts && this._deliverKnownArrayItemPropBatch(pendingBatch, pendingBatchArrayPathParts)) return;
-			if (pendingBatch.length === 1) {
-				const change = pendingBatch[0];
-				if (change.target === this && change.pathParts.length === 1 && this._observerRoot.handlers.size === 0) {
-					const node = this._observerRoot.children.get(change.property);
-					if (node && node.handlers.size > 0) {
-						if (node.children.size === 0) {
-							let value;
-							if (change.type === "delete") value = void 0;
-							else {
-								const nv = change.newValue;
-								if (nv === null || nv === void 0 || typeof nv !== "object") value = nv;
-								else if (Array.isArray(nv) && nv.length === 0) value = nv;
-								else value = this._getTopLevelObservedValue(change);
-							}
-							const handlers = node.handlers;
-							if (handlers.size === 1) handlers.values().next().value(value, pendingBatch);
-							else for (const handler of handlers) handler(value, pendingBatch);
-							return;
-						}
-					} else if (node) return;
-				}
-			}
-			if (pendingBatch.length === 2 && this._observerRoot.handlers.size === 0) {
-				const c0 = pendingBatch[0];
-				const c1 = pendingBatch[1];
-				if (c0.target === c1.target && Array.isArray(c0.target) && c0.type === "update" && c1.type === "update" && isNumericIndex(c0.property) && isNumericIndex(c1.property) && c0.previousValue === c1.newValue && c0.newValue === c1.previousValue) {
-					const opId = `swap:${this._nextArrayOpId++}`;
-					const arrayPathParts = c0.pathParts.length > 1 ? c0.pathParts.slice(0, -1) : c0.pathParts;
-					c0.arrayOp = "swap";
-					c1.arrayOp = "swap";
-					c0.opId = opId;
-					c1.opId = opId;
-					c0.otherIndex = Number(c1.property);
-					c1.otherIndex = Number(c0.property);
-					c0.arrayPathParts = arrayPathParts;
-					c1.arrayPathParts = arrayPathParts;
-					let node = this._observerRoot;
-					for (let i = 0; i < arrayPathParts.length; i++) {
-						node = node.children.get(arrayPathParts[i]);
-						if (!node) break;
-					}
-					if (node && node.handlers.size > 0) {
-						const value = getByPathParts(this, node.pathParts);
-						for (const handler of node.handlers) handler(value, pendingBatch);
-					}
-					return;
-				}
-			}
-			if (this._deliverTopLevelBatch(pendingBatch)) return;
-			const batch = this._normalizeBatch(pendingBatch);
-			if (this._deliverArrayItemPropBatch(batch)) return;
-			if (batch.length === 1) {
-				const change = batch[0];
-				const matches = this._collectMatchingObserverNodes(change.pathParts);
-				this._addDescendantsForObjectReplacement(change, matches);
-				for (let i = 0; i < matches.length; i++) this._notifyHandlers(matches[i], batch);
-				return;
-			}
-			const deliveries = /* @__PURE__ */ new Map();
-			for (let i = 0; i < batch.length; i++) {
-				const change = batch[i];
-				const matches = this._collectMatchingObserverNodes(change.pathParts);
-				this._addDescendantsForObjectReplacement(change, matches);
-				for (let j = 0; j < matches.length; j++) {
-					const node = matches[j];
-					let relevant = deliveries.get(node);
-					if (!relevant) {
-						relevant = [];
-						deliveries.set(node, relevant);
-					}
-					relevant.push(change);
-				}
-			}
-			for (const [node, relevant] of deliveries) this._notifyHandlers(node, relevant);
+		const priv = {
+			selfProxy: void 0,
+			pendingChanges: [],
+			pendingChangesPool: [],
+			flushScheduled: false,
+			nextArrayOpId: 0,
+			observerRoot: createObserverNode([]),
+			proxyCache: /* @__PURE__ */ new WeakMap(),
+			arrayIndexProxyCache: /* @__PURE__ */ new WeakMap(),
+			internedArrayPaths: /* @__PURE__ */ new Map(),
+			topLevelProxies: /* @__PURE__ */ new Map(),
+			pathPartsCache: /* @__PURE__ */ new Map(),
+			pendingBatchKind: 0,
+			pendingBatchArrayPathParts: null
 		};
-		const handler = Store.rootProxyHandlerFactory ? Store.rootProxyHandlerFactory() : Store._getBrowserRootProxyHandler();
+		storeInstancePrivate.set(this, priv);
+		const handler = Store.rootProxyHandlerFactory ? Store.rootProxyHandlerFactory() : Store.#getBrowserRootProxyHandler();
 		const proxy = new Proxy(this, handler);
-		this._selfProxy = proxy;
+		priv.selfProxy = proxy;
+		this[GEA_SELF_PROXY] = proxy;
 		if (initialData) for (const key of Object.keys(initialData)) Object.defineProperty(this, key, {
 			value: initialData[key],
 			writable: true,
@@ -473,29 +602,31 @@ var Store = class Store {
 		return proxy;
 	}
 	/** Used by vite plugin when passing store to components. Same as `this`. */
-	get __store() {
+	get [GEA_STORE_ROOT]() {
 		return this;
 	}
 	flushSync() {
-		if (this._pendingChanges.length > 0) this._flushChanges();
+		if (getPriv(this).pendingChanges.length > 0) this[GEA_STORE_FLUSH_CHANGES]();
 	}
 	silent(fn) {
 		try {
 			fn();
 		} finally {
-			this._pendingChanges = [];
-			this._flushScheduled = false;
-			this._pendingBatchKind = 0;
-			this._pendingBatchArrayPathParts = null;
+			const p = getPriv(this);
+			p.pendingChanges = [];
+			p.flushScheduled = false;
+			p.pendingBatchKind = 0;
+			p.pendingBatchArrayPathParts = null;
 		}
 	}
 	observe(path, handler) {
 		const pathParts = splitPath(path);
-		return this._addObserver(pathParts, handler);
+		return this[GEA_STORE_ADD_OBSERVER](pathParts, handler);
 	}
-	_addObserver(pathParts, handler) {
-		const nodes = [this._observerRoot];
-		let node = this._observerRoot;
+	[GEA_STORE_ADD_OBSERVER](pathParts, handler) {
+		const p = getPriv(this);
+		const nodes = [p.observerRoot];
+		let node = p.observerRoot;
 		for (let i = 0; i < pathParts.length; i++) {
 			const part = pathParts[i];
 			let child = node.children.get(part);
@@ -516,9 +647,9 @@ var Store = class Store {
 			}
 		};
 	}
-	_collectMatchingObserverNodes(pathParts) {
+	[GEA_STORE_COLLECT_MATCHING_OBSERVER_NODES](pathParts) {
 		const matches = [];
-		let node = this._observerRoot;
+		let node = getPriv(this).observerRoot;
 		if (node.handlers.size > 0) matches.push(node);
 		for (let i = 0; i < pathParts.length; i++) {
 			node = node.children.get(pathParts[i]);
@@ -527,29 +658,29 @@ var Store = class Store {
 		}
 		return matches;
 	}
-	_collectDescendantObserverNodes(node, matches) {
+	[GEA_STORE_COLLECT_DESCENDANT_OBSERVER_NODES](node, matches) {
 		for (const child of node.children.values()) {
 			if (child.handlers.size > 0) matches.push(child);
-			if (child.children.size > 0) this._collectDescendantObserverNodes(child, matches);
+			if (child.children.size > 0) this[GEA_STORE_COLLECT_DESCENDANT_OBSERVER_NODES](child, matches);
 		}
 	}
 	/** When a property is replaced with a new object, descendant observers
 	*  must be notified because their nested values may have changed. */
-	_addDescendantsForObjectReplacement(change, matches) {
+	[GEA_STORE_ADD_DESCENDANTS_FOR_OBJECT_REPLACEMENT](change, matches) {
 		if ((change.type === "update" || change.type === "add") && change.newValue && typeof change.newValue === "object") {
-			const node = this._getObserverNode(change.pathParts);
-			if (node && node.children.size > 0) this._collectDescendantObserverNodes(node, matches);
+			const node = this[GEA_STORE_GET_OBSERVER_NODE](change.pathParts);
+			if (node && node.children.size > 0) this[GEA_STORE_COLLECT_DESCENDANT_OBSERVER_NODES](node, matches);
 		}
 	}
-	_getObserverNode(pathParts) {
-		let node = this._observerRoot;
+	[GEA_STORE_GET_OBSERVER_NODE](pathParts) {
+		let node = getPriv(this).observerRoot;
 		for (let i = 0; i < pathParts.length; i++) {
 			node = node.children.get(pathParts[i]);
 			if (!node) return null;
 		}
 		return node;
 	}
-	_collectMatchingObserverNodesFromNode(startNode, pathParts, offset) {
+	[GEA_STORE_COLLECT_MATCHING_OBSERVER_NODES_FROM_NODE](startNode, pathParts, offset) {
 		const matches = [];
 		let node = startNode;
 		for (let i = offset; i < pathParts.length; i++) {
@@ -559,11 +690,11 @@ var Store = class Store {
 		}
 		return matches;
 	}
-	_notifyHandlers(node, relevant) {
-		const value = getByPathParts(this, node.pathParts);
+	[GEA_STORE_NOTIFY_HANDLERS](node, relevant) {
+		const value = getByPathParts(storeRaw(this), node.pathParts);
 		for (const handler of node.handlers) handler(value, relevant);
 	}
-	_notifyHandlersWithValue(node, value, relevant) {
+	[GEA_STORE_NOTIFY_HANDLERS_WITH_VALUE](node, value, relevant) {
 		const handlers = node.handlers;
 		if (handlers.size === 1) {
 			handlers.values().next().value(value, relevant);
@@ -571,26 +702,27 @@ var Store = class Store {
 		}
 		for (const handler of handlers) handler(value, relevant);
 	}
-	_getDirectTopLevelObservedValue(change) {
+	[GEA_STORE_GET_DIRECT_TOP_LEVEL_OBSERVED_VALUE](change) {
 		const nextValue = change.newValue;
 		if (Array.isArray(nextValue) && nextValue.length === 0) return nextValue;
-		return Store._noDirectTopLevelValue;
+		return Store.#noDirectTopLevelValue;
 	}
-	_getTopLevelObservedValue(change) {
+	[GEA_STORE_GET_TOP_LEVEL_OBSERVED_VALUE](change) {
 		if (change.type === "delete") return void 0;
 		const value = this[change.property];
 		if (value === null || value === void 0 || typeof value !== "object") return value;
 		if (Object.getPrototypeOf(value) !== Object.prototype && !Array.isArray(value)) return value;
-		const entry = this._topLevelProxies.get(change.property);
+		const p = getPriv(this);
+		const entry = p.topLevelProxies.get(change.property);
 		if (entry && entry[0] === value) return entry[1];
-		const proxy = this._createProxy(value, change.property, [change.property]);
-		this._topLevelProxies.set(change.property, [value, proxy]);
+		const proxy = this[GEA_STORE_CREATE_PROXY](value, change.property, [change.property]);
+		p.topLevelProxies.set(change.property, [value, proxy]);
 		return proxy;
 	}
-	_clearArrayIndexCache(arr) {
-		if (arr && typeof arr === "object") this._arrayIndexProxyCache.delete(arr);
+	[GEA_STORE_CLEAR_ARRAY_INDEX_CACHE](arr) {
+		if (arr && typeof arr === "object") getPriv(this).arrayIndexProxyCache.delete(arr);
 	}
-	_normalizeBatch(batch) {
+	[GEA_STORE_NORMALIZE_BATCH](batch) {
 		if (batch.length < 2) return batch;
 		let allLeafArrayPropUpdates = true;
 		for (let i = 0; i < batch.length; i++) {
@@ -611,7 +743,7 @@ var Store = class Store {
 				const candidate = batch[j];
 				if (!isReciprocalSwap(change, candidate)) continue;
 				if (!used) used = /* @__PURE__ */ new Set();
-				const opId = `swap:${this._nextArrayOpId++}`;
+				const opId = `swap:${getPriv(this).nextArrayOpId++}`;
 				const arrayPathParts = change.pathParts.slice(0, -1);
 				const changeIndex = Number(change.property);
 				const candidateIndex = Number(candidate.property);
@@ -630,7 +762,7 @@ var Store = class Store {
 		}
 		return batch;
 	}
-	_deliverArrayItemPropBatch(batch) {
+	[GEA_STORE_DELIVER_ARRAY_ITEM_PROP_BATCH](batch) {
 		if (!batch[0]?.isArrayItemPropUpdate) return false;
 		const arrayPathParts = batch[0].arrayPathParts;
 		let allSameArray = true;
@@ -642,22 +774,22 @@ var Store = class Store {
 			}
 		}
 		if (!allSameArray) return false;
-		return this._deliverKnownArrayItemPropBatch(batch, arrayPathParts);
+		return this[GEA_STORE_DELIVER_KNOWN_ARRAY_ITEM_PROP_BATCH](batch, arrayPathParts);
 	}
-	_deliverKnownArrayItemPropBatch(batch, arrayPathParts) {
-		const arrayNode = this._getObserverNode(arrayPathParts);
-		if (this._observerRoot.handlers.size === 0 && arrayNode && arrayNode.children.size === 0 && arrayNode.handlers.size > 0) {
-			this._notifyHandlers(arrayNode, batch);
+	[GEA_STORE_DELIVER_KNOWN_ARRAY_ITEM_PROP_BATCH](batch, arrayPathParts) {
+		const arrayNode = this[GEA_STORE_GET_OBSERVER_NODE](arrayPathParts);
+		if (getPriv(this).observerRoot.handlers.size === 0 && arrayNode && arrayNode.children.size === 0 && arrayNode.handlers.size > 0) {
+			this[GEA_STORE_NOTIFY_HANDLERS](arrayNode, batch);
 			return true;
 		}
-		const commonMatches = this._collectMatchingObserverNodes(arrayPathParts);
-		for (let i = 0; i < commonMatches.length; i++) this._notifyHandlers(commonMatches[i], batch);
+		const commonMatches = this[GEA_STORE_COLLECT_MATCHING_OBSERVER_NODES](arrayPathParts);
+		for (let i = 0; i < commonMatches.length; i++) this[GEA_STORE_NOTIFY_HANDLERS](commonMatches[i], batch);
 		if (!arrayNode || arrayNode.children.size === 0) return true;
 		const deliveries = /* @__PURE__ */ new Map();
 		const suffixOffset = arrayPathParts.length;
 		for (let i = 0; i < batch.length; i++) {
 			const change = batch[i];
-			const matches = this._collectMatchingObserverNodesFromNode(arrayNode, change.pathParts, suffixOffset);
+			const matches = this[GEA_STORE_COLLECT_MATCHING_OBSERVER_NODES_FROM_NODE](arrayNode, change.pathParts, suffixOffset);
 			for (let j = 0; j < matches.length; j++) {
 				const node = matches[j];
 				let relevant = deliveries.get(node);
@@ -668,15 +800,17 @@ var Store = class Store {
 				relevant.push(change);
 			}
 		}
-		for (const [node, relevant] of deliveries) this._notifyHandlers(node, relevant);
+		for (const [node, relevant] of deliveries) this[GEA_STORE_NOTIFY_HANDLERS](node, relevant);
 		return true;
 	}
-	_deliverTopLevelBatch(batch) {
-		if (this._observerRoot.handlers.size > 0) return false;
+	[GEA_STORE_DELIVER_TOP_LEVEL_BATCH](batch) {
+		const raw = storeRaw(this);
+		const root = getPriv(this).observerRoot;
+		if (root.handlers.size > 0) return false;
 		if (batch.length === 1) {
 			const change = batch[0];
-			if (change.target !== this || change.pathParts.length !== 1) return false;
-			const node = this._observerRoot.children.get(change.property);
+			if (change.target !== raw || change.pathParts.length !== 1) return false;
+			const node = root.children.get(change.property);
 			if (!node) return true;
 			if (node.children.size > 0) return false;
 			if (node.handlers.size === 0) return true;
@@ -686,77 +820,172 @@ var Store = class Store {
 				const nv = change.newValue;
 				if (nv === null || nv === void 0 || typeof nv !== "object") value = nv;
 				else {
-					const directValue = this._getDirectTopLevelObservedValue(change);
-					value = directValue !== Store._noDirectTopLevelValue ? directValue : this._getTopLevelObservedValue(change);
+					const directValue = this[GEA_STORE_GET_DIRECT_TOP_LEVEL_OBSERVED_VALUE](change);
+					value = directValue !== Store.#noDirectTopLevelValue ? directValue : this[GEA_STORE_GET_TOP_LEVEL_OBSERVED_VALUE](change);
 				}
 			}
-			this._notifyHandlersWithValue(node, value, batch);
+			this[GEA_STORE_NOTIFY_HANDLERS_WITH_VALUE](node, value, batch);
 			return true;
 		}
 		const deliveries = /* @__PURE__ */ new Map();
 		for (let i = 0; i < batch.length; i++) {
 			const change = batch[i];
-			if (change.target !== this || change.pathParts.length !== 1) return false;
-			const node = this._observerRoot.children.get(change.property);
+			if (change.target !== raw || change.pathParts.length !== 1) return false;
+			const node = root.children.get(change.property);
 			if (!node) continue;
 			if (node.children.size > 0) return false;
 			if (node.handlers.size === 0) continue;
 			let delivery = deliveries.get(node);
 			if (!delivery) {
-				const directValue = this._getDirectTopLevelObservedValue(change);
+				const directValue = this[GEA_STORE_GET_DIRECT_TOP_LEVEL_OBSERVED_VALUE](change);
 				delivery = {
-					value: directValue !== Store._noDirectTopLevelValue ? directValue : this._getTopLevelObservedValue(change),
+					value: directValue !== Store.#noDirectTopLevelValue ? directValue : this[GEA_STORE_GET_TOP_LEVEL_OBSERVED_VALUE](change),
 					relevant: []
 				};
 				deliveries.set(node, delivery);
 			}
 			delivery.relevant.push(change);
 		}
-		for (const [node, delivery] of deliveries) this._notifyHandlersWithValue(node, delivery.value, delivery.relevant);
+		for (const [node, delivery] of deliveries) this[GEA_STORE_NOTIFY_HANDLERS_WITH_VALUE](node, delivery.value, delivery.relevant);
 		return true;
 	}
-	_emitChanges(changes) {
+	[GEA_STORE_FLUSH_CHANGES]() {
+		const raw = storeRaw(this);
+		const p = getPriv(this);
+		p.flushScheduled = false;
+		Store.#pendingStores.delete(raw);
+		const pendingBatch = p.pendingChanges;
+		const pendingBatchKind = p.pendingBatchKind;
+		const pendingBatchArrayPathParts = p.pendingBatchArrayPathParts;
+		p.pendingChangesPool.length = 0;
+		p.pendingChanges = p.pendingChangesPool;
+		p.pendingChangesPool = pendingBatch;
+		p.pendingBatchKind = 0;
+		p.pendingBatchArrayPathParts = null;
+		if (pendingBatch.length === 0) return;
+		if (pendingBatchKind === 1 && pendingBatchArrayPathParts && this[GEA_STORE_DELIVER_KNOWN_ARRAY_ITEM_PROP_BATCH](pendingBatch, pendingBatchArrayPathParts)) return;
+		if (pendingBatch.length === 1) {
+			const change = pendingBatch[0];
+			if (change.target === raw && change.pathParts.length === 1 && p.observerRoot.handlers.size === 0) {
+				const node = p.observerRoot.children.get(change.property);
+				if (node && node.handlers.size > 0) {
+					if (node.children.size === 0) {
+						let value;
+						if (change.type === "delete") value = void 0;
+						else {
+							const nv = change.newValue;
+							if (nv === null || nv === void 0 || typeof nv !== "object") value = nv;
+							else if (Array.isArray(nv) && nv.length === 0) value = nv;
+							else value = this[GEA_STORE_GET_TOP_LEVEL_OBSERVED_VALUE](change);
+						}
+						const handlers = node.handlers;
+						if (handlers.size === 1) handlers.values().next().value(value, pendingBatch);
+						else for (const handler of handlers) handler(value, pendingBatch);
+						return;
+					}
+				} else if (node) return;
+			}
+		}
+		if (pendingBatch.length === 2 && p.observerRoot.handlers.size === 0) {
+			const c0 = pendingBatch[0];
+			const c1 = pendingBatch[1];
+			if (c0.target === c1.target && Array.isArray(c0.target) && c0.type === "update" && c1.type === "update" && isNumericIndex(c0.property) && isNumericIndex(c1.property) && c0.previousValue === c1.newValue && c0.newValue === c1.previousValue) {
+				const opId = `swap:${p.nextArrayOpId++}`;
+				const arrayPathParts = c0.pathParts.length > 1 ? c0.pathParts.slice(0, -1) : c0.pathParts;
+				c0.arrayOp = "swap";
+				c1.arrayOp = "swap";
+				c0.opId = opId;
+				c1.opId = opId;
+				c0.otherIndex = Number(c1.property);
+				c1.otherIndex = Number(c0.property);
+				c0.arrayPathParts = arrayPathParts;
+				c1.arrayPathParts = arrayPathParts;
+				let node = p.observerRoot;
+				for (let i = 0; i < arrayPathParts.length; i++) {
+					node = node.children.get(arrayPathParts[i]);
+					if (!node) break;
+				}
+				if (node && node.handlers.size > 0) {
+					const value = getByPathParts(raw, node.pathParts);
+					for (const handler of node.handlers) handler(value, pendingBatch);
+				}
+				return;
+			}
+		}
+		if (this[GEA_STORE_DELIVER_TOP_LEVEL_BATCH](pendingBatch)) return;
+		const batch = this[GEA_STORE_NORMALIZE_BATCH](pendingBatch);
+		if (this[GEA_STORE_DELIVER_ARRAY_ITEM_PROP_BATCH](batch)) return;
+		if (batch.length === 1) {
+			const change = batch[0];
+			const matches = this[GEA_STORE_COLLECT_MATCHING_OBSERVER_NODES](change.pathParts);
+			this[GEA_STORE_ADD_DESCENDANTS_FOR_OBJECT_REPLACEMENT](change, matches);
+			for (let i = 0; i < matches.length; i++) this[GEA_STORE_NOTIFY_HANDLERS](matches[i], batch);
+			return;
+		}
+		const deliveries = /* @__PURE__ */ new Map();
+		for (let i = 0; i < batch.length; i++) {
+			const change = batch[i];
+			const matches = this[GEA_STORE_COLLECT_MATCHING_OBSERVER_NODES](change.pathParts);
+			this[GEA_STORE_ADD_DESCENDANTS_FOR_OBJECT_REPLACEMENT](change, matches);
+			for (let j = 0; j < matches.length; j++) {
+				const node = matches[j];
+				let relevant = deliveries.get(node);
+				if (!relevant) {
+					relevant = [];
+					deliveries.set(node, relevant);
+				}
+				relevant.push(change);
+			}
+		}
+		for (const [node, relevant] of deliveries) this[GEA_STORE_NOTIFY_HANDLERS](node, relevant);
+	}
+	[GEA_STORE_EMIT_CHANGES](changes) {
+		const raw = storeRaw(this);
+		const p = getPriv(this);
 		for (let i = 0; i < changes.length; i++) {
 			const change = changes[i];
-			this._pendingChanges.push(change);
-			this._trackPendingChange(change);
+			p.pendingChanges.push(change);
+			this[GEA_STORE_TRACK_PENDING_CHANGE](change);
 		}
-		if (!this._flushScheduled) {
-			this._flushScheduled = true;
-			Store._pendingStores.add(this);
-			queueMicrotask(this._flushChanges);
+		if (!p.flushScheduled) {
+			p.flushScheduled = true;
+			Store.#pendingStores.add(raw);
+			queueMicrotask(() => this[GEA_STORE_FLUSH_CHANGES]());
 		}
 	}
-	_queueChange(change) {
-		this._pendingChanges.push(change);
-		this._trackPendingChange(change);
+	[GEA_STORE_QUEUE_CHANGE](change) {
+		getPriv(this).pendingChanges.push(change);
+		this[GEA_STORE_TRACK_PENDING_CHANGE](change);
 	}
-	_trackPendingChange(change) {
-		if (this._pendingBatchKind === 2) return;
+	[GEA_STORE_TRACK_PENDING_CHANGE](change) {
+		const p = getPriv(this);
+		if (p.pendingBatchKind === 2) return;
 		if (!change.isArrayItemPropUpdate || !change.arrayPathParts) {
-			this._pendingBatchKind = 2;
-			this._pendingBatchArrayPathParts = null;
+			p.pendingBatchKind = 2;
+			p.pendingBatchArrayPathParts = null;
 			return;
 		}
-		if (this._pendingBatchKind === 0) {
-			this._pendingBatchKind = 1;
-			this._pendingBatchArrayPathParts = change.arrayPathParts;
+		if (p.pendingBatchKind === 0) {
+			p.pendingBatchKind = 1;
+			p.pendingBatchArrayPathParts = change.arrayPathParts;
 			return;
 		}
-		const pendingArrayPathParts = this._pendingBatchArrayPathParts;
+		const pendingArrayPathParts = p.pendingBatchArrayPathParts;
 		if (pendingArrayPathParts !== change.arrayPathParts && !samePathParts$1(pendingArrayPathParts, change.arrayPathParts)) {
-			this._pendingBatchKind = 2;
-			this._pendingBatchArrayPathParts = null;
+			p.pendingBatchKind = 2;
+			p.pendingBatchArrayPathParts = null;
 		}
 	}
-	_scheduleFlush() {
-		if (!this._flushScheduled) {
-			this._flushScheduled = true;
-			Store._pendingStores.add(this);
-			queueMicrotask(this._flushChanges);
+	[GEA_STORE_SCHEDULE_FLUSH]() {
+		const raw = storeRaw(this);
+		const p = getPriv(this);
+		if (!p.flushScheduled) {
+			p.flushScheduled = true;
+			Store.#pendingStores.add(raw);
+			queueMicrotask(() => this[GEA_STORE_FLUSH_CHANGES]());
 		}
 	}
-	_queueDirectArrayItemPrimitiveChange(target, property, value, previousValue, isNew, arrayMeta, getPathParts, getLeafPathParts) {
+	[GEA_STORE_QUEUE_DIRECT_ARRAY_ITEM_PRIMITIVE_CHANGE](target, property, value, previousValue, isNew, arrayMeta, getPathParts, getLeafPathParts) {
 		const change = {
 			type: isNew ? "add" : "update",
 			property,
@@ -769,37 +998,39 @@ var Store = class Store {
 			leafPathParts: getLeafPathParts(property),
 			isArrayItemPropUpdate: true
 		};
-		this._pendingChanges.push(change);
-		if (this._pendingBatchKind === 0) {
-			this._pendingBatchKind = 1;
-			this._pendingBatchArrayPathParts = change.arrayPathParts;
-		} else if (this._pendingBatchKind === 1) {
-			const pp = this._pendingBatchArrayPathParts;
+		const raw = storeRaw(this);
+		const p = getPriv(this);
+		p.pendingChanges.push(change);
+		if (p.pendingBatchKind === 0) {
+			p.pendingBatchKind = 1;
+			p.pendingBatchArrayPathParts = change.arrayPathParts;
+		} else if (p.pendingBatchKind === 1) {
+			const pp = p.pendingBatchArrayPathParts;
 			if (pp !== change.arrayPathParts && !samePathParts$1(pp, change.arrayPathParts)) {
-				this._pendingBatchKind = 2;
-				this._pendingBatchArrayPathParts = null;
+				p.pendingBatchKind = 2;
+				p.pendingBatchArrayPathParts = null;
 			}
 		}
-		if (!this._flushScheduled) {
-			this._flushScheduled = true;
-			Store._pendingStores.add(this);
-			queueMicrotask(this._flushChanges);
+		if (!p.flushScheduled) {
+			p.flushScheduled = true;
+			Store.#pendingStores.add(raw);
+			queueMicrotask(() => this[GEA_STORE_FLUSH_CHANGES]());
 		}
 	}
-	_interceptArrayMethod(arr, method, _basePath, baseParts) {
+	[GEA_STORE_INTERCEPT_ARRAY_METHOD](arr, method, _basePath, baseParts) {
 		const store = this;
 		switch (method) {
 			case "splice": return function(...args) {
-				store._clearArrayIndexCache(arr);
+				store[GEA_STORE_CLEAR_ARRAY_INDEX_CACHE](arr);
 				const len = arr.length;
 				const rawStart = args[0] ?? 0;
 				const start = rawStart < 0 ? Math.max(len + rawStart, 0) : Math.min(rawStart, len);
 				const deleteCount = args.length < 2 ? len - start : Math.min(Math.max(args[1] ?? 0, 0), len - start);
-				const items = args.slice(2).map((v) => v && typeof v === "object" && v.__isProxy ? v.__getTarget : v);
+				const items = args.slice(2).map((v) => unwrapNestedProxyValue(v));
 				const removed = arr.slice(start, start + deleteCount);
 				Array.prototype.splice.call(arr, start, deleteCount, ...items);
 				if (deleteCount === 0 && items.length > 0 && start === len) {
-					store._emitChanges([{
+					store[GEA_STORE_EMIT_CHANGES]([{
 						type: "append",
 						property: String(start),
 						target: arr,
@@ -825,15 +1056,15 @@ var Store = class Store {
 					pathParts: appendPathParts(baseParts, String(start + i)),
 					newValue: items[i]
 				});
-				if (changes.length > 0) store._emitChanges(changes);
+				if (changes.length > 0) store[GEA_STORE_EMIT_CHANGES](changes);
 				return removed;
 			};
 			case "push": return function(...items) {
-				store._clearArrayIndexCache(arr);
-				const rawItems = items.map((v) => v && typeof v === "object" && v.__isProxy ? v.__getTarget : v);
+				store[GEA_STORE_CLEAR_ARRAY_INDEX_CACHE](arr);
+				const rawItems = items.map((v) => unwrapNestedProxyValue(v));
 				const startIndex = arr.length;
 				Array.prototype.push.apply(arr, rawItems);
-				if (rawItems.length > 0) store._emitChanges([{
+				if (rawItems.length > 0) store[GEA_STORE_EMIT_CHANGES]([{
 					type: "append",
 					property: String(startIndex),
 					target: arr,
@@ -847,12 +1078,12 @@ var Store = class Store {
 			case "pop":
 			case "shift": return function() {
 				if (arr.length === 0) return void 0;
-				store._clearArrayIndexCache(arr);
+				store[GEA_STORE_CLEAR_ARRAY_INDEX_CACHE](arr);
 				const idx = method === "pop" ? arr.length - 1 : 0;
 				const removed = arr[idx];
 				if (method === "pop") Array.prototype.pop.call(arr);
 				else Array.prototype.shift.call(arr);
-				store._emitChanges([{
+				store[GEA_STORE_EMIT_CHANGES]([{
 					type: "delete",
 					property: String(idx),
 					target: arr,
@@ -862,8 +1093,8 @@ var Store = class Store {
 				return removed;
 			};
 			case "unshift": return function(...items) {
-				store._clearArrayIndexCache(arr);
-				const rawItems = items.map((v) => v && typeof v === "object" && v.__isProxy ? v.__getTarget : v);
+				store[GEA_STORE_CLEAR_ARRAY_INDEX_CACHE](arr);
+				const rawItems = items.map((v) => unwrapNestedProxyValue(v));
 				Array.prototype.unshift.apply(arr, rawItems);
 				const changes = [];
 				for (let i = 0; i < rawItems.length; i++) changes.push({
@@ -873,12 +1104,12 @@ var Store = class Store {
 					pathParts: appendPathParts(baseParts, String(i)),
 					newValue: rawItems[i]
 				});
-				if (changes.length > 0) store._emitChanges(changes);
+				if (changes.length > 0) store[GEA_STORE_EMIT_CHANGES](changes);
 				return arr.length;
 			};
 			case "sort":
 			case "reverse": return function(...args) {
-				store._clearArrayIndexCache(arr);
+				store[GEA_STORE_CLEAR_ARRAY_INDEX_CACHE](arr);
 				const previousOrder = arr.slice();
 				Array.prototype[method].apply(arr, args);
 				const used = new Array(previousOrder.length).fill(false);
@@ -894,7 +1125,7 @@ var Store = class Store {
 					}
 					permutation[i] = previousIndex === -1 ? i : previousIndex;
 				}
-				store._emitChanges([{
+				store[GEA_STORE_EMIT_CHANGES]([{
 					type: "reorder",
 					property: baseParts[baseParts.length - 1] || "",
 					target: arr,
@@ -907,13 +1138,13 @@ var Store = class Store {
 			default: return null;
 		}
 	}
-	_interceptArrayIterator(arr, method, basePath, baseParts, mkProxy) {
+	[GEA_STORE_INTERCEPT_ARRAY_ITERATOR](arr, method, basePath, baseParts, mkProxy) {
 		switch (method) {
 			case "indexOf":
 			case "includes": {
 				const native = method === "indexOf" ? Array.prototype.indexOf : Array.prototype.includes;
 				return function(searchElement, fromIndex) {
-					const raw = searchElement && typeof searchElement === "object" && searchElement.__isProxy ? searchElement.__getTarget : searchElement;
+					const raw = unwrapNestedProxyValue(searchElement);
 					return native.call(arr, raw, fromIndex);
 				};
 			}
@@ -947,24 +1178,25 @@ var Store = class Store {
 			default: return null;
 		}
 	}
-	_getCachedArrayMeta(baseParts) {
+	[GEA_STORE_GET_CACHED_ARRAY_META](baseParts) {
+		const map = getPriv(this).internedArrayPaths;
 		for (let i = baseParts.length - 1; i >= 0; i--) {
 			if (!isNumericIndex(baseParts[i])) continue;
 			let internKey;
 			let interned;
 			if (i === 1) {
 				internKey = baseParts[0];
-				interned = this._internedArrayPaths.get(internKey);
+				interned = map.get(internKey);
 				if (!interned) {
 					interned = [baseParts[0]];
-					this._internedArrayPaths.set(internKey, interned);
+					map.set(internKey, interned);
 				}
 			} else {
 				internKey = baseParts.slice(0, i).join("\0");
-				interned = this._internedArrayPaths.get(internKey);
+				interned = map.get(internKey);
 				if (!interned) {
 					interned = baseParts.slice(0, i);
-					this._internedArrayPaths.set(internKey, interned);
+					map.set(internKey, interned);
 				}
 			}
 			return {
@@ -975,14 +1207,14 @@ var Store = class Store {
 		}
 		return null;
 	}
-	_createProxy(target, basePath, baseParts = [], arrayMeta) {
+	[GEA_STORE_CREATE_PROXY](target, basePath, baseParts = [], arrayMeta) {
 		if (!target || typeof target !== "object") return target;
 		if (!Array.isArray(target)) {
-			const cached = this._proxyCache.get(target);
+			const cached = getPriv(this).proxyCache.get(target);
 			if (cached) return cached;
 		}
 		const store = this;
-		const cachedArrayMeta = arrayMeta ?? store._getCachedArrayMeta(baseParts);
+		const cachedArrayMeta = arrayMeta ?? store[GEA_STORE_GET_CACHED_ARRAY_META](baseParts);
 		let pathCache;
 		let leafCache;
 		let methodCache;
@@ -1028,17 +1260,14 @@ var Store = class Store {
 			leafCache.set(propStr, parts);
 			return parts;
 		}
-		const createProxy = store._createProxy.bind(store);
+		const createProxy = store[GEA_STORE_CREATE_PROXY].bind(store);
 		const proxy = new Proxy(target, {
 			get(obj, prop) {
+				if (prop === GEA_STORE_ROOT) return getPriv(store).selfProxy || store;
+				if (prop === GEA_PROXY_IS_PROXY) return true;
+				if (prop === GEA_PROXY_RAW || prop === GEA_PROXY_GET_TARGET) return obj;
+				if (prop === GEA_PROXY_GET_PATH) return basePath;
 				if (typeof prop === "symbol") return obj[prop];
-				if (prop.charCodeAt(0) === 95 && prop.charCodeAt(1) === 95) {
-					if (prop === "__getTarget") return obj;
-					if (prop === "__isProxy") return true;
-					if (prop === "__raw") return obj;
-					if (prop === "__getPath") return basePath;
-					if (prop === "__store") return store._selfProxy || store;
-				}
 				const value = obj[prop];
 				if (value === null || value === void 0) return value;
 				const valType = typeof value;
@@ -1048,28 +1277,28 @@ var Store = class Store {
 					if (!methodCache) methodCache = /* @__PURE__ */ new Map();
 					let cached = methodCache.get(prop);
 					if (cached !== void 0) return cached;
-					cached = store._interceptArrayMethod(obj, prop, basePath, baseParts) || store._interceptArrayIterator(obj, prop, basePath, baseParts, createProxy) || value.bind(obj);
+					cached = store[GEA_STORE_INTERCEPT_ARRAY_METHOD](obj, prop, basePath, baseParts) || store[GEA_STORE_INTERCEPT_ARRAY_ITERATOR](obj, prop, basePath, baseParts, createProxy) || value.bind(obj);
 					methodCache.set(prop, cached);
 					return cached;
 				}
 				if (valType === "object") {
 					if (shouldSkipReactiveWrapForPath(basePath)) return value;
 					if (Array.isArray(obj) && isNumericIndex(prop)) {
-						const indexCache = store._arrayIndexProxyCache.get(obj);
+						const indexCache = getPriv(store).arrayIndexProxyCache.get(obj);
 						if (indexCache) {
 							const cached = indexCache.get(prop);
 							if (cached) return cached;
 						}
 					} else {
-						const cached = store._proxyCache.get(value);
+						const cached = getPriv(store).proxyCache.get(value);
 						if (cached) return cached;
 					}
 					if (Object.getPrototypeOf(value) !== Object.prototype && !Array.isArray(value)) return value;
 					if (Array.isArray(obj) && isNumericIndex(prop)) {
-						let indexCache = store._arrayIndexProxyCache.get(obj);
+						let indexCache = getPriv(store).arrayIndexProxyCache.get(obj);
 						if (!indexCache) {
 							indexCache = /* @__PURE__ */ new Map();
-							store._arrayIndexProxyCache.set(obj, indexCache);
+							getPriv(store).arrayIndexProxyCache.set(obj, indexCache);
 						}
 						const propStr = prop;
 						const created = createProxy(value, basePath ? `${basePath}.${propStr}` : propStr, getCachedPathParts(propStr), {
@@ -1081,7 +1310,7 @@ var Store = class Store {
 						return created;
 					}
 					const created = createProxy(value, basePath ? `${basePath}.${prop}` : prop, getCachedPathParts(prop));
-					store._proxyCache.set(value, created);
+					getPriv(store).proxyCache.set(value, created);
 					return created;
 				}
 				if (prop === "constructor") return value;
@@ -1098,12 +1327,12 @@ var Store = class Store {
 				if (typeof value !== "object" || value === null) {
 					const isNew = !(prop in obj);
 					if (!isNew && oldValue && typeof oldValue === "object") {
-						store._proxyCache.delete(oldValue);
-						store._arrayIndexProxyCache.delete(oldValue);
+						getPriv(store).proxyCache.delete(oldValue);
+						getPriv(store).arrayIndexProxyCache.delete(oldValue);
 					}
 					obj[prop] = value;
 					if (cachedArrayMeta && cachedArrayMeta.baseTail.length === 0) {
-						store._queueDirectArrayItemPrimitiveChange(obj, prop, value, oldValue, isNew, cachedArrayMeta, getCachedPathParts, getCachedLeafPathParts);
+						store[GEA_STORE_QUEUE_DIRECT_ARRAY_ITEM_PRIMITIVE_CHANGE](obj, prop, value, oldValue, isNew, cachedArrayMeta, getCachedPathParts, getCachedLeafPathParts);
 						return true;
 					}
 					const change = {
@@ -1120,24 +1349,21 @@ var Store = class Store {
 						change.leafPathParts = getCachedLeafPathParts(prop);
 						change.isArrayItemPropUpdate = true;
 					}
-					store._queueChange(change);
-					store._scheduleFlush();
+					store[GEA_STORE_QUEUE_CHANGE](change);
+					store[GEA_STORE_SCHEDULE_FLUSH]();
 					return true;
 				}
-				if (value && typeof value === "object" && value.__isProxy) {
-					const raw = value.__getTarget;
-					if (raw !== void 0) value = raw;
-				}
+				value = unwrapNestedProxyValue(value);
 				if (prop === "length" && Array.isArray(obj)) {
-					store._arrayIndexProxyCache.delete(obj);
+					getPriv(store).arrayIndexProxyCache.delete(obj);
 					obj[prop] = value;
 					return true;
 				}
 				const isNew = !Object.prototype.hasOwnProperty.call(obj, prop);
-				if (Array.isArray(obj) && isNumericIndex(prop)) store._arrayIndexProxyCache.delete(obj);
+				if (Array.isArray(obj) && isNumericIndex(prop)) getPriv(store).arrayIndexProxyCache.delete(obj);
 				if (oldValue && typeof oldValue === "object") {
-					store._proxyCache.delete(oldValue);
-					store._arrayIndexProxyCache.delete(oldValue);
+					getPriv(store).proxyCache.delete(oldValue);
+					getPriv(store).arrayIndexProxyCache.delete(oldValue);
 				}
 				obj[prop] = value;
 				if (Array.isArray(oldValue) && Array.isArray(value) && value.length > oldValue.length) {
@@ -1145,8 +1371,8 @@ var Store = class Store {
 					for (let i = 0; i < oldValue.length; i++) {
 						let o = oldValue[i];
 						let v = value[i];
-						if (o && o.__isProxy) o = o.__getTarget;
-						if (v && v.__isProxy) v = v.__getTarget;
+						if (o) o = unwrapNestedProxyValue(o);
+						if (v) v = unwrapNestedProxyValue(v);
 						if (o !== v) {
 							isAppend = false;
 							break;
@@ -1170,15 +1396,15 @@ var Store = class Store {
 							change.leafPathParts = getCachedLeafPathParts(prop);
 							change.isArrayItemPropUpdate = true;
 						}
-						store._pendingChanges.push(change);
-						if (store._pendingBatchKind !== 2) {
-							store._pendingBatchKind = 2;
-							store._pendingBatchArrayPathParts = null;
+						getPriv(store).pendingChanges.push(change);
+						if (getPriv(store).pendingBatchKind !== 2) {
+							getPriv(store).pendingBatchKind = 2;
+							getPriv(store).pendingBatchArrayPathParts = null;
 						}
-						if (!store._flushScheduled) {
-							store._flushScheduled = true;
-							Store._pendingStores.add(store);
-							queueMicrotask(store._flushChanges);
+						if (!getPriv(store).flushScheduled) {
+							getPriv(store).flushScheduled = true;
+							Store.#pendingStores.add(storeRaw(store));
+							queueMicrotask(() => store[GEA_STORE_FLUSH_CHANGES]());
 						}
 						return true;
 					}
@@ -1197,15 +1423,15 @@ var Store = class Store {
 					change.leafPathParts = getCachedLeafPathParts(prop);
 					change.isArrayItemPropUpdate = true;
 				}
-				store._pendingChanges.push(change);
-				if (store._pendingBatchKind !== 2) {
-					store._pendingBatchKind = 2;
-					store._pendingBatchArrayPathParts = null;
+				getPriv(store).pendingChanges.push(change);
+				if (getPriv(store).pendingBatchKind !== 2) {
+					getPriv(store).pendingBatchKind = 2;
+					getPriv(store).pendingBatchArrayPathParts = null;
 				}
-				if (!store._flushScheduled) {
-					store._flushScheduled = true;
-					Store._pendingStores.add(store);
-					queueMicrotask(store._flushChanges);
+				if (!getPriv(store).flushScheduled) {
+					getPriv(store).flushScheduled = true;
+					Store.#pendingStores.add(storeRaw(store));
+					queueMicrotask(() => store[GEA_STORE_FLUSH_CHANGES]());
 				}
 				return true;
 			},
@@ -1215,10 +1441,10 @@ var Store = class Store {
 					return true;
 				}
 				const oldValue = obj[prop];
-				if (Array.isArray(obj) && isNumericIndex(prop)) store._arrayIndexProxyCache.delete(obj);
+				if (Array.isArray(obj) && isNumericIndex(prop)) getPriv(store).arrayIndexProxyCache.delete(obj);
 				if (oldValue && typeof oldValue === "object") {
-					store._proxyCache.delete(oldValue);
-					store._arrayIndexProxyCache.delete(oldValue);
+					getPriv(store).proxyCache.delete(oldValue);
+					getPriv(store).arrayIndexProxyCache.delete(oldValue);
 				}
 				delete obj[prop];
 				const change = {
@@ -1234,15 +1460,24 @@ var Store = class Store {
 					change.leafPathParts = getCachedLeafPathParts(prop);
 					change.isArrayItemPropUpdate = true;
 				}
-				store._queueChange(change);
-				store._scheduleFlush();
+				store[GEA_STORE_QUEUE_CHANGE](change);
+				store[GEA_STORE_SCHEDULE_FLUSH]();
 				return true;
 			}
 		});
-		if (!Array.isArray(target)) this._proxyCache.set(target, proxy);
+		if (!Array.isArray(target)) getPriv(this).proxyCache.set(target, proxy);
 		return proxy;
 	}
 };
+function rootGetValue(t, prop, receiver) {
+	return Store.rootGetValue(t, prop, receiver);
+}
+function rootSetValue(t, prop, value) {
+	return Store.rootSetValue(t, prop, value);
+}
+function rootDeleteProperty(t, prop) {
+	return Store.rootDeleteProperty(t, prop);
+}
 //#endregion
 //#region src/lib/base/component-manager.ts
 const RESERVED_HTML_TAG_NAMES = new Set([
@@ -1428,7 +1663,7 @@ var ComponentManager = class ComponentManager {
 		new MutationObserver((_mutations) => {
 			for (const cmpId in this.componentsToRender) {
 				const comp = this.componentsToRender[cmpId];
-				if (comp.__geaCompiledChild) {
+				if (comp[GEA_COMPILED_CHILD]) {
 					delete this.componentsToRender[cmpId];
 					continue;
 				}
@@ -1468,7 +1703,7 @@ var ComponentManager = class ComponentManager {
 	getParentComps(child) {
 		let node = child, comp, ids;
 		const parentComps = [];
-		if (ids = node.parentComps) {
+		if (ids = node[GEA_DOM_PARENT_CHAIN]) {
 			const parts = ids.split(",");
 			let stale = false;
 			for (let i = 0; i < parts.length; i++) {
@@ -1481,7 +1716,7 @@ var ComponentManager = class ComponentManager {
 			}
 			if (!stale) return parentComps;
 			parentComps.length = 0;
-			delete child.parentComps;
+			delete child[GEA_DOM_PARENT_CHAIN];
 		}
 		ids = [];
 		node = child;
@@ -1497,7 +1732,7 @@ var ComponentManager = class ComponentManager {
 				}
 			}
 		while (node = node.parentNode);
-		child.parentComps = ids.join(",");
+		child[GEA_DOM_PARENT_CHAIN] = ids.join(",");
 		return parentComps;
 	}
 	callHandlers(comps, eventsByComp, e, rootSteps, step) {
@@ -1507,11 +1742,12 @@ var ComponentManager = class ComponentManager {
 			if (!comp) continue;
 			const rootStep = rootSteps[i];
 			if (rootStep !== void 0 && step > rootStep) continue;
-			if (this.callEventsGetterHandler(comp, e, eventsByComp[i]) === false) {
+			const evResult = this.callEventsGetterHandler(comp, e, eventsByComp[i]);
+			if (evResult === false) {
 				broken = true;
 				break;
 			}
-			if (this.callItemHandler(comp, e) === false) {
+			if (evResult !== GEA_SKIP_ITEM_HANDLER && this.callItemHandler(comp, e) === false) {
 				broken = true;
 				break;
 			}
@@ -1525,7 +1761,7 @@ var ComponentManager = class ComponentManager {
 		if (!targetEl || typeof targetEl.matches !== "function") return true;
 		const handlers = ev[e.type];
 		if (!handlers) return true;
-		const geaEvt = targetEl._geaEvt ?? targetEl.getAttribute?.("data-gea-event");
+		const geaEvt = targetEl[GEA_DOM_EVENT_HINT] ?? targetEl.getAttribute?.("data-gea-event");
 		if (geaEvt) {
 			const handler = handlers[`[data-gea-event="${geaEvt}"]`];
 			if (typeof handler === "function") {
@@ -1537,32 +1773,42 @@ var ComponentManager = class ComponentManager {
 			}
 			return true;
 		}
-		for (const selector in handlers) if (selector.charAt(0) === "#" ? targetEl.id === selector.slice(1) : targetEl.matches(selector)) {
-			const handler = handlers[selector];
-			if (typeof handler === "function") {
-				const targetComponent = this.getOwningComponent(targetEl);
-				Object.defineProperty(e, "currentTarget", {
-					value: targetEl,
-					configurable: true
-				});
-				if (handler.call(comp, e, targetComponent !== comp ? targetComponent : void 0) === false) return false;
+		for (const selector in handlers) {
+			let matchedEl = null;
+			if (selector.charAt(0) === "#") {
+				if (targetEl.id === selector.slice(1)) matchedEl = targetEl;
+			} else if (selector.includes("data-gea-event") && typeof targetEl.closest === "function") matchedEl = targetEl.closest(selector);
+			else if (targetEl.matches(selector)) matchedEl = targetEl;
+			if (matchedEl) {
+				const handler = handlers[selector];
+				if (typeof handler === "function") {
+					const targetComponent = this.getOwningComponent(targetEl);
+					Object.defineProperty(e, "currentTarget", {
+						value: matchedEl,
+						configurable: true
+					});
+					if (handler.call(comp, e, targetComponent !== comp ? targetComponent : void 0) === false) return false;
+					if ((targetEl[GEA_DOM_KEY] != null || targetEl.getAttribute?.("data-gea-item-id") != null) && matchedEl !== targetEl) return GEA_SKIP_ITEM_HANDLER;
+					return true;
+				}
 			}
 		}
 		return true;
 	}
 	callItemHandler(comp, e) {
-		if (!comp || typeof comp.__handleItemHandler !== "function") return true;
+		const handleItem = comp?.[GEA_HANDLE_ITEM_HANDLER];
+		if (!comp || typeof handleItem !== "function") return true;
 		const targetEl = e.targetEl;
 		if (!targetEl) return true;
 		let itemEl = targetEl;
 		const root = comp.element_ ?? comp.el;
 		while (itemEl && itemEl !== root) {
-			if (itemEl.__geaKey != null || itemEl.getAttribute?.("data-gea-item-id")) break;
+			if (itemEl[GEA_DOM_KEY] != null || itemEl.getAttribute?.("data-gea-item-id")) break;
 			itemEl = itemEl.parentElement;
 		}
 		if (itemEl && itemEl !== root) {
-			const itemId = itemEl.__geaKey ?? itemEl.getAttribute?.("data-gea-item-id");
-			if (itemId != null) return comp.__handleItemHandler(itemId, e);
+			const itemId = itemEl[GEA_DOM_KEY] ?? itemEl.getAttribute?.("data-gea-item-id");
+			if (itemId != null) return handleItem.call(comp, itemId, e);
 		}
 		return true;
 	}
@@ -1599,9 +1845,10 @@ var ComponentManager = class ComponentManager {
 	}
 	registerComponentClass(ctor, tagName) {
 		if (!ctor || !ctor.name) return;
-		if (ctor.__geaTagName && this.componentClassRegistry[ctor.__geaTagName]) return;
-		const normalized = tagName || ctor.__geaTagName || this.generateTagName_(ctor);
-		ctor.__geaTagName = normalized;
+		const existingTag = ctor[GEA_CTOR_TAG_NAME];
+		if (existingTag && this.componentClassRegistry[existingTag]) return;
+		const normalized = tagName || existingTag || this.generateTagName_(ctor);
+		ctor[GEA_CTOR_TAG_NAME] = normalized;
 		if (!this.componentClassRegistry[normalized]) {
 			this.componentClassRegistry[normalized] = ctor;
 			this.componentSelectorsCache_ = null;
@@ -1648,6 +1895,40 @@ var ComponentManager = class ComponentManager {
 		if (ComponentManager.instance && ComponentManager.instance.loaded_) ComponentManager.instance.installEventPlugin_(plugin);
 	}
 };
+//#endregion
+//#region src/lib/base/component-internal.ts
+function createEngineState() {
+	return {
+		bindings: [],
+		selfListeners: [],
+		childComponents: [],
+		geaDependencies: [],
+		geaEventBindings: /* @__PURE__ */ new Map(),
+		geaPropBindings: /* @__PURE__ */ new Map(),
+		geaAttrBindings: /* @__PURE__ */ new Map(),
+		observerRemovers: [],
+		rawProps: {},
+		elCache: /* @__PURE__ */ new Map(),
+		listConfigs: []
+	};
+}
+const engineStateByRawInstance = /* @__PURE__ */ new WeakMap();
+function rawInstanceKey(component) {
+	return component[GEA_PROXY_GET_RAW_TARGET] ?? component;
+}
+/**
+* Returns per-component engine state (WeakMap, not on `this`).
+* Safe to call after `super()` in Component constructors.
+*/
+function getComponentInternals(component) {
+	const key = rawInstanceKey(component);
+	let s = engineStateByRawInstance.get(key);
+	if (!s) {
+		s = createEngineState();
+		engineStateByRawInstance.set(key, s);
+	}
+	return s;
+}
 //#endregion
 //#region src/lib/base/list.ts
 function samePathParts(a, b) {
@@ -1708,7 +1989,7 @@ function applySwap(container, firstIndex, secondIndex) {
 }
 function applyPropChanges(container, items, changes, config) {
 	if (!config.propPatchers) return false;
-	const rawItems = items && items.__getTarget ? items.__getTarget : items;
+	const rawItems = items && items[GEA_PROXY_GET_TARGET] ? items[GEA_PROXY_GET_TARGET] : items;
 	let handledAny = false;
 	for (let i = 0; i < changes.length; i++) {
 		const change = changes[i];
@@ -1736,7 +2017,7 @@ function applyRootReplacementPatch(container, items, change, config) {
 		if (prevKey !== config.getKey(items[index], index)) return false;
 		const row = container.children[index];
 		if (!row) return false;
-		const domKey = row.__geaKey ?? row.getAttribute("data-gea-item-id");
+		const domKey = row[GEA_DOM_KEY] ?? row.getAttribute("data-gea-item-id");
 		if (domKey == null || domKey !== prevKey) return false;
 	}
 	for (let index = 0; index < items.length; index++) {
@@ -1747,7 +2028,7 @@ function applyRootReplacementPatch(container, items, change, config) {
 }
 function applyListChanges(container, array, changes, config) {
 	const proxiedItems = Array.isArray(array) ? array : [];
-	const items = proxiedItems && proxiedItems.__getTarget ? proxiedItems.__getTarget : proxiedItems;
+	const items = proxiedItems && proxiedItems[GEA_PROXY_GET_TARGET] ? proxiedItems[GEA_PROXY_GET_TARGET] : proxiedItems;
 	if (!changes || changes.length === 0) {
 		rerenderListInPlace(container, items, config.create);
 		return;
@@ -1816,7 +2097,7 @@ function applyListChanges(container, array, changes, config) {
 	}
 	if (addIndexes.length > 0 && addIndexes.includes(0)) {
 		const firstChild = container.children[0];
-		if (firstChild && firstChild.__geaKey == null && !firstChild.hasAttribute("data-gea-item-id")) {
+		if (firstChild && firstChild[GEA_DOM_KEY] == null && !firstChild.hasAttribute("data-gea-item-id")) {
 			if (container.children.length !== items.length) {
 				rebuildList(container, items, config);
 				return;
@@ -1839,6 +2120,7 @@ function applyListChanges(container, array, changes, config) {
 }
 //#endregion
 //#region src/lib/base/component.tsx
+const _componentClassesMap = /* @__PURE__ */ new Map();
 const _URL_ATTRS = new Set([
 	"href",
 	"src",
@@ -1849,6 +2131,10 @@ const _URL_ATTRS = new Set([
 	"poster",
 	"background"
 ]);
+/** Compare component refs whether held as the Store proxy or the raw instance (methods are bound to target). */
+function sameComponentIdentity(a, b) {
+	return (a && typeof a === "object" ? a[GEA_PROXY_GET_RAW_TARGET] ?? a : a) === (b && typeof b === "object" ? b[GEA_PROXY_GET_RAW_TARGET] ?? b : b);
+}
 function __escapeHtml(str) {
 	return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
@@ -1868,37 +2154,25 @@ if (typeof globalThis !== "undefined") {
 * tags while `JSX.IntrinsicElements` is sourced from `@types/react`. Runtime is still Gea-only.
 */
 var Component = class Component extends Store {
-	static {
-		this.__componentClasses = /* @__PURE__ */ new Map();
-	}
 	constructor(props = {}, _unusedReactContext) {
 		super();
-		this.__rawProps_ = {};
-		this.__elCache = /* @__PURE__ */ new Map();
+		getComponentInternals(this);
 		this.id_ = ComponentManager.getInstance().getUid();
 		this.element_ = null;
-		this.__bindings = [];
-		this.__selfListeners = [];
-		this.__childComponents = [];
 		this.actions = void 0;
-		this.__geaDependencies = [];
-		this.__geaEventBindings = /* @__PURE__ */ new Map();
-		this.__geaPropBindings = /* @__PURE__ */ new Map();
-		this.__geaAttrBindings = /* @__PURE__ */ new Map();
-		this.__observer_removers__ = [];
 		const Ctor = this.constructor;
 		ComponentManager.getInstance().registerComponentClass(Ctor);
-		Component.__componentClasses.set(Ctor.name, Ctor);
+		_componentClassesMap.set(Ctor.name, Ctor);
 		this.rendered_ = false;
 		let _rawProps = props || {};
-		let _propsProxy = this.__createPropsProxy(_rawProps);
-		this.__rawProps_ = _rawProps;
+		let _propsProxy = this[GEA_CREATE_PROPS_PROXY](_rawProps);
+		getComponentInternals(this).rawProps = _rawProps;
 		Object.defineProperty(this, "props", {
 			get: () => _propsProxy,
 			set: (newProps) => {
 				_rawProps = newProps || {};
-				_propsProxy = this.__createPropsProxy(_rawProps);
-				this.__rawProps_ = _rawProps;
+				_propsProxy = this[GEA_CREATE_PROPS_PROXY](_rawProps);
+				getComponentInternals(this).rawProps = _rawProps;
 			},
 			configurable: true,
 			enumerable: true
@@ -1906,7 +2180,7 @@ var Component = class Component extends Store {
 		ComponentManager.getInstance().setComponent(this);
 		this.created(this.props);
 		this.createdHooks(this.props);
-		if (typeof this.__setupLocalStateObservers === "function") this.__setupLocalStateObservers();
+		if (typeof this[GEA_SETUP_LOCAL_STATE_OBSERVERS] === "function") this[GEA_SETUP_LOCAL_STATE_OBSERVERS]();
 	}
 	created(_props) {}
 	createdHooks(_props) {}
@@ -1915,15 +2189,16 @@ var Component = class Component extends Store {
 	}
 	get el() {
 		if (!this.element_) {
-			const cloneFn = this.__cloneTemplate;
+			const cloneFn = this[GEA_CLONE_TEMPLATE];
 			if (typeof cloneFn === "function") this.element_ = cloneFn.call(this);
 			else {
 				const existing = document.getElementById(this.id_);
 				if (existing) this.element_ = existing;
 				else this.element_ = ComponentManager.getInstance().createElement(String(this.template(this.props)).trim());
 			}
-			if (this.element_) Component.__syncValueProps(this.element_);
+			if (this.element_) Component[GEA_SYNC_VALUE_PROPS](this.element_);
 		}
+		if (this.element_) this.element_[GEA_DOM_COMPONENT] = this;
 		return this.element_;
 	}
 	$$(selector) {
@@ -1939,14 +2214,14 @@ var Component = class Component extends Store {
 		if (el) rv = selector == void 0 || selector === ":scope" ? el : el.querySelector(selector);
 		return rv;
 	}
-	__applyListChanges(container, array, changes, config) {
+	[GEA_APPLY_LIST_CHANGES](container, array, changes, config) {
 		if (changes && changes.length > 0 && changes[0].isArrayItemPropUpdate && !config.hasComponentItems) {
 			applyListChanges(container, array, changes, config);
 			return;
 		}
 		const prevCount = container.childElementCount;
 		applyListChanges(container, array, changes, config);
-		if (container.childElementCount !== prevCount || config.hasComponentItems) this.instantiateChildComponents_();
+		if (container.childElementCount !== prevCount || config.hasComponentItems) this[GEA_INSTANTIATE_CHILD_COMPONENTS]();
 	}
 	render(rootEl, opt_index = Infinity) {
 		if (this.rendered_) return true;
@@ -1964,16 +2239,17 @@ var Component = class Component extends Store {
 			}
 		}
 		this.rendered_ = true;
-		if (this.element_) this.element_.__geaComponent = this;
+		if (this.element_) this.element_[GEA_DOM_COMPONENT] = this;
 		ComponentManager.getInstance().markComponentRendered(this);
-		this.attachBindings_();
-		this.mountCompiledChildComponents_();
-		this.instantiateChildComponents_();
-		this.setupEventDirectives_();
-		if (typeof this.__setupRefs === "function") this.__setupRefs();
+		this[GEA_ATTACH_BINDINGS]();
+		this[GEA_MOUNT_COMPILED_CHILD_COMPONENTS]();
+		this[GEA_INSTANTIATE_CHILD_COMPONENTS]();
+		this[GEA_SETUP_EVENT_DIRECTIVES]();
+		const setupRefs = this[GEA_SETUP_REFS];
+		if (typeof setupRefs === "function") setupRefs.call(this);
 		this.onAfterRender();
 		this.onAfterRenderHooks();
-		this.__syncUnrenderedListItems();
+		this[GEA_SYNC_UNRENDERED_LIST_ITEMS]();
 		requestAnimationFrame(() => this.onAfterRenderAsync());
 		return true;
 	}
@@ -1985,9 +2261,9 @@ var Component = class Component extends Store {
 	onAfterRenderHooks() {}
 	/** Render pre-created list items that weren't mounted during construction
 	*  (e.g. component was a lazy child inside a conditional slot). */
-	__syncUnrenderedListItems() {
-		const configs = this.__geaListConfigs;
-		if (!configs) return;
+	[GEA_SYNC_UNRENDERED_LIST_ITEMS]() {
+		const configs = getComponentInternals(this).listConfigs;
+		if (!configs?.length) return;
 		for (const { config: c } of configs) {
 			if (!c.items && c.itemsKey) c.items = this[c.itemsKey];
 			if (!c.items?.length) continue;
@@ -1999,7 +2275,7 @@ var Component = class Component extends Store {
 			}
 		}
 	}
-	__createPropsProxy(raw) {
+	[GEA_CREATE_PROPS_PROXY](raw) {
 		const component = this;
 		return new Proxy(raw, {
 			get(target, prop) {
@@ -2012,17 +2288,18 @@ var Component = class Component extends Store {
 				}
 				const prev = target[prop];
 				target[prop] = value;
-				if (typeof component.__onPropChange === "function") {
-					if (value !== prev || typeof prev === "object" && prev !== null) component.__onPropChange(prop, value);
+				const onProp = component[GEA_ON_PROP_CHANGE];
+				if (typeof onProp === "function") {
+					if (value !== prev || typeof prev === "object" && prev !== null) onProp.call(component, prop, value);
 				}
 				return true;
 			}
 		});
 	}
-	__reactiveProps(obj) {
+	[GEA_REACTIVE_PROPS](obj) {
 		return obj;
 	}
-	__geaUpdateProps(nextProps) {
+	[GEA_UPDATE_PROPS](nextProps) {
 		if (!this.rendered_) {
 			const el = document.getElementById(this.id_);
 			if (el) {
@@ -2030,17 +2307,18 @@ var Component = class Component extends Store {
 				this.rendered_ = true;
 			}
 		}
-		if (typeof this.__onPropChange === "function") {
-			const raw = this.__rawProps_;
+		const onProp = this[GEA_ON_PROP_CHANGE];
+		if (typeof onProp === "function") {
+			const raw = getComponentInternals(this).rawProps;
 			for (const key in nextProps) {
 				const prev = raw[key];
 				const next = nextProps[key];
 				raw[key] = next;
-				if (next !== prev || typeof prev === "object" && prev !== null) this.__onPropChange(key, next);
+				if (next !== prev || typeof prev === "object" && prev !== null) onProp.call(this, key, next);
 			}
 		} else {
 			for (const key in nextProps) this.props[key] = nextProps[key];
-			this.__geaRequestRender();
+			this[GEA_REQUEST_RENDER]();
 		}
 	}
 	toString() {
@@ -2055,19 +2333,19 @@ var Component = class Component extends Store {
 	}
 	dispose() {
 		ComponentManager.getInstance().removeComponent(this);
-		if (this.element_) this.element_.__geaComponent = void 0;
+		if (this.element_) this.element_[GEA_DOM_COMPONENT] = void 0;
 		this.element_ && this.element_.parentNode && this.element_.parentNode.removeChild(this.element_);
 		this.element_ = null;
-		if (this.__observer_removers__) {
-			this.__observer_removers__.forEach((fn) => fn());
-			this.__observer_removers__ = [];
+		if (getComponentInternals(this).observerRemovers) {
+			getComponentInternals(this).observerRemovers.forEach((fn) => fn());
+			getComponentInternals(this).observerRemovers = [];
 		}
-		this.cleanupBindings_();
-		this.teardownSelfListeners_();
-		this.__childComponents.forEach((child) => child && child.dispose && child.dispose());
-		this.__childComponents = [];
+		this[GEA_CLEANUP_BINDINGS]();
+		this[GEA_TEARDOWN_SELF_LISTENERS]();
+		getComponentInternals(this).childComponents.forEach((child) => child && child.dispose && child.dispose());
+		getComponentInternals(this).childComponents = [];
 	}
-	__geaRequestRender() {
+	[GEA_REQUEST_RENDER]() {
 		if (!this.element_ || !this.element_.parentNode) return;
 		const parent = this.element_.parentNode;
 		const activeElement = document.activeElement;
@@ -2077,23 +2355,23 @@ var Component = class Component extends Store {
 		const selectionStart = shouldRestoreFocus && activeElement && "selectionStart" in activeElement ? activeElement.selectionStart ?? null : null;
 		const selectionEnd = shouldRestoreFocus && activeElement && "selectionEnd" in activeElement ? activeElement.selectionEnd ?? null : null;
 		const focusedValue = shouldRestoreFocus && activeElement && "value" in activeElement ? String(activeElement.value ?? "") : null;
-		this.cleanupBindings_();
-		this.teardownSelfListeners_();
-		if (this.__childComponents && this.__childComponents.length) {
-			this.__childComponents.forEach((child) => {
+		this[GEA_CLEANUP_BINDINGS]();
+		this[GEA_TEARDOWN_SELF_LISTENERS]();
+		if (getComponentInternals(this).childComponents && getComponentInternals(this).childComponents.length) {
+			getComponentInternals(this).childComponents.forEach((child) => {
 				if (!child) return;
-				if (child["__geaCompiledChild"]) {
+				if (child[GEA_COMPILED_CHILD]) {
 					child.rendered_ = false;
 					child.element_ = null;
-					this.__resetChildTree(child);
+					this[GEA_RESET_CHILD_TREE](child);
 					return;
 				}
 				if (typeof child.dispose == "function") child.dispose();
 			});
-			this.__childComponents = [];
+			getComponentInternals(this).childComponents = [];
 		}
-		this.__elCache.clear();
-		this.__resetEls?.();
+		getComponentInternals(this).elCache.clear();
+		this[GEA_RESET_ELS]?.();
 		const placeholder = document.createComment("");
 		try {
 			if (this.element_.parentNode === parent) this.element_.replaceWith(placeholder);
@@ -2102,42 +2380,43 @@ var Component = class Component extends Store {
 			if (!placeholder.parentNode) parent.appendChild(placeholder);
 		}
 		const manager = ComponentManager.getInstance();
-		const cloneFn = this.__cloneTemplate;
+		const cloneFn = this[GEA_CLONE_TEMPLATE];
 		const newElement = typeof cloneFn === "function" ? cloneFn.call(this) : manager.createElement(String(this.template(this.props)).trim());
 		if (!newElement) {
 			this.element_ = placeholder;
 			this.rendered_ = true;
 			return;
 		}
-		Component.__syncValueProps(newElement);
+		Component[GEA_SYNC_VALUE_PROPS](newElement);
 		parent.replaceChild(newElement, placeholder);
 		this.element_ = newElement;
 		this.rendered_ = true;
 		manager.markComponentRendered(this);
-		this.attachBindings_();
-		this.mountCompiledChildComponents_();
-		this.instantiateChildComponents_();
-		this.setupEventDirectives_();
-		if (typeof this.__setupRefs === "function") this.__setupRefs();
-		if (this.__geaListConfigs) for (const { store: s, path: p, config: c } of this.__geaListConfigs) {
+		this[GEA_ATTACH_BINDINGS]();
+		this[GEA_MOUNT_COMPILED_CHILD_COMPONENTS]();
+		this[GEA_INSTANTIATE_CHILD_COMPONENTS]();
+		this[GEA_SETUP_EVENT_DIRECTIVES]();
+		const setupRefsAfter = this[GEA_SETUP_REFS];
+		if (typeof setupRefsAfter === "function") setupRefsAfter.call(this);
+		if (getComponentInternals(this).listConfigs.length) for (const { store: s, path: p, config: c } of getComponentInternals(this).listConfigs) {
 			if (!c.items && c.itemsKey) c.items = this[c.itemsKey];
 			if (!c.items) continue;
-			const arr = p.reduce((obj, key) => obj?.[key], s.__store) ?? [];
+			const arr = p.reduce((obj, key) => obj?.[key], s[GEA_STORE_ROOT]) ?? [];
 			if (arr.length === c.items.length) continue;
 			const oldByKey = /* @__PURE__ */ new Map();
 			for (const item of c.items) {
 				if (!item) continue;
-				if (item.__geaItemKey != null) oldByKey.set(item.__geaItemKey, item);
+				if (item[GEA_ITEM_KEY] != null) oldByKey.set(item[GEA_ITEM_KEY], item);
 			}
 			const next = arr.map((data) => {
 				const key = String(c.key(data));
 				const existing = oldByKey.get(key);
 				if (existing) {
-					existing.__geaUpdateProps(c.props(data));
+					existing[GEA_UPDATE_PROPS](c.props(data));
 					oldByKey.delete(key);
 					return existing;
 				}
-				return this.__child(c.Ctor, c.props(data), key);
+				return this[GEA_CHILD](c.Ctor, c.props(data), key);
 			});
 			c.items.length = 0;
 			c.items.push(...next);
@@ -2164,29 +2443,29 @@ var Component = class Component extends Store {
 		this.onAfterRenderHooks();
 		setTimeout(() => requestAnimationFrame(() => this.onAfterRenderAsync()));
 	}
-	__resetChildTree(comp) {
-		if (!comp.__childComponents) return;
-		comp.__childComponents.forEach((c) => {
+	[GEA_RESET_CHILD_TREE](comp) {
+		if (!getComponentInternals(comp).childComponents?.length) return;
+		getComponentInternals(comp).childComponents.forEach((c) => {
 			if (!c) return;
 			c.rendered_ = false;
 			c.element_ = null;
-			this.__resetChildTree(c);
+			this[GEA_RESET_CHILD_TREE](c);
 		});
 	}
-	attachBindings_() {
-		this.cleanupBindings_();
+	[GEA_ATTACH_BINDINGS]() {
+		this[GEA_CLEANUP_BINDINGS]();
 	}
 	static _register(ctor, compiledTagName) {
-		if (!ctor || !ctor.name || ctor.__geaAutoRegistered) return;
+		if (!ctor || !ctor.name || ctor[GEA_CTOR_AUTO_REGISTERED]) return;
 		if (Object.getPrototypeOf(ctor.prototype) === Component.prototype) {
-			ctor.__geaAutoRegistered = true;
-			Component.__componentClasses.set(ctor.name, ctor);
+			ctor[GEA_CTOR_AUTO_REGISTERED] = true;
+			_componentClassesMap.set(ctor.name, ctor);
 			const manager = ComponentManager.getInstance();
 			const tagName = compiledTagName || manager.generateTagName_(ctor);
 			manager.registerComponentClass(ctor, tagName);
 		}
 	}
-	instantiateChildComponents_() {
+	[GEA_INSTANTIATE_CHILD_COMPONENTS]() {
 		if (!this.element_) return;
 		const manager = ComponentManager.getInstance();
 		const selectors = manager.getComponentSelectors();
@@ -2194,29 +2473,29 @@ var Component = class Component extends Store {
 		if (selectors.length > 0) elements = Array.from(this.element_.querySelectorAll(selectors.join(",")));
 		elements.forEach((el) => {
 			if (el.getAttribute("data-gea-component-mounted")) return;
-			if (el.__geaCompiledChildRoot) return;
+			if (el[GEA_DOM_COMPILED_CHILD_ROOT]) return;
 			const ctorName = el.constructor.name;
 			if (ctorName !== "HTMLUnknownElement" && ctorName !== "HTMLElement") return;
 			const tagName = el.tagName.toLowerCase();
 			let Ctor = manager.getComponentConstructor(tagName);
-			if (!Ctor && Component.__componentClasses) {
+			if (!Ctor && _componentClassesMap) {
 				const pascalCase = tagName.split("-").map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join("");
-				Ctor = Component.__componentClasses.get(pascalCase);
+				Ctor = _componentClassesMap.get(pascalCase);
 				if (Ctor) manager.registerComponentClass(Ctor, tagName);
 			}
 			if (!Ctor) return;
-			const props = this.extractComponentProps_(el);
+			const props = this[GEA_EXTRACT_COMPONENT_PROPS](el);
 			const itemId = el.getAttribute("data-prop-item-id");
 			const child = new Ctor(props);
-			child.parentComponent = this;
-			this.__childComponents.push(child);
+			child.parentComponent = this[GEA_SELF_PROXY] ?? this;
+			getComponentInternals(this).childComponents.push(child);
 			const parent = el.parentElement;
 			if (!parent) return;
 			const index = Array.prototype.slice.call(parent.children).indexOf(el);
 			child.render(parent, index);
 			if (itemId != null && child.el) {
 				const wrapper = document.createElement("div");
-				wrapper.__geaKey = itemId;
+				wrapper[GEA_DOM_KEY] = itemId;
 				parent.replaceChild(wrapper, child.el);
 				wrapper.appendChild(child.el);
 			}
@@ -2224,7 +2503,7 @@ var Component = class Component extends Store {
 			parent.removeChild(el);
 		});
 	}
-	mountCompiledChildComponents_() {
+	[GEA_MOUNT_COMPILED_CHILD_COMPONENTS]() {
 		const manager = ComponentManager.getInstance();
 		const seen = /* @__PURE__ */ new Set();
 		const collect = (value) => {
@@ -2233,10 +2512,10 @@ var Component = class Component extends Store {
 				value.forEach(collect);
 				return;
 			}
-			if (value && typeof value === "object" && value.__geaCompiledChild && value.parentComponent === this) {
+			if (value && typeof value === "object" && value[GEA_COMPILED_CHILD] && sameComponentIdentity(value.parentComponent, this)) {
 				if (!seen.has(value)) {
 					seen.add(value);
-					if (!this.__childComponents.includes(value)) this.__childComponents.push(value);
+					if (!getComponentInternals(this).childComponents.includes(value)) getComponentInternals(this).childComponents.push(value);
 				}
 			}
 		};
@@ -2247,57 +2526,58 @@ var Component = class Component extends Store {
 			const existing = document.getElementById(child.id);
 			if (!existing) return;
 			if (child.rendered_ && child.element_ === existing) return;
-			existing.__geaCompiledChildRoot = true;
+			existing[GEA_DOM_COMPILED_CHILD_ROOT] = true;
 			child.element_ = existing;
-			existing.__geaComponent = child;
+			existing[GEA_DOM_COMPONENT] = child;
 			child.rendered_ = true;
 			manager.markComponentRendered(child);
-			child.attachBindings_();
-			child.mountCompiledChildComponents_();
-			child.instantiateChildComponents_();
-			child.setupEventDirectives_();
-			if (typeof child.__setupRefs === "function") child.__setupRefs();
+			child[GEA_ATTACH_BINDINGS]();
+			child[GEA_MOUNT_COMPILED_CHILD_COMPONENTS]();
+			child[GEA_INSTANTIATE_CHILD_COMPONENTS]();
+			child[GEA_SETUP_EVENT_DIRECTIVES]();
+			const childSetupRefs = child[GEA_SETUP_REFS];
+			if (typeof childSetupRefs === "function") childSetupRefs.call(child);
 			child.onAfterRender();
 			child.onAfterRenderHooks();
-			child.__syncUnrenderedListItems();
+			child[GEA_SYNC_UNRENDERED_LIST_ITEMS]();
 			requestAnimationFrame(() => child.onAfterRenderAsync());
 		});
 	}
-	__child(Ctor, props, key) {
+	[GEA_CHILD](Ctor, props, key) {
 		const child = new Ctor(props);
-		child.parentComponent = this;
-		child.__geaCompiledChild = true;
-		if (key !== void 0) child.__geaItemKey = String(key);
-		if (!this.__childComponents.includes(child)) this.__childComponents.push(child);
+		child.parentComponent = this[GEA_SELF_PROXY] ?? this;
+		child[GEA_COMPILED_CHILD] = true;
+		if (key !== void 0) child[GEA_ITEM_KEY] = String(key);
+		if (!getComponentInternals(this).childComponents.includes(child)) getComponentInternals(this).childComponents.push(child);
 		return child;
 	}
-	__el(suffix) {
-		let el = this.__elCache.get(suffix) ?? null;
+	[GEA_EL](suffix) {
+		let el = getComponentInternals(this).elCache.get(suffix) ?? null;
 		if (!el || !el.isConnected) {
 			el = document.getElementById(this.id_ + "-" + suffix);
-			if (el) this.__elCache.set(suffix, el);
-			else this.__elCache.delete(suffix);
+			if (el) getComponentInternals(this).elCache.set(suffix, el);
+			else getComponentInternals(this).elCache.delete(suffix);
 		}
 		return el;
 	}
-	__updateText(suffix, text) {
-		const el = this.__el(suffix);
+	[GEA_UPDATE_TEXT](suffix, text) {
+		const el = this[GEA_EL](suffix);
 		if (el) el.textContent = text;
 	}
-	static __escapeHtml(str) {
+	static [GEA_STATIC_ESCAPE_HTML](str) {
 		return __escapeHtml(str);
 	}
-	static __sanitizeAttr(name, value) {
+	static [GEA_STATIC_SANITIZE_ATTR](name, value) {
 		return __sanitizeAttr(name, value);
 	}
-	__observe(store, path, handler) {
-		const remover = store.__store.observe(path, handler.bind(this));
-		this.__observer_removers__.push(remover);
+	[GEA_OBSERVE](store, path, handler) {
+		const remover = store[GEA_STORE_ROOT].observe(path, handler.bind(this));
+		getComponentInternals(this).observerRemovers.push(remover);
 	}
-	__reorderChildren(container, items) {
+	[GEA_REORDER_CHILDREN](container, items) {
 		if (!container || !this.rendered_) return;
 		for (const item of items) if (!item.rendered_) {
-			if (!this.__childComponents.includes(item)) this.__childComponents.push(item);
+			if (!getComponentInternals(this).childComponents.includes(item)) getComponentInternals(this).childComponents.push(item);
 			item.render(container);
 		}
 		const ordered = [];
@@ -2317,19 +2597,19 @@ var Component = class Component extends Store {
 			while (cursor && !itemSet.has(cursor)) cursor = cursor.nextSibling;
 		}
 	}
-	__reconcileList(oldItems, newData, container, Ctor, propsFactory, keyExtractor) {
+	[GEA_RECONCILE_LIST](oldItems, newData, container, Ctor, propsFactory, keyExtractor) {
 		const oldByKey = /* @__PURE__ */ new Map();
 		for (const item of oldItems) {
 			if (!item) continue;
-			if (item.__geaItemKey != null) oldByKey.set(item.__geaItemKey, item);
+			if (item[GEA_ITEM_KEY] != null) oldByKey.set(item[GEA_ITEM_KEY], item);
 		}
 		if (oldByKey.size === 0 && container) for (let ch = container.firstElementChild; ch; ch = ch.nextElementSibling) {
-			const comp = ch.__geaComponent;
+			const comp = ch[GEA_DOM_COMPONENT];
 			if (!comp) continue;
 			let c = comp;
 			while (c) {
-				if (c.__geaItemKey != null) {
-					oldByKey.set(c.__geaItemKey, c);
+				if (c[GEA_ITEM_KEY] != null) {
+					oldByKey.set(c[GEA_ITEM_KEY], c);
 					break;
 				}
 				c = c.parentComponent;
@@ -2340,14 +2620,14 @@ var Component = class Component extends Store {
 			const key = String(keyExtractor(data, idx));
 			const existing = oldByKey.get(key);
 			if (existing) {
-				existing.__geaUpdateProps(propsFactory(data, idx));
+				existing[GEA_UPDATE_PROPS](propsFactory(data, idx));
 				oldByKey.delete(key);
 				return existing;
 			}
-			return this.__child(Ctor, propsFactory(data, idx), key);
+			return this[GEA_CHILD](Ctor, propsFactory(data, idx), key);
 		});
 		for (const removed of oldByKey.values()) removed.dispose?.();
-		this.__reorderChildren(container, next);
+		this[GEA_REORDER_CHILDREN](container, next);
 		if (container && next.length > 0) {
 			const rootSet = /* @__PURE__ */ new Set();
 			for (const item of next) {
@@ -2359,10 +2639,10 @@ var Component = class Component extends Store {
 			if (rootSet.size === next.length && container.childElementCount > next.length) for (let ch = container.firstChild; ch;) {
 				const nx = ch.nextSibling;
 				if (ch.nodeType === 1 && !rootSet.has(ch)) {
-					let c = ch.__geaComponent;
+					let c = ch[GEA_DOM_COMPONENT];
 					let keyedAncestor;
 					while (c) {
-						if (c.__geaItemKey != null) {
+						if (c[GEA_ITEM_KEY] != null) {
 							keyedAncestor = c;
 							break;
 						}
@@ -2376,45 +2656,44 @@ var Component = class Component extends Store {
 				ch = nx;
 			}
 		}
-		this.__childComponents = this.__childComponents.filter((child) => !oldItems.includes(child) || next.includes(child));
+		getComponentInternals(this).childComponents = getComponentInternals(this).childComponents.filter((child) => !oldItems.includes(child) || next.includes(child));
 		return next;
 	}
-	__observeList(store, path, config) {
-		if (!this.__geaListConfigs) this.__geaListConfigs = [];
-		this.__geaListConfigs.push({
+	[GEA_OBSERVE_LIST](store, path, config) {
+		getComponentInternals(this).listConfigs.push({
 			store,
 			path,
 			config
 		});
-		this.__observe(store, path, (_value, changes) => {
+		this[GEA_OBSERVE](store, path, (_value, changes) => {
 			if ((!config.items || config.items.length === 0) && config.itemsKey) config.items = this[config.itemsKey];
 			if (!config.items) return;
-			if (config.__refreshing) return;
-			config.__refreshing = true;
+			if (config[GEA_LIST_CONFIG_REFRESHING]) return;
+			config[GEA_LIST_CONFIG_REFRESHING] = true;
 			try {
-				const storeData = store.__store;
+				const storeData = store[GEA_STORE_ROOT];
 				const arr = path.reduce((obj, key) => obj?.[key], storeData) ?? [];
 				if (changes.every((c) => c.isArrayItemPropUpdate)) for (const c of changes) {
 					const item = config.items[c.arrayIndex];
-					if (item) item.__geaUpdateProps(config.props(arr[c.arrayIndex], c.arrayIndex));
+					if (item) item[GEA_UPDATE_PROPS](config.props(arr[c.arrayIndex], c.arrayIndex));
 				}
 				else if (changes.length === 1 && changes[0].type === "append") {
 					const { start, count } = changes[0];
 					const container = config.container();
 					for (let i = 0; i < count; i++) {
 						const data = arr[start + i];
-						const item = this.__child(config.Ctor, config.props(data, start + i), config.key(data, start + i));
+						const item = this[GEA_CHILD](config.Ctor, config.props(data, start + i), config.key(data, start + i));
 						config.items.push(item);
 						if (this.rendered_ && container) item.render(container);
 					}
 				} else {
-					const newItems = this.__reconcileList(config.items, arr, config.container(), config.Ctor, config.props, config.key);
+					const newItems = this[GEA_RECONCILE_LIST](config.items, arr, config.container(), config.Ctor, config.props, config.key);
 					config.items.length = 0;
 					config.items.push(...newItems);
 				}
 				config.onchange?.();
 			} finally {
-				config.__refreshing = false;
+				config[GEA_LIST_CONFIG_REFRESHING] = false;
 			}
 		});
 	}
@@ -2424,33 +2703,33 @@ var Component = class Component extends Store {
 	* array map's underlying dependency changes (e.g. activePlaylistId changes
 	* causing filteredTracks to return different items).
 	*/
-	__refreshList(pathKey) {
-		const configs = this.__geaListConfigs;
-		if (!configs) return;
+	[GEA_REFRESH_LIST](pathKey) {
+		const configs = getComponentInternals(this).listConfigs;
+		if (!configs?.length) return;
 		for (const { store: s, path: p, config: c } of configs) {
 			if (p.join(".") !== pathKey) continue;
 			if ((!c.items || c.items.length === 0) && c.itemsKey) c.items = this[c.itemsKey];
 			if (!c.items) continue;
-			if (c.__refreshing) return;
-			c.__refreshing = true;
+			if (c[GEA_LIST_CONFIG_REFRESHING]) return;
+			c[GEA_LIST_CONFIG_REFRESHING] = true;
 			try {
 				const arr = p.reduce((obj, key) => obj?.[key], s) ?? [];
-				const newItems = this.__reconcileList(c.items, arr, c.container(), c.Ctor, c.props, c.key);
+				const newItems = this[GEA_RECONCILE_LIST](c.items, arr, c.container(), c.Ctor, c.props, c.key);
 				c.items.length = 0;
 				c.items.push(...newItems);
 				c.onchange?.();
 			} finally {
-				c.__refreshing = false;
+				c[GEA_LIST_CONFIG_REFRESHING] = false;
 			}
 		}
 	}
-	__geaSwapChild(markerId, newChild) {
+	[GEA_SWAP_CHILD](markerId, newChild) {
 		const marker = document.getElementById(this.id_ + "-" + markerId);
 		if (!marker) return;
 		const oldEl = marker.nextElementSibling;
 		if (newChild && newChild.rendered_ && newChild.element_ === oldEl) return;
 		if (oldEl && oldEl.tagName !== "TEMPLATE") {
-			const oldChild = this.__childComponents.find((c) => c.element_ === oldEl);
+			const oldChild = getComponentInternals(this).childComponents.find((c) => c.element_ === oldEl);
 			if (oldChild) {
 				oldChild.rendered_ = false;
 				oldChild.element_ = null;
@@ -2464,41 +2743,41 @@ var Component = class Component extends Store {
 		if (!newEl) return;
 		newChild.element_ = newEl;
 		newChild.rendered_ = true;
-		if (!this.__childComponents.includes(newChild)) this.__childComponents.push(newChild);
+		if (!getComponentInternals(this).childComponents.includes(newChild)) getComponentInternals(this).childComponents.push(newChild);
 		ComponentManager.getInstance().markComponentRendered(newChild);
-		newChild.attachBindings_();
-		newChild.mountCompiledChildComponents_();
-		newChild.instantiateChildComponents_();
-		newChild.setupEventDirectives_();
+		newChild[GEA_ATTACH_BINDINGS]();
+		newChild[GEA_MOUNT_COMPILED_CHILD_COMPONENTS]();
+		newChild[GEA_INSTANTIATE_CHILD_COMPONENTS]();
+		newChild[GEA_SETUP_EVENT_DIRECTIVES]();
 		newChild.onAfterRender();
 		newChild.onAfterRenderHooks();
 	}
-	cleanupBindings_() {
-		this.__bindings = [];
+	[GEA_CLEANUP_BINDINGS]() {
+		getComponentInternals(this).bindings = [];
 	}
-	setupEventDirectives_() {}
-	teardownSelfListeners_() {
-		this.__selfListeners.forEach((remove) => {
+	[GEA_SETUP_EVENT_DIRECTIVES]() {}
+	[GEA_TEARDOWN_SELF_LISTENERS]() {
+		getComponentInternals(this).selfListeners.forEach((remove) => {
 			if (typeof remove == "function") remove();
 		});
-		this.__selfListeners = [];
+		getComponentInternals(this).selfListeners = [];
 	}
-	extractComponentProps_(el) {
-		if (el.__geaProps) {
-			const jsProps = el.__geaProps;
-			delete el.__geaProps;
+	[GEA_EXTRACT_COMPONENT_PROPS](el) {
+		if (el[GEA_DOM_PROPS]) {
+			const jsProps = el[GEA_DOM_PROPS];
+			delete el[GEA_DOM_PROPS];
 			return jsProps;
 		}
 		const props = {};
 		if (!el.getAttributeNames) return props;
 		el.getAttributeNames().filter((name) => name.startsWith("data-prop-")).forEach((name) => {
 			const value = el.getAttribute(name);
-			const propName = this.normalizePropName_(name.slice(10));
-			if (this.__geaPropBindings && value && value.startsWith("__gea_prop_")) {
-				const propValue = this.__geaPropBindings.get(value);
+			const propName = this[GEA_NORMALIZE_PROP_NAME](name.slice(10));
+			if (getComponentInternals(this).geaPropBindings && value && value.startsWith("gea:p:")) {
+				const propValue = getComponentInternals(this).geaPropBindings.get(value);
 				if (propValue === void 0) console.warn(`[gea] Prop binding not found for ${value} on component ${this.constructor.name}`);
 				props[propName] = propValue;
-			} else props[propName] = this.coerceStaticPropValue_(value);
+			} else props[propName] = this[GEA_COERCE_STATIC_PROP_VALUE](value);
 			el.removeAttribute(name);
 		});
 		if (!("children" in props)) {
@@ -2507,19 +2786,19 @@ var Component = class Component extends Store {
 		}
 		return props;
 	}
-	coerceStaticPropValue_(value) {
+	[GEA_COERCE_STATIC_PROP_VALUE](value) {
 		if (value == null) return void 0;
 		if (value === "true") return true;
 		if (value === "false") return false;
 		if (/^-?\d+(\.\d+)?$/.test(value)) return Number(value);
 		return value;
 	}
-	normalizePropName_(name) {
+	[GEA_NORMALIZE_PROP_NAME](name) {
 		return name.replace(/-([a-z])/g, (_, chr) => chr.toUpperCase());
 	}
-	__geaRegisterMap(idx, containerProp, getContainer, getItems, createItem, keyProp) {
-		if (!this.__geaMaps) this.__geaMaps = {};
-		this.__geaMaps[idx] = {
+	[GEA_REGISTER_MAP](idx, containerProp, getContainer, getItems, createItem, keyProp) {
+		if (!getComponentInternals(this).geaMaps) getComponentInternals(this).geaMaps = {};
+		getComponentInternals(this).geaMaps[idx] = {
 			containerProp,
 			getContainer,
 			getItems,
@@ -2528,16 +2807,16 @@ var Component = class Component extends Store {
 			keyProp
 		};
 	}
-	__geaSyncMap(idx) {
+	[GEA_SYNC_MAP](idx) {
 		if (!this.rendered_) return;
-		const map = this.__geaMaps?.[idx];
+		const map = getComponentInternals(this).geaMaps?.[idx];
 		if (!map) return;
 		let container = map.getContainer();
 		if (!container) return;
 		if (container.id) {
 			let hasDirectItems = false;
 			for (let n = container.firstChild; n; n = n.nextSibling) {
-				if (n.nodeType === 1 && (n.__geaKey != null || n.hasAttribute("data-gea-item-id"))) {
+				if (n.nodeType === 1 && (n[GEA_DOM_KEY] != null || n.hasAttribute("data-gea-item-id"))) {
 					hasDirectItems = true;
 					break;
 				}
@@ -2550,7 +2829,7 @@ var Component = class Component extends Store {
 					for (let c = el.firstChild; c; c = c.nextSibling) {
 						if (c.nodeType !== 1) continue;
 						const child = c;
-						if ((child.__geaKey != null || child.hasAttribute("data-gea-item-id")) && child.id && child.id.startsWith(prefix)) {
+						if ((child[GEA_DOM_KEY] != null || child.hasAttribute("data-gea-item-id")) && child.id && child.id.startsWith(prefix)) {
 							nested = child;
 							return;
 						}
@@ -2574,9 +2853,9 @@ var Component = class Component extends Store {
 		this[map.containerProp] = container;
 		const items = map.getItems();
 		const normalizedItems = Array.isArray(items) ? items : [];
-		this.__geaSyncItems(container, normalizedItems, map.createItem, map.keyProp);
+		this[GEA_SYNC_ITEMS](container, normalizedItems, map.createItem, map.keyProp);
 	}
-	__geaSyncItems(container, items, createItemFn, keyProp) {
+	[GEA_SYNC_ITEMS](container, items, createItemFn, keyProp) {
 		const itemKey = typeof keyProp === "function" ? (item, index) => keyProp(item, index) : (item, _index) => {
 			if (item != null && typeof item === "object") {
 				if (keyProp && keyProp in item) return String(item[keyProp]);
@@ -2585,14 +2864,14 @@ var Component = class Component extends Store {
 			return String(item);
 		};
 		const c = container;
-		let prev = c.__geaPrev;
+		let prev = c[GEA_MAP_CONFIG_PREV];
 		if (!prev) {
 			prev = [];
 			for (let n = container.firstChild; n; n = n.nextSibling) if (n.nodeType === 1) {
-				const aid = n.__geaKey ?? n.getAttribute("data-gea-item-id");
+				const aid = n[GEA_DOM_KEY] ?? n.getAttribute("data-gea-item-id");
 				if (aid != null) prev.push(aid);
 			} else if (n.nodeType === 8 && !n.data) break;
-			c.__geaCount = prev.length;
+			c[GEA_MAP_CONFIG_COUNT] = prev.length;
 		}
 		if (prev.length === items.length) {
 			let same = true;
@@ -2603,7 +2882,7 @@ var Component = class Component extends Store {
 			if (same) {
 				let child = container.firstChild;
 				for (let j = 0; j < items.length; j++) {
-					while (child && (child.nodeType !== 1 || child.__geaKey == null && !child.hasAttribute?.("data-gea-item-id"))) {
+					while (child && (child.nodeType !== 1 || child[GEA_DOM_KEY] == null && !child.hasAttribute?.("data-gea-item-id"))) {
 						if (child.nodeType === 8 && !child.data) break;
 						child = child.nextSibling;
 					}
@@ -2613,7 +2892,7 @@ var Component = class Component extends Store {
 					const newEl = createItemFn(items[j], j);
 					if (oldEl.innerHTML !== newEl.innerHTML) {
 						oldEl.innerHTML = newEl.innerHTML;
-						Component.__syncValueProps(oldEl);
+						Component[GEA_SYNC_VALUE_PROPS](oldEl);
 					}
 					for (let ai = 0; ai < newEl.attributes.length; ai++) {
 						const a = newEl.attributes[ai];
@@ -2622,10 +2901,10 @@ var Component = class Component extends Store {
 							if (a.name === "value" && "value" in oldEl) oldEl.value = a.value;
 						}
 					}
-					if (newEl.__geaItem !== void 0) oldEl.__geaItem = newEl.__geaItem;
-					if (newEl.__geaKey !== void 0) oldEl.__geaKey = newEl.__geaKey;
+					if (newEl[GEA_DOM_ITEM] !== void 0) oldEl[GEA_DOM_ITEM] = newEl[GEA_DOM_ITEM];
+					if (newEl[GEA_DOM_KEY] !== void 0) oldEl[GEA_DOM_KEY] = newEl[GEA_DOM_KEY];
 				}
-				c.__geaPrev = items.slice();
+				c[GEA_MAP_CONFIG_PREV] = items.slice();
 				return;
 			}
 		}
@@ -2638,15 +2917,15 @@ var Component = class Component extends Store {
 			if (appendOk) {
 				const frag = document.createDocumentFragment();
 				for (let j = prev.length; j < items.length; j++) frag.appendChild(createItemFn(items[j], j));
-				Component.__syncValueProps(frag);
+				Component[GEA_SYNC_VALUE_PROPS](frag);
 				let marker = null;
 				for (let sc = container.firstChild; sc; sc = sc.nextSibling) if (sc.nodeType === 8 && !sc.data) {
 					marker = sc;
 					break;
 				}
 				container.insertBefore(frag, marker);
-				c.__geaPrev = items.slice();
-				c.__geaCount = items.length;
+				c[GEA_MAP_CONFIG_PREV] = items.slice();
+				c[GEA_MAP_CONFIG_COUNT] = items.length;
 				return;
 			}
 		}
@@ -2655,18 +2934,18 @@ var Component = class Component extends Store {
 			for (let j = 0; j < items.length; j++) newSet.add(itemKey(items[j], j));
 			const removals = [];
 			for (let sc = container.firstChild; sc; sc = sc.nextSibling) if (sc.nodeType === 1) {
-				const aid = sc.__geaKey ?? sc.getAttribute("data-gea-item-id");
+				const aid = sc[GEA_DOM_KEY] ?? sc.getAttribute("data-gea-item-id");
 				if (aid != null && !newSet.has(aid)) removals.push(sc);
 			} else if (sc.nodeType === 8 && !sc.data) break;
 			if (removals.length === prev.length - items.length) {
 				for (let j = 0; j < removals.length; j++) container.removeChild(removals[j]);
-				c.__geaPrev = items.slice();
-				c.__geaCount = items.length;
+				c[GEA_MAP_CONFIG_PREV] = items.slice();
+				c[GEA_MAP_CONFIG_COUNT] = items.length;
 				return;
 			}
 		}
-		c.__geaPrev = items.slice();
-		let oldCount = c.__geaCount;
+		c[GEA_MAP_CONFIG_PREV] = items.slice();
+		let oldCount = c[GEA_MAP_CONFIG_COUNT];
 		if (oldCount == null || oldCount === 0 && container.firstChild) {
 			oldCount = 0;
 			for (let n = container.firstChild; n; n = n.nextSibling) if (n.nodeType === 1) oldCount++;
@@ -2680,31 +2959,32 @@ var Component = class Component extends Store {
 		}
 		const fragment = document.createDocumentFragment();
 		for (let i = 0; i < items.length; i++) fragment.appendChild(createItemFn(items[i], i));
-		Component.__syncValueProps(fragment);
+		Component[GEA_SYNC_VALUE_PROPS](fragment);
 		container.insertBefore(fragment, container.firstChild);
-		c.__geaCount = items.length;
+		c[GEA_MAP_CONFIG_PREV] = items.slice();
+		c[GEA_MAP_CONFIG_COUNT] = items.length;
 	}
-	__geaCloneItem(container, item, renderFn, bindingId, itemIdProp, patches) {
+	[GEA_CLONE_ITEM](container, item, renderFn, bindingId, itemIdProp, patches) {
 		const c = container;
 		const idProp = itemIdProp || "id";
-		if (!c.__geaTpl) try {
+		if (!c[GEA_MAP_CONFIG_TPL]) try {
 			const tw = container.cloneNode(false);
 			tw.innerHTML = renderFn({
 				[idProp]: 0,
 				label: ""
 			});
-			c.__geaTpl = tw.firstElementChild;
+			c[GEA_MAP_CONFIG_TPL] = tw.firstElementChild;
 		} catch {}
 		let el;
-		if (c.__geaTpl) el = c.__geaTpl.cloneNode(true);
+		if (c[GEA_MAP_CONFIG_TPL]) el = c[GEA_MAP_CONFIG_TPL].cloneNode(true);
 		else {
 			const tw = container.cloneNode(false);
 			tw.innerHTML = renderFn(item);
 			el = tw.firstElementChild;
 		}
 		const raw = item != null && typeof item === "object" ? item[idProp] : void 0;
-		el.__geaKey = String(raw != null ? raw : item);
-		el.__geaItem = item;
+		el[GEA_DOM_KEY] = String(raw != null ? raw : item);
+		el[GEA_DOM_ITEM] = item;
 		if (patches) for (let i = 0; i < patches.length; i++) {
 			const p = patches[i];
 			const path = p[0];
@@ -2720,12 +3000,12 @@ var Component = class Component extends Store {
 				if (type === "value" && "value" in target) target.value = String(val);
 			}
 		}
-		Component.__syncValueProps(el);
+		Component[GEA_SYNC_VALUE_PROPS](el);
 		return el;
 	}
-	__geaRegisterCond(idx, slotId, getCond, getTruthyHtml, getFalsyHtml) {
-		if (!this.__geaConds) this.__geaConds = {};
-		this.__geaConds[idx] = {
+	[GEA_REGISTER_COND](idx, slotId, getCond, getTruthyHtml, getFalsyHtml) {
+		if (!getComponentInternals(this).geaConds) getComponentInternals(this).geaConds = {};
+		getComponentInternals(this).geaConds[idx] = {
 			slotId,
 			getCond,
 			getTruthyHtml,
@@ -2733,15 +3013,16 @@ var Component = class Component extends Store {
 		};
 	}
 	/**
-	* Re-run compiler-generated `__setupRefs()` after incremental DOM updates (e.g. conditional
-	* slots) so `ref={this.x}` targets stay in sync; `querySelector` returns `null` when a marked
-	* node is absent, clearing stale references.
+	* Re-run compiler-generated setup after incremental DOM updates (e.g. conditional slots) so
+	* `ref={this.x}` targets stay in sync; `querySelector` returns `null` when a marked node is
+	* absent, clearing stale references.
 	*/
-	__syncDomRefs() {
-		if (typeof this.__setupRefs === "function") this.__setupRefs();
+	[GEA_SYNC_DOM_REFS]() {
+		const fn = this[GEA_SETUP_REFS];
+		if (typeof fn === "function") fn.call(this);
 	}
-	__geaPatchCond(idx) {
-		const conf = this.__geaConds?.[idx];
+	[GEA_PATCH_COND](idx) {
+		const conf = getComponentInternals(this).geaConds?.[idx];
 		if (!conf) return false;
 		let cond;
 		try {
@@ -2749,8 +3030,9 @@ var Component = class Component extends Store {
 		} catch {
 			return false;
 		}
-		const condProp = "__geaCond_" + idx;
-		const prev = this[condProp];
+		let condPatchPrev = getComponentInternals(this).condPatchPrev;
+		if (!condPatchPrev) getComponentInternals(this).condPatchPrev = condPatchPrev = {};
+		const prev = condPatchPrev[idx];
 		const needsPatch = cond !== prev;
 		const root = this.element_ || document.getElementById(this.id_);
 		if (!root) return false;
@@ -2769,16 +3051,16 @@ var Component = class Component extends Store {
 		const endMarker = findMarker(endMarkerText);
 		const parent = endMarker && endMarker.parentNode;
 		if (!marker || !endMarker || !parent) return false;
-		this[condProp] = cond;
+		condPatchPrev[idx] = cond;
 		const stripTrailingKeyedRowsAfterSlot = () => {
 			let node = endMarker.nextSibling;
 			while (node && node.nodeType === 1) {
 				const el = node;
 				const next = node.nextSibling;
 				if (el.hasAttribute("data-email-id")) {
-					for (const child of this.__childComponents) if (child.__geaCompiledChild && child.element_ && (child.element_ === el || el.contains(child.element_))) {
+					for (const child of getComponentInternals(this).childComponents) if (child[GEA_COMPILED_CHILD] && child.element_ && (child.element_ === el || el.contains(child.element_))) {
 						child.dispose();
-						this.__childComponents = this.__childComponents.filter((c) => c !== child);
+						getComponentInternals(this).childComponents = getComponentInternals(this).childComponents.filter((c) => c !== child);
 						break;
 					}
 					try {
@@ -2814,7 +3096,7 @@ var Component = class Component extends Store {
 						else {
 							const el = node;
 							if (el.hasAttribute("data-email-id")) node.remove();
-							else if (node.__geaKey == null && !el.hasAttribute?.("data-gea-item-id")) node.remove();
+							else if (node[GEA_DOM_KEY] == null && !el.hasAttribute?.("data-gea-item-id")) node.remove();
 						}
 					} catch {}
 					node = next;
@@ -2837,7 +3119,7 @@ var Component = class Component extends Store {
 			} else {
 				const tpl = document.createElement("template");
 				tpl.innerHTML = html;
-				Component.__syncValueProps(tpl.content);
+				Component[GEA_SYNC_VALUE_PROPS](tpl.content);
 				parent.insertBefore(tpl.content, endMarker);
 			}
 		};
@@ -2848,7 +3130,7 @@ var Component = class Component extends Store {
 				while (node && node !== endMarker) {
 					if (node.nodeType === 1) {
 						const el = node;
-						for (const child of this.__childComponents) if (child.__geaCompiledChild && child.element_ && (child.element_ === el || el.contains(child.element_))) disposed.add(child);
+						for (const child of getComponentInternals(this).childComponents) if (child[GEA_COMPILED_CHILD] && child.element_ && (child.element_ === el || el.contains(child.element_))) disposed.add(child);
 					}
 					node = node.nextSibling;
 				}
@@ -2859,14 +3141,14 @@ var Component = class Component extends Store {
 						break;
 					}
 				}
-				if (disposed.size > 0) this.__childComponents = this.__childComponents.filter((c) => !disposed.has(c));
+				if (disposed.size > 0) getComponentInternals(this).childComponents = getComponentInternals(this).childComponents.filter((c) => !disposed.has(c));
 			} else {
 				const disposedTruthy = /* @__PURE__ */ new Set();
 				let n = marker.nextSibling;
 				while (n && n !== endMarker) {
 					if (n.nodeType === 1) {
 						const el = n;
-						for (const child of this.__childComponents) if (child.__geaCompiledChild && child.element_ && (child.element_ === el || el.contains(child.element_))) disposedTruthy.add(child);
+						for (const child of getComponentInternals(this).childComponents) if (child[GEA_COMPILED_CHILD] && child.element_ && (child.element_ === el || el.contains(child.element_))) disposedTruthy.add(child);
 					}
 					n = n.nextSibling;
 				}
@@ -2877,25 +3159,25 @@ var Component = class Component extends Store {
 						break;
 					}
 				}
-				if (disposedTruthy.size > 0) this.__childComponents = this.__childComponents.filter((c) => !disposedTruthy.has(c));
+				if (disposedTruthy.size > 0) getComponentInternals(this).childComponents = getComponentInternals(this).childComponents.filter((c) => !disposedTruthy.has(c));
 			}
 			replaceSlotContent(cond ? conf.getTruthyHtml : conf.getFalsyHtml);
 			stripTrailingKeyedRowsAfterSlot();
 			if (cond) {
-				this.mountCompiledChildComponents_();
-				this.instantiateChildComponents_();
-				this.setupEventDirectives_();
-				Component.__syncAutofocus(marker, endMarker);
+				this[GEA_MOUNT_COMPILED_CHILD_COMPONENTS]();
+				this[GEA_INSTANTIATE_CHILD_COMPONENTS]();
+				this[GEA_SETUP_EVENT_DIRECTIVES]();
+				Component[GEA_SYNC_AUTOFOCUS](marker, endMarker);
 			}
 		} else if (cond && conf.getTruthyHtml) {
 			const existingNode = marker.nextSibling;
 			if (existingNode && existingNode !== endMarker && existingNode.nodeType === 1) {
-				if (existingNode.__geaCompiledChildRoot) return needsPatch;
+				if (existingNode[GEA_DOM_COMPILED_CHILD_ROOT]) return needsPatch;
 				const newHtml = conf.getTruthyHtml();
 				const tpl = document.createElement("template");
 				tpl.innerHTML = newHtml;
 				const newEl = tpl.content.firstElementChild;
-				if (newEl) Component.__patchNode(existingNode, newEl);
+				if (newEl) Component[GEA_PATCH_NODE](existingNode, newEl);
 			}
 		} else if (!cond && conf.getFalsyHtml) {
 			const newHtml = conf.getFalsyHtml();
@@ -2907,7 +3189,7 @@ var Component = class Component extends Store {
 			while (existing && existing !== endMarker && idx < newChildren.length) {
 				const desired = newChildren[idx];
 				if (existing.nodeType === 1 && desired.nodeType === 1) {
-					if (!existing.__geaCompiledChildRoot) Component.__patchNode(existing, desired);
+					if (!existing[GEA_DOM_COMPILED_CHILD_ROOT]) Component[GEA_PATCH_NODE](existing, desired);
 				} else if (existing.nodeType === 3 && desired.nodeType === 3) {
 					if (existing.textContent !== desired.textContent) existing.textContent = desired.textContent;
 				}
@@ -2915,10 +3197,10 @@ var Component = class Component extends Store {
 				idx++;
 			}
 		}
-		this.__syncDomRefs();
+		this[GEA_SYNC_DOM_REFS]();
 		return needsPatch;
 	}
-	static __syncValueProps(root) {
+	static [GEA_SYNC_VALUE_PROPS](root) {
 		const els = root.querySelectorAll?.("textarea[value], input[value], select[value]");
 		if (!els) return;
 		for (let i = 0; i < els.length; i++) {
@@ -2926,7 +3208,7 @@ var Component = class Component extends Store {
 			el.value = el.getAttribute("value") || "";
 		}
 	}
-	static __syncAutofocus(startMarker, endMarker) {
+	static [GEA_SYNC_AUTOFOCUS](startMarker, endMarker) {
 		let node = startMarker.nextSibling;
 		while (node && node !== endMarker) {
 			if (node.nodeType === 1) {
@@ -2940,7 +3222,7 @@ var Component = class Component extends Store {
 			node = node.nextSibling;
 		}
 	}
-	static __patchNode(existing, desired) {
+	static [GEA_PATCH_NODE](existing, desired) {
 		if (existing.tagName !== desired.tagName) {
 			existing.replaceWith(desired.cloneNode(true));
 			return;
@@ -2970,15 +3252,149 @@ var Component = class Component extends Store {
 				if (oldChild.nodeType !== newChild.nodeType) oldChild.replaceWith(newChild.cloneNode(true));
 				else if (oldChild.nodeType === 3) {
 					if (oldChild.textContent !== newChild.textContent) oldChild.textContent = newChild.textContent;
-				} else if (oldChild.nodeType === 1) Component.__patchNode(oldChild, newChild);
+				} else if (oldChild.nodeType === 1) Component[GEA_PATCH_NODE](oldChild, newChild);
 			}
 		}
 	}
 	static register(tagName) {
 		ComponentManager.getInstance().registerComponentClass(this, tagName);
-		if (Component.__componentClasses) Component.__componentClasses.set(this.name, this);
+		if (_componentClassesMap) _componentClassesMap.set(this.name, this);
 	}
 };
+Object.defineProperty(Component, GEA_COMPONENT_CLASSES, {
+	get() {
+		return _componentClassesMap;
+	},
+	configurable: true,
+	enumerable: false
+});
+Object.defineProperty(Component.prototype, GEA_ID, {
+	get() {
+		return this.id_;
+	},
+	configurable: true,
+	enumerable: false
+});
+Object.defineProperty(Component.prototype, GEA_ELEMENT, {
+	get() {
+		return this.element_;
+	},
+	set(v) {
+		this.element_ = v;
+	},
+	configurable: true,
+	enumerable: false
+});
+Object.defineProperty(Component.prototype, GEA_RENDERED, {
+	get() {
+		return this.rendered_;
+	},
+	set(v) {
+		this.rendered_ = v;
+	},
+	configurable: true,
+	enumerable: false
+});
+Object.defineProperty(Component.prototype, GEA_MAPS, {
+	get() {
+		return getComponentInternals(this).geaMaps;
+	},
+	set(v) {
+		getComponentInternals(this).geaMaps = v;
+	},
+	configurable: true,
+	enumerable: false
+});
+Object.defineProperty(Component.prototype, GEA_CONDS, {
+	get() {
+		return getComponentInternals(this).geaConds;
+	},
+	set(v) {
+		getComponentInternals(this).geaConds = v;
+	},
+	configurable: true,
+	enumerable: false
+});
+Object.defineProperty(Component.prototype, GEA_EL_CACHE, {
+	get() {
+		return getComponentInternals(this).elCache;
+	},
+	set(v) {
+		getComponentInternals(this).elCache = v;
+	},
+	configurable: true,
+	enumerable: false
+});
+Object.defineProperty(Component.prototype, GEA_CHILD_COMPONENTS, {
+	get() {
+		return getComponentInternals(this).childComponents;
+	},
+	set(v) {
+		getComponentInternals(this).childComponents = v;
+	},
+	configurable: true,
+	enumerable: false
+});
+Object.defineProperty(Component.prototype, GEA_OBSERVER_REMOVERS, {
+	get() {
+		return getComponentInternals(this).observerRemovers;
+	},
+	set(v) {
+		getComponentInternals(this).observerRemovers = v;
+	},
+	configurable: true,
+	enumerable: false
+});
+Object.defineProperty(Component.prototype, GEA_COMPILED_CHILD, {
+	get() {
+		return getComponentInternals(this).geaCompiledChild;
+	},
+	set(v) {
+		getComponentInternals(this).geaCompiledChild = v;
+	},
+	configurable: true,
+	enumerable: false
+});
+Object.defineProperty(Component.prototype, GEA_ITEM_KEY, {
+	get() {
+		return getComponentInternals(this).geaItemKey;
+	},
+	set(v) {
+		getComponentInternals(this).geaItemKey = v;
+	},
+	configurable: true,
+	enumerable: false
+});
+Object.defineProperty(Component.prototype, GEA_SELF_LISTENERS, {
+	get() {
+		return getComponentInternals(this).selfListeners;
+	},
+	set(v) {
+		getComponentInternals(this).selfListeners = v;
+	},
+	configurable: true,
+	enumerable: false
+});
+Object.defineProperty(Component.prototype, GEA_PROP_BINDINGS, {
+	get() {
+		return getComponentInternals(this).geaPropBindings;
+	},
+	set(v) {
+		getComponentInternals(this).geaPropBindings = v;
+	},
+	configurable: true,
+	enumerable: false
+});
+Object.defineProperty(Component.prototype, GEA_RESET_ELS, {
+	get() {
+		return getComponentInternals(this).resetEls;
+	},
+	set(v) {
+		getComponentInternals(this).resetEls = v;
+	},
+	configurable: true,
+	enumerable: false
+});
 //#endregion
 //#region src/lib/h.ts
 function h(tag, props, ...children) {
@@ -3301,7 +3717,6 @@ var Link = class Link extends Component {
 var Outlet = class Outlet extends Component {
 	constructor(..._args) {
 		super(..._args);
-		this.__isRouterOutlet = true;
 		this._routerDepth = -1;
 		this._router = null;
 		this._currentChild = null;
@@ -3320,7 +3735,7 @@ var Outlet = class Outlet extends Component {
 		let router = null;
 		let parent = this.parentComponent;
 		while (parent) {
-			if (parent.__isRouterOutlet) {
+			if (parent[GEA_IS_ROUTER_OUTLET]) {
 				depth = parent._routerDepth + 1;
 				router = parent._router ?? parent.props?.router ?? null;
 				break;
@@ -3357,7 +3772,7 @@ var Outlet = class Outlet extends Component {
 		if (this._currentChild) {
 			this._currentChild.dispose();
 			this._currentChild = null;
-			this.__childComponents = [];
+			this[GEA_CHILD_COMPONENTS] = [];
 		}
 		this._currentComponentClass = null;
 		this._lastCacheKey = null;
@@ -3397,10 +3812,10 @@ var Outlet = class Outlet extends Component {
 			const child = new item.component(item.props);
 			child.parentComponent = this;
 			child.render(this.el);
-			if (child.element_) child.element_.__geaCompiledChildRoot = true;
+			if (child.element_) child.element_[GEA_DOM_COMPILED_CHILD_ROOT] = true;
 			this._currentChild = child;
 			this._currentComponentClass = item.component;
-			this.__childComponents = [child];
+			this[GEA_CHILD_COMPONENTS] = [child];
 		}
 		this._lastCacheKey = item.cacheKey;
 		this._lastPath = router.path;
@@ -3412,6 +3827,11 @@ var Outlet = class Outlet extends Component {
 		super.dispose();
 	}
 };
+Object.defineProperty(Outlet.prototype, GEA_IS_ROUTER_OUTLET, {
+	value: true,
+	enumerable: false,
+	configurable: true
+});
 //#endregion
 //#region src/lib/router/router.ts
 function stripQueryHash(path) {
@@ -3688,7 +4108,6 @@ var Router = class extends Store {
 var RouterView = class extends Component {
 	constructor(..._args) {
 		super(..._args);
-		this.__isRouterOutlet = true;
 		this._routerDepth = 0;
 		this._router = null;
 		this._currentChild = null;
@@ -3727,7 +4146,7 @@ var RouterView = class extends Component {
 		if (this._currentChild) {
 			this._currentChild.dispose();
 			this._currentChild = null;
-			this.__childComponents = [];
+			this[GEA_CHILD_COMPONENTS] = [];
 		}
 		this._currentComponentClass = null;
 		this._lastCacheKey = null;
@@ -3765,7 +4184,7 @@ var RouterView = class extends Component {
 			child.render(this.el);
 			this._currentChild = child;
 			this._currentComponentClass = item.component;
-			this.__childComponents = [child];
+			this[GEA_CHILD_COMPONENTS] = [child];
 		}
 		this._lastCacheKey = item.cacheKey;
 		this._lastPath = router.path;
@@ -3778,6 +4197,11 @@ var RouterView = class extends Component {
 		super.dispose();
 	}
 };
+Object.defineProperty(RouterView.prototype, GEA_IS_ROUTER_OUTLET, {
+	value: true,
+	enumerable: false,
+	configurable: true
+});
 //#endregion
 //#region src/lib/router/index.ts
 function createRouter(routes, options) {
@@ -3809,6 +4233,6 @@ const gea = {
 	h
 };
 //#endregion
-export { Component, ComponentManager, Link, Outlet, Router, RouterView, Store, __escapeHtml, __sanitizeAttr, applyListChanges, clearUidProvider, createRouter, gea as default, findPropertyDescriptor, h, matchRoute, resetUidCounter, rootDeleteProperty, rootGetValue, rootSetValue, router, setUidProvider };
+export { Component, ComponentManager, GEA_APPLY_LIST_CHANGES, GEA_ATTACH_BINDINGS, GEA_ATTR_BINDINGS, GEA_BINDINGS, GEA_CHILD, GEA_CHILD_COMPONENTS, GEA_CLEANUP_BINDINGS, GEA_CLONE_ITEM, GEA_CLONE_TEMPLATE, GEA_COERCE_STATIC_PROP_VALUE, GEA_COMPILED_CHILD, GEA_COMPONENT_CLASSES, GEA_CONDS, GEA_CREATE_PROPS_PROXY, GEA_CTOR_AUTO_REGISTERED, GEA_CTOR_TAG_NAME, GEA_CURRENT_COMP_CLASS, GEA_DEPENDENCIES, GEA_DOM_COMPILED_CHILD_ROOT, GEA_DOM_COMPONENT, GEA_DOM_EVENT_HINT, GEA_DOM_ITEM, GEA_DOM_KEY, GEA_DOM_PARENT_CHAIN, GEA_DOM_PROPS, GEA_EL, GEA_ELEMENT, GEA_EL_CACHE, GEA_ENSURE_ARRAY_CONFIGS, GEA_EVENT_BINDINGS, GEA_EXTRACT_COMPONENT_PROPS, GEA_HANDLE_ITEM_HANDLER, GEA_ID, GEA_INSTANTIATE_CHILD_COMPONENTS, GEA_IS_ROUTER_OUTLET, GEA_ITEM_KEY, GEA_LAYOUTS, GEA_LIST_CONFIGS, GEA_LIST_CONFIG_REFRESHING, GEA_MAPS, GEA_MAP_CONFIG_COUNT, GEA_MAP_CONFIG_PREV, GEA_MAP_CONFIG_TPL, GEA_MOUNT_COMPILED_CHILD_COMPONENTS, GEA_NORMALIZE_PROP_NAME, GEA_OBSERVE, GEA_OBSERVER_REMOVERS, GEA_OBSERVE_LIST, GEA_ON_PROP_CHANGE, GEA_PATCH_COND, GEA_PATCH_NODE, GEA_PROP_BINDINGS, GEA_PROP_BINDING_ATTR_PREFIX, GEA_PROXY_GET_PATH, GEA_PROXY_GET_RAW_TARGET, GEA_PROXY_GET_TARGET, GEA_PROXY_IS_PROXY, GEA_PROXY_RAW, GEA_RAW_PROPS, GEA_REACTIVE_PROPS, GEA_RECONCILE_LIST, GEA_REFRESH_LIST, GEA_REGISTER_COND, GEA_REGISTER_MAP, GEA_RENDERED, GEA_REORDER_CHILDREN, GEA_REQUEST_RENDER, GEA_RESET_CHILD_TREE, GEA_RESET_ELS, GEA_ROUTER, GEA_ROUTER_DEPTH, GEA_ROUTES_APPLIED, GEA_SELF_LISTENERS, GEA_SELF_PROXY, GEA_SETUP_EVENT_DIRECTIVES, GEA_SETUP_LOCAL_STATE_OBSERVERS, GEA_SETUP_REFS, GEA_SKIP_ITEM_HANDLER, GEA_STATIC_ESCAPE_HTML, GEA_STATIC_SANITIZE_ATTR, GEA_STORE_ADD_DESCENDANTS_FOR_OBJECT_REPLACEMENT, GEA_STORE_ADD_OBSERVER, GEA_STORE_CLEAR_ARRAY_INDEX_CACHE, GEA_STORE_COLLECT_DESCENDANT_OBSERVER_NODES, GEA_STORE_COLLECT_MATCHING_OBSERVER_NODES, GEA_STORE_COLLECT_MATCHING_OBSERVER_NODES_FROM_NODE, GEA_STORE_CREATE_PROXY, GEA_STORE_DELIVER_ARRAY_ITEM_PROP_BATCH, GEA_STORE_DELIVER_KNOWN_ARRAY_ITEM_PROP_BATCH, GEA_STORE_DELIVER_TOP_LEVEL_BATCH, GEA_STORE_EMIT_CHANGES, GEA_STORE_FLUSH_CHANGES, GEA_STORE_GET_BROWSER_ROOT_PROXY_HANDLER_FOR_TESTS, GEA_STORE_GET_CACHED_ARRAY_META, GEA_STORE_GET_DIRECT_TOP_LEVEL_OBSERVED_VALUE, GEA_STORE_GET_OBSERVER_NODE, GEA_STORE_GET_TOP_LEVEL_OBSERVED_VALUE, GEA_STORE_INTERCEPT_ARRAY_ITERATOR, GEA_STORE_INTERCEPT_ARRAY_METHOD, GEA_STORE_NORMALIZE_BATCH, GEA_STORE_NOTIFY_HANDLERS, GEA_STORE_NOTIFY_HANDLERS_WITH_VALUE, GEA_STORE_QUEUE_CHANGE, GEA_STORE_QUEUE_DIRECT_ARRAY_ITEM_PRIMITIVE_CHANGE, GEA_STORE_ROOT, GEA_STORE_SCHEDULE_FLUSH, GEA_STORE_TRACK_PENDING_CHANGE, GEA_SWAP_CHILD, GEA_SWAP_STATE_CHILDREN, GEA_SYNC_AUTOFOCUS, GEA_SYNC_DOM_REFS, GEA_SYNC_ITEMS, GEA_SYNC_MAP, GEA_SYNC_UNRENDERED_LIST_ITEMS, GEA_SYNC_VALUE_PROPS, GEA_TEARDOWN_SELF_LISTENERS, GEA_UPDATE_PROPS, GEA_UPDATE_TEXT, Link, Outlet, Router, RouterView, Store, applyListChanges, clearUidProvider, createRouter, gea as default, findPropertyDescriptor, geaCondPatchedSymbol, geaCondValueSymbol, __escapeHtml as geaEscapeHtml, geaListItemsSymbol, geaObservePrevSymbol, geaPrevGuardSymbol, __sanitizeAttr as geaSanitizeAttr, h, isClassConstructorValue, matchRoute, resetUidCounter, rootDeleteProperty, rootGetValue, rootSetValue, router, setUidProvider };
 
 //# sourceMappingURL=index.mjs.map

@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
+import { GEA_REQUEST_RENDER, GEA_UPDATE_PROPS } from '@geajs/core'
 import test from 'node:test'
+import { geaListItemsSymbol } from '../../../gea/src/lib/symbols'
 import { installDom, flushMicrotasks } from '../../../../tests/helpers/jsdom-setup'
-import { compileJsxComponent, loadRuntimeModules } from '../helpers/compile'
+import { compileJsxComponent, loadComponentUnseeded, loadRuntimeModules } from '../helpers/compile'
 
 test('compiled child props stay reactive for imported store state', async () => {
   const restoreDom = installDom()
@@ -240,7 +242,7 @@ test('compiled child option select updates in place without leaked click attrs o
     optionB?.dispatchEvent(new window.Event('click', { bubbles: true }))
     await flushMicrotasks()
 
-    view.__geaUpdateProps({ selectedId: optionsStore.selected })
+    view[GEA_UPDATE_PROPS]({ selectedId: optionsStore.selected })
     await flushMicrotasks()
 
     const sectionAfter = root.querySelector('.section-card')
@@ -390,10 +392,10 @@ test('option select patches in place without full rerender (showBack + arrow fun
     view.render(root)
     await flushMicrotasks()
 
-    // --- spy on __geaRequestRender at every level ---
+    // --- spy on [GEA_REQUEST_RENDER] at every level ---
     let parentRerenders = 0
-    const origParentRender = view.__geaRequestRender.bind(view)
-    view.__geaRequestRender = () => {
+    const origParentRender = view[GEA_REQUEST_RENDER].bind(view)
+    view[GEA_REQUEST_RENDER] = () => {
       parentRerenders++
       return origParentRender()
     }
@@ -401,19 +403,19 @@ test('option select patches in place without full rerender (showBack + arrow fun
     const optionStepChild = view._optionStep2 ?? view._optionStep
     assert.ok(optionStepChild, 'OptionStep child must exist after render')
     let childRerenders = 0
-    const origChildRender = optionStepChild.__geaRequestRender.bind(optionStepChild)
-    optionStepChild.__geaRequestRender = () => {
+    const origChildRender = optionStepChild[GEA_REQUEST_RENDER].bind(optionStepChild)
+    optionStepChild[GEA_REQUEST_RENDER] = () => {
       childRerenders++
       return origChildRender()
     }
 
-    const optionItems = optionStepChild._optionsItems
+    const optionItems = optionStepChild[geaListItemsSymbol('options')] as unknown[] | undefined
     assert.ok(optionItems?.length > 0, 'OptionItem array should be populated')
     let itemRerenders = 0
     for (const item of optionItems) {
-      if (!item.__geaRequestRender) continue
-      const origItemRender = item.__geaRequestRender.bind(item)
-      item.__geaRequestRender = () => {
+      if (!item[GEA_REQUEST_RENDER]) continue
+      const origItemRender = item[GEA_REQUEST_RENDER].bind(item)
+      item[GEA_REQUEST_RENDER] = () => {
         itemRerenders++
         return origItemRender()
       }
@@ -436,9 +438,9 @@ test('option select patches in place without full rerender (showBack + arrow fun
     await flushMicrotasks()
 
     // --- assert zero full rerenders at all levels ---
-    assert.equal(parentRerenders, 0, `ParentView must NOT call __geaRequestRender (got ${parentRerenders})`)
-    assert.equal(childRerenders, 0, `OptionStep must NOT call __geaRequestRender (got ${childRerenders})`)
-    assert.equal(itemRerenders, 0, `OptionItem must NOT call __geaRequestRender (got ${itemRerenders})`)
+    assert.equal(parentRerenders, 0, `ParentView must NOT call [GEA_REQUEST_RENDER] (got ${parentRerenders})`)
+    assert.equal(childRerenders, 0, `OptionStep must NOT call [GEA_REQUEST_RENDER] (got ${childRerenders})`)
+    assert.equal(itemRerenders, 0, `OptionItem must NOT call [GEA_REQUEST_RENDER] (got ${itemRerenders})`)
 
     // --- assert DOM identity preserved (no replace, just patch) ---
     const sectionAfter = root.querySelector('.section-card')
@@ -609,7 +611,7 @@ test('component getter displayLabel text updates when value prop changes (Select
     const labelEl = () => view.el.querySelector('.select-value-text')
     assert.equal(labelEl()?.textContent, 'Alpha', 'initial label matches selected option')
 
-    view.__geaUpdateProps({ value: 'b', options })
+    view[GEA_UPDATE_PROPS]({ value: 'b', options })
     await flushMicrotasks()
 
     assert.equal(
@@ -1041,9 +1043,9 @@ test('Link with plain text children renders anchor content, not raw template exp
   const restoreDom = installDom()
 
   try {
-    const seed = `runtime-${Date.now()}-link-text-children`
-    const [{ default: Component }] = await Promise.all([import(`../../../gea/src/lib/base/component.tsx?${seed}`)])
-    const { default: Link } = await import(`../../../gea/src/lib/router/link.ts?${seed}`)
+    // Same unseeded Component module as `link.ts` — seeded `component.tsx?*` breaks Link's private methods.
+    const Component = await loadComponentUnseeded()
+    const { default: Link } = await import('../../../gea/src/lib/router/link.ts')
 
     const Home = await compileJsxComponent(
       `
@@ -1089,9 +1091,8 @@ test('Link child component must not collide with native <link> tag', async () =>
   const restoreDom = installDom()
 
   try {
-    const seed = `runtime-${Date.now()}-link-child`
-    const [{ default: Component }] = await Promise.all([import(`../../../gea/src/lib/base/component.tsx?${seed}`)])
-    const { default: Link } = await import(`../../../gea/src/lib/router/link.ts?${seed}`)
+    const Component = await loadComponentUnseeded()
+    const { default: Link } = await import('../../../gea/src/lib/router/link.ts')
 
     const Parent = await compileJsxComponent(
       `

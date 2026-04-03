@@ -1,4 +1,12 @@
-import { resetUidCounter } from '@geajs/core'
+import {
+  GEA_ATTACH_BINDINGS,
+  GEA_ELEMENT,
+  GEA_INSTANTIATE_CHILD_COMPONENTS,
+  GEA_MOUNT_COMPILED_CHILD_COMPONENTS,
+  GEA_RENDERED,
+  GEA_SETUP_EVENT_DIRECTIVES,
+  resetUidCounter,
+} from '@geajs/core'
 import type { GeaComponentConstructor, StoreRegistry } from './types'
 import { STORE_IMPL_OWN_KEYS } from './types'
 
@@ -59,14 +67,14 @@ export function hydrate(
   const app = new App()
 
   // Set the element to the existing DOM content
-  app.element_ = element.firstElementChild
-  app.rendered_ = true
+  ;(app as any)[GEA_ELEMENT] = element.firstElementChild
+  ;(app as any)[GEA_RENDERED] = true
 
   // Attach reactivity bindings (observers, events)
-  if (typeof app.attachBindings_ === 'function') app.attachBindings_()
-  if (typeof app.mountCompiledChildComponents_ === 'function') app.mountCompiledChildComponents_()
-  if (typeof app.instantiateChildComponents_ === 'function') app.instantiateChildComponents_()
-  if (typeof app.setupEventDirectives_ === 'function') app.setupEventDirectives_()
+  if (typeof app[GEA_ATTACH_BINDINGS] === 'function') app[GEA_ATTACH_BINDINGS]()
+  if (typeof app[GEA_MOUNT_COMPILED_CHILD_COMPONENTS] === 'function') app[GEA_MOUNT_COMPILED_CHILD_COMPONENTS]()
+  if (typeof app[GEA_INSTANTIATE_CHILD_COMPONENTS] === 'function') app[GEA_INSTANTIATE_CHILD_COMPONENTS]()
+  if (typeof app[GEA_SETUP_EVENT_DIRECTIVES] === 'function') app[GEA_SETUP_EVENT_DIRECTIVES]()
   if (typeof app.onAfterRender === 'function') app.onAfterRender()
   if (typeof app.onAfterRenderHooks === 'function') app.onAfterRenderHooks()
 

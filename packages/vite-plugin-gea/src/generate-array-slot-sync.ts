@@ -10,7 +10,13 @@ import { ITEM_IS_KEY } from './analyze-helpers.ts'
 import { buildComponentPropsExpression, collectTemplateSetupStatements } from './transform-attributes.ts'
 import type { TemplateSetupContext } from './transform-attributes.ts'
 import { transformJSXExpression, transformJSXFragmentToTemplate } from './transform-jsx.ts'
-import { getJSXTagName, isComponentTag, pruneUnusedSetupDestructuring } from './utils.ts'
+import {
+  buildExprGeaMember,
+  buildThisGeaMember,
+  getJSXTagName,
+  isComponentTag,
+  pruneUnusedSetupDestructuring,
+} from './utils.ts'
 import { replacePropRefsInExpression, replacePropRefsInStatements } from './utils.ts'
 import { createRequire } from 'module'
 
@@ -34,8 +40,19 @@ function getArrayCapName(arrayPropName: string): string {
   return arrayPropName.charAt(0).toUpperCase() + arrayPropName.slice(1)
 }
 
+/** Unique binding id per list: `const _gea_todos_items = geaListItemsSymbol('todos')` */
 export function getComponentArrayItemsName(arrayPropName: string): string {
-  return `_${arrayPropName}Items`
+  const safe = arrayPropName.replace(/[^a-zA-Z0-9_$]/g, '_')
+  return `_gea_${safe}_items`
+}
+
+export function buildComponentArrayItemsSymbolDecl(arrayPropName: string, itemsBinding: string): t.Statement {
+  return t.variableDeclaration('const', [
+    t.variableDeclarator(
+      t.identifier(itemsBinding),
+      t.callExpression(t.identifier('geaListItemsSymbol'), [t.stringLiteral(arrayPropName)]),
+    ),
+  ])
 }
 
 export function getComponentArrayBuildMethodName(arrayPropName: string): string {
@@ -53,8 +70,10 @@ export function getComponentArrayMountMethodName(arrayPropName: string): string 
 export interface ComponentArrayResult {
   /** The __itemProps_* method */
   itemPropsMethod: t.ClassMethod
-  /** Constructor init statement: this._todosItems = (store.todos ?? []).map(...) */
+  /** Constructor init statement: this[_gea_todos_items] = (store.todos ?? []).map(...) */
   constructorInit: t.Statement
+  /** Module-level: const _gea_todos_items = geaListItemsSymbol('todos') */
+  symbolConstDecl: t.Statement
   /** The component tag (constructor) name, e.g. 'TodoItem' */
   componentTag: string
   /** The container binding ID for __el() lookup (e.g. 'list') */
@@ -169,6 +188,7 @@ export function generateComponentArrayResult(
   }
 
   const itemsName = getComponentArrayItemsName(arrayPropName)
+  const symbolConstDecl = buildComponentArrayItemsSymbolDecl(arrayPropName, itemsName)
 
   let arrAccessExpr: t.Expression
   let arrSetupStatements: t.Statement[] = []
@@ -204,7 +224,7 @@ export function generateComponentArrayResult(
 
   // Inside __itemProps_* and __refresh*Items, store reads must bypass the proxy
   // to avoid re-entrant observation cycles (e.g. reading a computed getter that
-  // depends on the array being iterated). Replace `storeVar` with `storeVar.__raw`
+  // depends on the array being iterated). Replace `storeVar` with `storeVar[GEA_PROXY_RAW]`
   // in setup destructuring statements.
   const storeVarNames = new Set<string>()
   if (storeArrayAccess) storeVarNames.add(storeArrayAccess.storeVar)
@@ -222,7 +242,7 @@ export function generateComponentArrayResult(
       if (!t.isVariableDeclaration(stmt)) continue
       for (const decl of stmt.declarations) {
         if (t.isIdentifier(decl.init) && storeVarNames.has(decl.init.name)) {
-          decl.init = t.memberExpression(t.identifier(decl.init.name), t.identifier('__raw'))
+          decl.init = buildExprGeaMember(t.identifier(decl.init.name), 'GEA_PROXY_RAW')
         }
       }
     }
@@ -245,7 +265,7 @@ export function generateComponentArrayResult(
   // Constructor init: this._todosItems = (store.todos ?? []).map((opt, __k) => this.__child(Ctor, this.__itemProps_todos(opt), key))
   const mapParams: t.Identifier[] = [t.identifier('opt')]
   if (indexVar || !itemIdProp) mapParams.push(t.identifier('__k'))
-  const childCall = t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('__child')), [
+  const childCall = t.callExpression(buildThisGeaMember('GEA_CHILD'), [
     t.identifier(comp.componentTag),
     t.cloneNode(itemPropsCall, true),
     t.cloneNode(keyExpr, true),
@@ -255,12 +275,13 @@ export function generateComponentArrayResult(
   const parenthesized = t.parenthesizedExpression ? t.parenthesizedExpression(nullishCoalesce) : nullishCoalesce
   const mapCallExpr = t.callExpression(t.memberExpression(parenthesized, t.identifier('map')), [mapCallback])
   const constructorInit = t.expressionStatement(
-    t.assignmentExpression('=', t.memberExpression(t.thisExpression(), t.identifier(itemsName)), mapCallExpr),
+    t.assignmentExpression('=', t.memberExpression(t.thisExpression(), t.identifier(itemsName), true), mapCallExpr),
   )
 
   return {
     itemPropsMethod,
     constructorInit,
+    symbolConstDecl,
     componentTag: comp.componentTag,
     containerBindingId: um.containerBindingId,
     containerUserIdExpr: um.containerUserIdExpr,

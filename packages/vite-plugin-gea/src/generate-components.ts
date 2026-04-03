@@ -2,7 +2,7 @@ import * as t from '@babel/types'
 import { appendToBody, id, jsMethod } from 'eszter'
 import type { NodePath } from '@babel/traverse'
 import type { ChildComponent } from './ir.ts'
-import { pruneUnusedSetupDestructuring, loggingCatchClause } from './utils.ts'
+import { buildThisGeaMember, pruneUnusedSetupDestructuring, loggingCatchClause } from './utils.ts'
 import { pascalToKebabCase } from './transform-jsx.ts'
 
 export function childHasNoProps(child: ChildComponent): boolean {
@@ -113,10 +113,7 @@ export function injectChildComponents(
                 t.assignmentExpression(
                   '=',
                   t.memberExpression(t.thisExpression(), t.identifier(backingField)),
-                  t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('__child')), [
-                    t.identifier(child.tagName),
-                    propsArg,
-                  ]),
+                  t.callExpression(buildThisGeaMember('GEA_CHILD'), [t.identifier(child.tagName), propsArg]),
                 ),
               ),
             ),
@@ -205,10 +202,7 @@ function buildInstanceStatements(
         t.assignmentExpression(
           '=',
           t.memberExpression(t.thisExpression(), t.identifier(child.instanceVar)),
-          t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('__child')), [
-            t.identifier(child.tagName),
-            propsArg,
-          ]),
+          t.callExpression(buildThisGeaMember('GEA_CHILD'), [t.identifier(child.tagName), propsArg]),
         ),
       ),
     )

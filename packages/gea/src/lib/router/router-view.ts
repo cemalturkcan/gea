@@ -1,10 +1,20 @@
 import Component from '../base/component'
+import {
+  GEA_CHILD_COMPONENTS,
+  GEA_ELEMENT,
+  GEA_IS_ROUTER_OUTLET,
+  GEA_PARENT_COMPONENT,
+  GEA_PROXY_GET_RAW_TARGET,
+} from '../symbols'
 import type { Router } from './router'
+
+function engineThis(c: object): any {
+  return (c as any)[GEA_PROXY_GET_RAW_TARGET] ?? c
+}
 import type { RouteMap } from './types'
 import Outlet from './outlet'
 
 export default class RouterView extends Component<{ router?: Router; routes?: RouteMap }> {
-  __isRouterOutlet = true
   _routerDepth = 0
 
   private _router: Router | null = null
@@ -57,7 +67,7 @@ export default class RouterView extends Component<{ router?: Router; routes?: Ro
     if (this._currentChild) {
       this._currentChild.dispose()
       this._currentChild = null
-      this.__childComponents = []
+      this[GEA_CHILD_COMPONENTS] = []
     }
     this._currentComponentClass = null
     this._lastCacheKey = null
@@ -79,7 +89,10 @@ export default class RouterView extends Component<{ router?: Router; routes?: Ro
     const router = this._getRouter()
     if (!router) return
 
-    if (this._currentChild && (!this._currentChild.element_ || !this.el.contains(this._currentChild.element_))) {
+    if (
+      this._currentChild &&
+      (!engineThis(this._currentChild)[GEA_ELEMENT] || !this.el.contains(engineThis(this._currentChild)[GEA_ELEMENT]))
+    ) {
       this._clearCurrent()
     }
 
@@ -112,11 +125,11 @@ export default class RouterView extends Component<{ router?: Router; routes?: Ro
 
     if (this._isClassComponent(item.component)) {
       const child = new item.component(item.props)
-      child.parentComponent = this
+      engineThis(child)[GEA_PARENT_COMPONENT] = this
       child.render(this.el)
       this._currentChild = child
       this._currentComponentClass = item.component
-      this.__childComponents = [child]
+      this[GEA_CHILD_COMPONENTS] = [child]
     }
 
     this._lastCacheKey = item.cacheKey
@@ -133,3 +146,9 @@ export default class RouterView extends Component<{ router?: Router; routes?: Ro
     super.dispose()
   }
 }
+
+Object.defineProperty(RouterView.prototype, GEA_IS_ROUTER_OUTLET, {
+  value: true,
+  enumerable: false,
+  configurable: true,
+})

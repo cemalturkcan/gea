@@ -1187,7 +1187,9 @@ function handleArrayMap(
         itemVariable: itemVar,
         ...(indexVar ? { indexVariable: indexVar } : {}),
         itemIdProperty: itemIdProp,
-        ...(!itemIdProp && hasExplicitItemKey(itemTemplate) ? { keyExpression: t.cloneNode(extractKeyExpression(itemTemplate)!, true) } : {}),
+        ...(!itemIdProp && hasExplicitItemKey(itemTemplate)
+          ? { keyExpression: t.cloneNode(extractKeyExpression(itemTemplate)!, true) }
+          : {}),
         rootHasUserId: hasRootUserIdAttribute(itemTemplate),
         computationExpr: t.cloneNode(normalizedArrayExpr, true),
         computationSetupStatements: computationSetupStatements.map((stmt) => t.cloneNode(stmt, true) as t.Statement),
@@ -1311,6 +1313,39 @@ function handleArrayMap(
     conditionalBindings,
     ...(cbBodyStmts.length > 0 ? { callbackBodyStatements: cbBodyStmts } : {}),
   })
+}
+
+/** True if conditional branch JSX contains a compiled child (PascalCase / member component tag). */
+function expressionContainsComponentJSX(node: t.Node): boolean {
+  if (t.isJSXElement(node)) {
+    const name = node.openingElement.name
+    if (t.isJSXIdentifier(name) && /^[A-Z]/.test(name.name)) return true
+    if (t.isJSXMemberExpression(name)) {
+      let cur: t.JSXIdentifier | t.JSXMemberExpression = name
+      while (t.isJSXMemberExpression(cur)) cur = cur.object as t.JSXIdentifier | t.JSXMemberExpression
+      if (t.isJSXIdentifier(cur) && /^[A-Z]/.test(cur.name)) return true
+    }
+    for (const c of node.children) {
+      if (expressionContainsComponentJSX(c)) return true
+    }
+    return false
+  }
+  if (t.isJSXExpressionContainer(node) && !t.isJSXEmptyExpression(node.expression)) {
+    return expressionContainsComponentJSX(node.expression)
+  }
+  if (t.isLogicalExpression(node)) {
+    return expressionContainsComponentJSX(node.left) || expressionContainsComponentJSX(node.right)
+  }
+  if (t.isConditionalExpression(node)) {
+    return expressionContainsComponentJSX(node.consequent) || expressionContainsComponentJSX(node.alternate)
+  }
+  if (t.isParenthesizedExpression(node)) {
+    return expressionContainsComponentJSX(node.expression)
+  }
+  if (t.isJSXFragment(node)) {
+    return node.children.some((c) => expressionContainsComponentJSX(c))
+  }
+  return false
 }
 
 function handleTextBinding(
@@ -1473,6 +1508,7 @@ function handleTextBinding(
             conditionExpr: t.cloneNode(conditionExpr, true),
             setupStatements: condSetupStatements.map((s) => t.cloneNode(s, true) as t.Statement),
             htmlSetupStatements: fullSetupStatements.map((s) => t.cloneNode(s, true) as t.Statement),
+            ...(expressionContainsComponentJSX(expr) ? { hasCompiledChildren: true } : {}),
             dependentPropNames: [...dependentProps],
             dependencies: dependencies.map((dep) => ({
               observeKey: dep.observeKey,
@@ -1483,6 +1519,7 @@ function handleTextBinding(
           })
           conditionalSlotNodeMap?.set(expr, slotId)
         }
+        return
       }
     }
   }

@@ -44999,6 +44999,7 @@ function jsAs(kind) {
   });
 }
 var jsMethod = jsAs("ClassMethod");
+var jsImport = jsAs("ImportDeclaration");
 function jsExpr(stringsOrTemplate, ...holes) {
   const stmts = buildAST(normalizeTemplateInput(stringsOrTemplate, holes), holes);
   if (stmts.length !== 1) {
@@ -45102,6 +45103,43 @@ function getDirectChildElements(children) {
       selectorSegment: `${tagName}:nth-of-type(${tagCount})`
     };
   });
+}
+function ensureImport(ast, source, specifier, isDefault = false) {
+  const program = ast.program;
+  const buildSpecifier = () => isDefault ? libExports.importDefaultSpecifier(libExports.identifier(specifier)) : libExports.importSpecifier(libExports.identifier(specifier), libExports.identifier(specifier));
+  if (isDefault) {
+    const alreadyHasDefault = program.body.some(
+      (node) => libExports.isImportDeclaration(node) && node.source.value === source && node.specifiers.some((s) => libExports.isImportDefaultSpecifier(s))
+    );
+    if (alreadyHasDefault) return false;
+    const insertIndex = Math.max(
+      0,
+      program.body.reduce((idx, node, i) => libExports.isImportDeclaration(node) ? i + 1 : idx, 0)
+    );
+    program.body.splice(
+      insertIndex,
+      0,
+      isDefault ? jsImport`import ${id(specifier)} from ${source};` : jsImport`import { ${id(specifier)} } from ${source};`
+    );
+    return true;
+  }
+  const declaration = program.body.find((node) => libExports.isImportDeclaration(node) && node.source.value === source);
+  if (!declaration) {
+    const insertIndex = Math.max(
+      0,
+      program.body.reduce((idx, node, i) => libExports.isImportDeclaration(node) ? i + 1 : idx, 0)
+    );
+    program.body.splice(insertIndex, 0, jsImport`import { ${id(specifier)} } from ${source};`);
+    return true;
+  }
+  const exists = declaration.specifiers.some(
+    (s) => libExports.isImportSpecifier(s) && libExports.isIdentifier(s.local) && s.local.name === specifier
+  );
+  if (!exists) {
+    declaration.specifiers.push(buildSpecifier());
+    return true;
+  }
+  return false;
 }
 function buildMemberChain(base, path) {
   return buildMemberChainFromParts(base, path ? path.split(".") : []);
@@ -45347,14 +45385,14 @@ function replaceThisPropsRootWithValueParam(expr, propName) {
         visit(e.object),
         e.property,
         e.computed,
-        e.optional
+        e.optional ?? true
       );
     }
     if (libExports.isOptionalCallExpression(e)) {
       return libExports.optionalCallExpression(
         visit(e.callee),
         e.arguments.map((a) => libExports.isExpression(a) ? visit(a) : a),
-        e.optional
+        e.optional ?? true
       );
     }
     if (libExports.isCallExpression(e)) {
@@ -45484,14 +45522,14 @@ function optionalizeMemberChainsFromBindingRoot(expr, rootName) {
         visit(e.object),
         e.property,
         e.computed,
-        e.optional
+        e.optional ?? true
       );
     }
     if (libExports.isOptionalCallExpression(e)) {
       return libExports.optionalCallExpression(
         visit(e.callee),
         e.arguments.map((a) => libExports.isExpression(a) ? visit(a) : a),
-        e.optional
+        e.optional ?? true
       );
     }
     if (libExports.isCallExpression(e)) {
@@ -45617,14 +45655,14 @@ function optionalizeMemberChainsAfterComputedItemKey(expr, itemKeyName) {
         visit(e.object),
         e.property,
         e.computed,
-        e.optional
+        e.optional ?? true
       );
     }
     if (libExports.isOptionalCallExpression(e)) {
       return libExports.optionalCallExpression(
         visit(e.callee),
         e.arguments.map((a) => libExports.isExpression(a) ? visit(a) : a),
-        e.optional
+        e.optional ?? true
       );
     }
     if (libExports.isCallExpression(e)) {
@@ -45785,14 +45823,14 @@ function replacePropRefsInNode(node, propNames, wholeParamName, propDefaults) {
       r(node.object),
       node.property,
       node.computed,
-      node.optional
+      node.optional ?? true
     );
   }
   if (libExports.isOptionalCallExpression(node)) {
     return libExports.optionalCallExpression(
       r(node.callee),
       node.arguments.map((a) => libExports.isExpression(a) ? r(a) : a),
-      node.optional
+      node.optional ?? true
     );
   }
   if (libExports.isConditionalExpression(node)) {
@@ -45928,8 +45966,8 @@ function wrapEventsGetterWithCache(getter) {
   const returnStmt = body.find((s) => libExports.isReturnStatement(s) && s.argument !== null);
   if (!returnStmt?.argument) return;
   const cachedProp = libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__evts"));
-  const elementProp = libExports.memberExpression(libExports.thisExpression(), libExports.identifier("element_"));
-  const tmpId = libExports.identifier("__geaEvtsResult");
+  const elementProp = libExports.memberExpression(libExports.thisExpression(), libExports.identifier("GEA_ELEMENT"), true);
+  const tmpId = libExports.identifier("geaEvtsResult");
   const objectExpr = returnStmt.argument;
   const returnIndex = body.indexOf(returnStmt);
   body.splice(
@@ -46391,7 +46429,8 @@ function stmtUsesPropRefreshCall(stmt) {
 }
 function containsPropRefreshCall(node) {
   if (libExports.isMemberExpression(node) && libExports.isIdentifier(node.property)) {
-    if (node.property.name === "__geaUpdateProps" || node.property.name.startsWith("__refresh")) return true;
+    if (node.property.name === "GEA_UPDATE_PROPS" || node.property.name.startsWith("__refresh"))
+      return true;
   }
   const keys = libExports.VISITOR_KEYS[node.type];
   if (!keys) return false;
@@ -46457,6 +46496,68 @@ function loggingCatchClause(extra = []) {
       ...extra
     ])
   );
+}
+function buildThisGeaMember(symExportName) {
+  return libExports.memberExpression(libExports.thisExpression(), libExports.identifier(symExportName), true);
+}
+function buildThisGeaCall(symExportName, args = []) {
+  return libExports.callExpression(buildThisGeaMember(symExportName), args);
+}
+function buildExprGeaMember(expr, symExportName) {
+  return libExports.memberExpression(expr, libExports.identifier(symExportName), true);
+}
+const GEA_COMPILER_SYMBOL_IMPORTS = [
+  "GEA_RENDERED",
+  "GEA_ELEMENT",
+  "GEA_MAPS",
+  "GEA_CONDS",
+  "GEA_RESET_ELS",
+  "GEA_OBSERVE",
+  "GEA_OBSERVE_LIST",
+  "GEA_EL",
+  "GEA_UPDATE_TEXT",
+  "GEA_REQUEST_RENDER",
+  "GEA_UPDATE_PROPS",
+  "GEA_SYNC_MAP",
+  "GEA_REGISTER_MAP",
+  "GEA_PATCH_COND",
+  "GEA_REGISTER_COND",
+  "GEA_REFRESH_LIST",
+  "GEA_RECONCILE_LIST",
+  "GEA_ENSURE_ARRAY_CONFIGS",
+  "GEA_APPLY_LIST_CHANGES",
+  "GEA_INSTANTIATE_CHILD_COMPONENTS",
+  "GEA_MOUNT_COMPILED_CHILD_COMPONENTS",
+  "GEA_SWAP_CHILD",
+  "GEA_SWAP_STATE_CHILDREN",
+  "GEA_CHILD",
+  "GEA_LIST_CONFIG_REFRESHING",
+  "GEA_DOM_KEY",
+  "GEA_DOM_ITEM",
+  "GEA_DOM_PROPS",
+  "GEA_HANDLE_ITEM_HANDLER",
+  "GEA_MAP_CONFIG_TPL",
+  "GEA_MAP_CONFIG_PREV",
+  "GEA_MAP_CONFIG_COUNT",
+  "geaCondPatchedSymbol",
+  "geaCondValueSymbol",
+  "geaObservePrevSymbol",
+  "geaPrevGuardSymbol",
+  "GEA_SETUP_LOCAL_STATE_OBSERVERS",
+  "GEA_CLONE_TEMPLATE",
+  "GEA_SETUP_REFS",
+  "GEA_ON_PROP_CHANGE",
+  "GEA_SELF_PROXY",
+  "GEA_STORE_ROOT",
+  "GEA_PROXY_RAW",
+  "GEA_PROXY_GET_TARGET",
+  "geaSanitizeAttr",
+  "geaEscapeHtml"
+];
+function ensureGeaCompilerSymbolImports(ast) {
+  for (const name of GEA_COMPILER_SYMBOL_IMPORTS) {
+    ensureImport(ast, "@geajs/core", name);
+  }
 }
 
 function getTemplateParamBinding(param) {
@@ -49430,7 +49531,7 @@ function escapeHtml$1(str) {
 const URL_ATTRS$2 = /* @__PURE__ */ new Set(["href", "src", "action", "formaction", "data", "cite", "poster", "background"]);
 function wrapWithSanitizeAttr(attrName, expr) {
   if (!URL_ATTRS$2.has(attrName)) return expr;
-  return libExports.callExpression(libExports.identifier("__sanitizeAttr"), [
+  return libExports.callExpression(libExports.identifier("geaSanitizeAttr"), [
     libExports.stringLiteral(attrName),
     libExports.callExpression(libExports.identifier("String"), [expr])
   ]);
@@ -50246,9 +50347,7 @@ function processChildren(children, parts, ctx, elementPath, dcCursor, directChil
           expr = libExports.logicalExpression("||", expr, libExports.stringLiteral(""));
         }
         const skipEscape = childCallInfo || isChildrenPropAccess(rawExpr) || expressionContainsJSX(rawExpr) || ctx.inMapCallback || callsJSXReturningProperty(rawExpr, ctx.classBody);
-        const safeExpr = skipEscape ? expr : libExports.callExpression(libExports.identifier("__escapeHtml"), [
-          libExports.callExpression(libExports.identifier("String"), [expr])
-        ]);
+        const safeExpr = skipEscape ? expr : libExports.callExpression(libExports.identifier("geaEscapeHtml"), [libExports.callExpression(libExports.identifier("String"), [expr])]);
         parts.push({ type: "expression", value: safeExpr });
       }
     }
@@ -50670,9 +50769,7 @@ function generatePatchItemMethod(arrayMap, templatePropNames, wholeParamName, te
   const keyRenames = arrayMap.indexVariable ? /* @__PURE__ */ new Map([[arrayMap.indexVariable, "__idx"]]) : void 0;
   const rawItemIdExpr = arrayMap.keyExpression ? libExports.cloneNode(rewriteItemVarInExpression(arrayMap.keyExpression, arrayMap.itemVariable, "item", keyRenames), true) : itemIdProperty && itemIdProperty !== ITEM_IS_KEY ? libExports.logicalExpression("??", buildOptionalMemberChain(libExports.identifier("item"), itemIdProperty), libExports.identifier("item")) : libExports.identifier("item");
   const itemIdExpr = libExports.callExpression(libExports.identifier("String"), [rawItemIdExpr]);
-  body.push(
-    libExports.expressionStatement(libExports.assignmentExpression("=", libExports.memberExpression(elVar, libExports.identifier("__geaKey")), itemIdExpr))
-  );
+  body.push(libExports.expressionStatement(libExports.assignmentExpression("=", buildExprGeaMember(elVar, "GEA_DOM_KEY"), itemIdExpr)));
   const rowElsProp = `__rowEls_${arrayMap.containerBindingId ?? "list"}`;
   const privateElsRef = libExports.memberExpression(libExports.thisExpression(), libExports.privateName(libExports.identifier(rowElsProp)));
   body.push(
@@ -50694,9 +50791,7 @@ function generatePatchItemMethod(arrayMap, templatePropNames, wholeParamName, te
   );
   const patchPrivateFields = [rowElsProp];
   body.push(
-    libExports.expressionStatement(
-      libExports.assignmentExpression("=", libExports.memberExpression(elVar, libExports.identifier("__geaItem")), libExports.identifier("item"))
-    )
+    libExports.expressionStatement(libExports.assignmentExpression("=", buildExprGeaMember(elVar, "GEA_DOM_ITEM"), libExports.identifier("item")))
   );
   const params = [libExports.identifier("row"), libExports.identifier("item"), libExports.identifier("__prevItem")];
   if (arrayMap.indexVariable) params.push(libExports.identifier("__idx"));
@@ -51018,7 +51113,7 @@ function generateCreateItemMethod(arrayMap, templatePropNames, wholeParamName, t
           libExports.expressionStatement(
             libExports.assignmentExpression(
               "=",
-              libExports.memberExpression(libExports.identifier("el"), libExports.identifier("__geaProps")),
+              buildExprGeaMember(libExports.identifier("el"), "GEA_DOM_PROPS"),
               libExports.objectExpression(propsProperties)
             )
           )
@@ -51059,7 +51154,7 @@ function generateCreateItemMethod(arrayMap, templatePropNames, wholeParamName, t
             libExports.assignmentExpression(
               "=",
               libExports.cloneNode(privateRsField),
-              libExports.memberExpression(libExports.identifier(arrayMap.storeVar), libExports.identifier("__raw"))
+              buildExprGeaMember(libExports.identifier(arrayMap.storeVar), "GEA_PROXY_RAW")
             )
           )
         )
@@ -51107,7 +51202,7 @@ function generateCreateItemMethod(arrayMap, templatePropNames, wholeParamName, t
     libExports.expressionStatement(
       libExports.assignmentExpression(
         "=",
-        libExports.memberExpression(cVar, libExports.identifier("__geaTpl")),
+        buildExprGeaMember(cVar, "GEA_MAP_CONFIG_TPL"),
         libExports.memberExpression(
           libExports.memberExpression(libExports.identifier("__tw"), libExports.identifier("content")),
           libExports.identifier("firstElementChild")
@@ -51117,7 +51212,7 @@ function generateCreateItemMethod(arrayMap, templatePropNames, wholeParamName, t
     libExports.expressionStatement(
       libExports.optionalCallExpression(
         libExports.optionalMemberExpression(
-          libExports.memberExpression(cVar, libExports.identifier("__geaTpl")),
+          buildExprGeaMember(cVar, "GEA_MAP_CONFIG_TPL"),
           libExports.identifier("removeAttribute"),
           false,
           true
@@ -51132,13 +51227,13 @@ function generateCreateItemMethod(arrayMap, templatePropNames, wholeParamName, t
       libExports.ifStatement(
         libExports.logicalExpression(
           "&&",
-          libExports.memberExpression(cVar, libExports.identifier("__geaTpl")),
-          libExports.memberExpression(libExports.memberExpression(cVar, libExports.identifier("__geaTpl")), libExports.identifier("className"))
+          buildExprGeaMember(cVar, "GEA_MAP_CONFIG_TPL"),
+          libExports.memberExpression(buildExprGeaMember(cVar, "GEA_MAP_CONFIG_TPL"), libExports.identifier("className"))
         ),
         libExports.expressionStatement(
           libExports.assignmentExpression(
             "=",
-            libExports.memberExpression(libExports.memberExpression(cVar, libExports.identifier("__geaTpl")), libExports.identifier("className")),
+            libExports.memberExpression(buildExprGeaMember(cVar, "GEA_MAP_CONFIG_TPL"), libExports.identifier("className")),
             libExports.stringLiteral("")
           )
         )
@@ -51147,19 +51242,19 @@ function generateCreateItemMethod(arrayMap, templatePropNames, wholeParamName, t
   }
   body.push(
     libExports.ifStatement(
-      libExports.unaryExpression("!", libExports.memberExpression(cVar, libExports.identifier("__geaTpl"))),
+      libExports.unaryExpression("!", buildExprGeaMember(cVar, "GEA_MAP_CONFIG_TPL")),
       libExports.blockStatement([libExports.tryStatement(libExports.blockStatement(tplInit), loggingCatchClause())])
     )
   );
   body.push(
     libExports.ifStatement(
-      libExports.memberExpression(cVar, libExports.identifier("__geaTpl")),
+      buildExprGeaMember(cVar, "GEA_MAP_CONFIG_TPL"),
       libExports.blockStatement([
         libExports.variableDeclaration("var", [
           libExports.variableDeclarator(
             elVar,
             libExports.callExpression(
-              libExports.memberExpression(libExports.memberExpression(cVar, libExports.identifier("__geaTpl")), libExports.identifier("cloneNode")),
+              libExports.memberExpression(buildExprGeaMember(cVar, "GEA_MAP_CONFIG_TPL"), libExports.identifier("cloneNode")),
               [libExports.booleanLiteral(true)]
             )
           )
@@ -51360,14 +51455,10 @@ function generateCreateItemMethod(arrayMap, templatePropNames, wholeParamName, t
   ) : itemIdProperty && itemIdProperty !== ITEM_IS_KEY ? libExports.logicalExpression("??", buildOptionalMemberChain(libExports.identifier("item"), itemIdProperty), libExports.identifier("item")) : libExports.identifier("item");
   const patchItemIdExpr = libExports.callExpression(libExports.identifier("String"), [rawPatchItemIdExpr]);
   body.push(
-    libExports.expressionStatement(
-      libExports.assignmentExpression("=", libExports.memberExpression(elVar, libExports.identifier("__geaKey")), patchItemIdExpr)
-    )
+    libExports.expressionStatement(libExports.assignmentExpression("=", buildExprGeaMember(elVar, "GEA_DOM_KEY"), patchItemIdExpr))
   );
   body.push(
-    libExports.expressionStatement(
-      libExports.assignmentExpression("=", libExports.memberExpression(elVar, libExports.identifier("__geaItem")), libExports.identifier("item"))
-    )
+    libExports.expressionStatement(libExports.assignmentExpression("=", buildExprGeaMember(elVar, "GEA_DOM_ITEM"), libExports.identifier("item")))
   );
   if (itemTemplateRootIsComponent && libExports.isJSXElement(arrayMap.itemTemplate)) {
     const propsProperties = [];
@@ -51398,11 +51489,7 @@ function generateCreateItemMethod(arrayMap, templatePropNames, wholeParamName, t
     if (propsProperties.length > 0) {
       body.push(
         libExports.expressionStatement(
-          libExports.assignmentExpression(
-            "=",
-            libExports.memberExpression(elVar, libExports.identifier("__geaProps")),
-            libExports.objectExpression(propsProperties)
-          )
+          libExports.assignmentExpression("=", buildExprGeaMember(elVar, "GEA_DOM_PROPS"), libExports.objectExpression(propsProperties))
         )
       );
     }
@@ -51968,7 +52055,7 @@ function generateCloneMembers(root, analysis, templateParams, sourceFile, import
     true
   );
   const cloneMethodBody = buildCloneTemplateBody(identityPatches, contentPatches, cloneCtx);
-  const cloneMethod = libExports.classMethod("method", libExports.identifier("__cloneTemplate"), [], libExports.blockStatement(cloneMethodBody));
+  const cloneMethod = libExports.classMethod("method", libExports.identifier("GEA_CLONE_TEMPLATE"), [], libExports.blockStatement(cloneMethodBody), true);
   return [staticField, cloneMethod];
 }
 function buildCloneTemplateBody(identityPatches, contentPatches, cloneCtx) {
@@ -52237,18 +52324,34 @@ function ensureMapItemHelper(classBody, ctx, helperName) {
     )
   );
   const method = jsMethod`${id(helperName)}(e) {}`;
-  method.body.body.push(
-    ...buildGeaItemDomWalk(),
-    ...jsBlockBody`
-      if (!__el) return null;
-      if (__el.__geaItem) return __el.__geaItem;
-      const __itemId = __el.__geaKey ?? (__el.getAttribute && __el.getAttribute('data-gea-item-id'));
-      if (__itemId == null) return null;
-      const __items = ${itemsExpr};
-      const __arr = Array.isArray(__items) ? __items : Array.isArray(__items?.__getTarget) ? __items.__getTarget : [];
-      return __arr.find(${findPredicate}) || __itemId;
-    `
-  );
+  if (!ctx.keyExpression && ctx.itemIdProperty && ctx.itemIdProperty !== ITEM_IS_KEY) {
+    method.body.body.push(
+      ...buildGeaItemDomWalk(),
+      ...jsBlockBody`
+        if (!__el) return null;
+        if (__el[GEA_DOM_ITEM]) return __el[GEA_DOM_ITEM];
+        const __itemId = __el[GEA_DOM_KEY] ?? (__el.getAttribute && __el.getAttribute('data-gea-item-id'));
+        if (__itemId == null) return null;
+        const __items = ${itemsExpr};
+        const __arr = Array.isArray(__items) ? __items : Array.isArray(__items?.[GEA_PROXY_GET_TARGET]) ? __items[GEA_PROXY_GET_TARGET] : [];
+        const __found = __arr.find(${findPredicate});
+        return __found != null ? __found : { ${ctx.itemIdProperty}: __itemId };
+      `
+    );
+  } else {
+    method.body.body.push(
+      ...buildGeaItemDomWalk(),
+      ...jsBlockBody`
+        if (!__el) return null;
+        if (__el[GEA_DOM_ITEM]) return __el[GEA_DOM_ITEM];
+        const __itemId = __el[GEA_DOM_KEY] ?? (__el.getAttribute && __el.getAttribute('data-gea-item-id'));
+        if (__itemId == null) return null;
+        const __items = ${itemsExpr};
+        const __arr = Array.isArray(__items) ? __items : Array.isArray(__items?.[GEA_PROXY_GET_TARGET]) ? __items[GEA_PROXY_GET_TARGET] : [];
+        return __arr.find(${findPredicate}) || __itemId;
+      `
+    );
+  }
   classBody.body.unshift(method);
 }
 function getLocalFunctionInSetup(name, setupStatements) {
@@ -52260,12 +52363,17 @@ function getLocalFunctionInSetup(name, setupStatements) {
   }
   return null;
 }
-function appendCompiledEventMethods(classBody, handlers, setupStatements = []) {
+function appendCompiledEventMethods(classBody, handlers, setupStatements = [], fileAst) {
   if (handlers.length === 0) return false;
   const paramContext = getTemplateParamContext(classBody);
   const mapHandlers = handlers.filter(
     (h) => Boolean(h.mapContext)
   );
+  if (mapHandlers.length > 0 && fileAst) {
+    ensureImport(fileAst, "@geajs/core", "GEA_MAPS");
+    ensureImport(fileAst, "@geajs/core", "GEA_DOM_KEY");
+    ensureImport(fileAst, "@geajs/core", "GEA_DOM_ITEM");
+  }
   const seenContexts = /* @__PURE__ */ new Set();
   for (const h of mapHandlers) {
     const key = getMapContextKey(h.mapContext);
@@ -52440,7 +52548,7 @@ function replacePropsObjectRefsInNode(node, propsObjectName) {
       replacePropsObjectRefsInNode(node.object, propsObjectName),
       node.property,
       node.computed,
-      node.optional
+      node.optional ?? true
     );
   }
   if (libExports.isOptionalCallExpression(node)) {
@@ -52449,7 +52557,7 @@ function replacePropsObjectRefsInNode(node, propsObjectName) {
       node.arguments.map(
         (a) => libExports.isExpression(a) ? replacePropsObjectRefsInNode(a, propsObjectName) : a
       ),
-      node.optional
+      node.optional ?? true
     );
   }
   if (libExports.isConditionalExpression(node)) {
@@ -52546,7 +52654,7 @@ function buildArrayItemsExpr(ctx, opts = {}) {
     return libExports.callExpression(
       libExports.memberExpression(
         libExports.memberExpression(
-          libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__geaMaps")),
+          libExports.memberExpression(libExports.thisExpression(), libExports.identifier("GEA_MAPS"), true),
           libExports.numericLiteral(mapIdx),
           true
         ),
@@ -52555,7 +52663,7 @@ function buildArrayItemsExpr(ctx, opts = {}) {
       []
     );
   }
-  const base = ctx.isImportedState ? opts.raw ? libExports.memberExpression(libExports.identifier(ctx.storeVar || "store"), libExports.identifier("__raw")) : libExports.identifier(ctx.storeVar || "store") : libExports.thisExpression();
+  const base = ctx.isImportedState ? opts.raw ? buildExprGeaMember(libExports.identifier(ctx.storeVar || "store"), "GEA_PROXY_RAW") : libExports.identifier(ctx.storeVar || "store") : libExports.thisExpression();
   if (ctx.arrayPathParts.length === 0) return base;
   const [, ...rest] = ctx.arrayPathParts;
   const isIndex = /^\d+$/.test(first);
@@ -52565,7 +52673,7 @@ function buildArrayItemsExpr(ctx, opts = {}) {
 function buildGeaItemDomWalk() {
   return jsBlockBody`
     var __el = e.target;
-    while (__el && __el.__geaKey == null && (!__el.getAttribute || !__el.getAttribute('data-gea-item-id'))) __el = __el.parentElement;
+    while (__el && __el[GEA_DOM_KEY] == null && (!__el.getAttribute || !__el.getAttribute('data-gea-item-id'))) __el = __el.parentElement;
   `;
 }
 function buildMapEventBody(handler, paramContext) {
@@ -52583,8 +52691,8 @@ function buildMapEventBody(handler, paramContext) {
     const preamble2 = [
       ...buildGeaItemDomWalk(),
       ...jsBlockBody`
-        if (!__el || !__el.__geaItem) return;
-        const ${id(ctx.indexVariable)} = ${rawArrayExpr}.indexOf(__el.__geaItem);
+        if (!__el || !__el[GEA_DOM_ITEM]) return;
+        const ${id(ctx.indexVariable)} = ${rawArrayExpr}.indexOf(__el[GEA_DOM_ITEM]);
       `
     ];
     return [...preamble2, ...handlerBody];
@@ -52598,7 +52706,7 @@ function buildMapEventBody(handler, paramContext) {
     preamble.push(
       ...buildGeaItemDomWalk(),
       ...jsBlockBody`
-        const ${id(ctx.indexVariable)} = __el ? ${rawArrayExpr}.indexOf(__el.__geaItem) : -1;
+        const ${id(ctx.indexVariable)} = __el ? ${rawArrayExpr}.indexOf(__el[GEA_DOM_ITEM]) : -1;
       `
     );
   }
@@ -52718,10 +52826,7 @@ function injectChildComponents(ast, componentInstances, directForwardingChildren
                 libExports.assignmentExpression(
                   "=",
                   libExports.memberExpression(libExports.thisExpression(), libExports.identifier(backingField)),
-                  libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__child")), [
-                    libExports.identifier(child.tagName),
-                    propsArg
-                  ])
+                  libExports.callExpression(buildThisGeaMember("GEA_CHILD"), [libExports.identifier(child.tagName), propsArg])
                 )
               )
             ),
@@ -52794,10 +52899,7 @@ function buildInstanceStatements(instances, directForwardingChildren) {
         libExports.assignmentExpression(
           "=",
           libExports.memberExpression(libExports.thisExpression(), libExports.identifier(child.instanceVar)),
-          libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__child")), [
-            libExports.identifier(child.tagName),
-            propsArg
-          ])
+          libExports.callExpression(buildThisGeaMember("GEA_CHILD"), [libExports.identifier(child.tagName), propsArg])
         )
       )
     );
@@ -52921,10 +53023,7 @@ function buildValueExpression(textExpr, stateRefs) {
     return rewriteStateRefs(libExports.cloneNode(textExpr.expression, true), stateRefs);
   }
   if (textExpr.isImportedState && textExpr.storeVar) {
-    return buildMemberChainFromParts(
-      libExports.memberExpression(libExports.identifier(textExpr.storeVar), libExports.identifier("__store")),
-      textExpr.pathParts
-    );
+    return buildMemberChainFromParts(libExports.identifier(textExpr.storeVar), textExpr.pathParts);
   }
   return buildMemberChainFromParts(libExports.thisExpression(), textExpr.pathParts);
 }
@@ -52944,19 +53043,15 @@ function rewriteStateRefs(expr, stateRefs) {
       } else if (ref.kind === "local") {
         path.replaceWith(libExports.thisExpression());
       } else if ((ref.kind === "imported-destructured" || ref.kind === "store-alias") && ref.storeVar && ref.propName) {
-        path.replaceWith(
-          libExports.memberExpression(
-            libExports.memberExpression(libExports.identifier(ref.storeVar), libExports.identifier("__store")),
-            libExports.identifier(ref.propName)
-          )
-        );
+        path.replaceWith(libExports.memberExpression(libExports.identifier(ref.storeVar), libExports.identifier(ref.propName)));
         path.skip();
       } else if (ref.kind === "local-destructured" && ref.propName) {
         path.replaceWith(libExports.memberExpression(libExports.thisExpression(), libExports.identifier(ref.propName)));
         path.skip();
-      } else {
-        path.replaceWith(libExports.memberExpression(libExports.identifier(path.node.name), libExports.identifier("__store")));
+      } else if (ref.kind === "imported") {
         path.skip();
+      } else {
+        throw new Error(`rewriteStateRefs: unhandled state ref kind ${ref.kind}`);
       }
     }
   });
@@ -53000,7 +53095,7 @@ function buildSimpleUpdate(binding, param, stateRefs) {
   }
   if (target === "textContent" && binding.bindingId && binding.bindingId !== "" && !binding.userIdExpr) {
     const suffix = libExports.stringLiteral(binding.bindingId);
-    return js`${jsExpr`this.__updateText(${suffix}, ${valueExpr})`};`;
+    return libExports.expressionStatement(libExports.callExpression(buildThisGeaMember("GEA_UPDATE_TEXT"), [suffix, valueExpr]));
   }
   return js`if (${el}) { ${jsExpr`${el}.${id(target)}`} = ${valueExpr}; }`;
 }
@@ -53250,7 +53345,7 @@ function buildPropPatcherFunction(binding, propName) {
       libExports.variableDeclaration("const", [
         libExports.variableDeclarator(
           libExports.identifier("__newAttr"),
-          URL_ATTRS$1.has(attrName) ? libExports.callExpression(libExports.identifier("__sanitizeAttr"), [
+          URL_ATTRS$1.has(attrName) ? libExports.callExpression(libExports.identifier("geaSanitizeAttr"), [
             libExports.stringLiteral(attrName),
             libExports.callExpression(libExports.identifier("String"), [libExports.identifier("__attrValue")])
           ]) : libExports.callExpression(libExports.identifier("String"), [libExports.identifier("__attrValue")])
@@ -53624,7 +53719,9 @@ function generateEnsureArrayConfigsMethod(arrayMaps) {
       ])
     );
   });
-  return appendToBody(jsMethod`${id("__ensureArrayConfigs")}() {}`, ...body);
+  const method = libExports.classMethod("method", libExports.identifier("GEA_ENSURE_ARRAY_CONFIGS"), [], libExports.blockStatement([]), true);
+  method.body.body.push(...body);
+  return method;
 }
 function generateArrayRelationalObserver(path, arrayMap, bindings, methodName) {
   const arrayPath = pathPartsToString(getArrayPathParts(arrayMap));
@@ -53699,12 +53796,12 @@ function generateArrayConditionalPatchObserver(arrayMap, bindings, methodName) {
   const containerName = `__${arrayPath.replace(/\./g, "_")}_container`;
   const containerRef = libExports.memberExpression(libExports.thisExpression(), libExports.identifier(containerName));
   const proxiedArr = arrayMap.isImportedState ? buildMemberChain(
-    libExports.memberExpression(libExports.identifier(arrayMap.storeVar || "store"), libExports.identifier("__store")),
+    buildExprGeaMember(libExports.identifier(arrayMap.storeVar || "store"), "GEA_STORE_ROOT"),
     arrayPath
   ) : buildMemberChain(libExports.thisExpression(), arrayPath);
   const rawArrExpr = libExports.logicalExpression(
     "||",
-    libExports.memberExpression(libExports.cloneNode(proxiedArr, true), libExports.identifier("__getTarget")),
+    buildExprGeaMember(libExports.cloneNode(proxiedArr, true), "GEA_PROXY_GET_TARGET"),
     libExports.cloneNode(proxiedArr, true)
   );
   const loopBody = [
@@ -53757,12 +53854,12 @@ function generateArrayConditionalRerenderObserver(arrayMap, methodName) {
   const containerRef = libExports.memberExpression(libExports.thisExpression(), libExports.identifier(containerName));
   const configRef = libExports.memberExpression(libExports.thisExpression(), libExports.identifier(getArrayConfigPropName(arrayMap)));
   const proxiedArr = arrayMap.isImportedState ? buildMemberChain(
-    libExports.memberExpression(libExports.identifier(arrayMap.storeVar || "store"), libExports.identifier("__store")),
+    buildExprGeaMember(libExports.identifier(arrayMap.storeVar || "store"), "GEA_STORE_ROOT"),
     arrayPath
   ) : buildMemberChain(libExports.thisExpression(), arrayPath);
   const rawArrExpr = libExports.logicalExpression(
     "||",
-    libExports.memberExpression(libExports.cloneNode(proxiedArr, true), libExports.identifier("__getTarget")),
+    buildExprGeaMember(libExports.cloneNode(proxiedArr, true), "GEA_PROXY_GET_TARGET"),
     libExports.cloneNode(proxiedArr, true)
   );
   return appendToBody(
@@ -53840,9 +53937,7 @@ function generateArrayConditionalRerenderObserver(arrayMap, methodName) {
       libExports.ifStatement(
         libExports.unaryExpression("!", libExports.identifier("__skipArrayConditionalRerender")),
         libExports.blockStatement([
-          libExports.expressionStatement(
-            libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__ensureArrayConfigs")), [])
-          ),
+          libExports.expressionStatement(buildThisGeaCall("GEA_ENSURE_ARRAY_CONFIGS")),
           libExports.variableDeclaration("const", [
             libExports.variableDeclarator(
               libExports.identifier("__arr"),
@@ -53854,7 +53949,7 @@ function generateArrayConditionalRerenderObserver(arrayMap, methodName) {
             )
           ]),
           libExports.expressionStatement(
-            libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__applyListChanges")), [
+            buildThisGeaCall("GEA_APPLY_LIST_CHANGES", [
               containerRef,
               libExports.identifier("__arr"),
               libExports.nullLiteral(),
@@ -53975,16 +54070,12 @@ function buildElsLookup(elsRef, containerRef, idExpr, rowVar, containerBindingId
                 "||",
                 libExports.binaryExpression(
                   "==",
-                  libExports.memberExpression(libExports.identifier("__ch"), libExports.identifier("__geaKey")),
+                  buildExprGeaMember(libExports.identifier("__ch"), "GEA_DOM_KEY"),
                   libExports.cloneNode(idExpr, true)
                 ),
                 libExports.logicalExpression(
                   "&&",
-                  libExports.binaryExpression(
-                    "==",
-                    libExports.memberExpression(libExports.identifier("__ch"), libExports.identifier("__geaKey")),
-                    libExports.nullLiteral()
-                  ),
+                  libExports.binaryExpression("==", buildExprGeaMember(libExports.identifier("__ch"), "GEA_DOM_KEY"), libExports.nullLiteral()),
                   libExports.binaryExpression(
                     "==",
                     libExports.optionalCallExpression(
@@ -54072,11 +54163,9 @@ function generateArrayHandlers(arrayMap, methodName) {
         libExports.returnStatement()
       ])
     ),
+    libExports.expressionStatement(buildThisGeaCall("GEA_ENSURE_ARRAY_CONFIGS")),
     libExports.expressionStatement(
-      libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__ensureArrayConfigs")), [])
-    ),
-    libExports.expressionStatement(
-      libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__applyListChanges")), [
+      buildThisGeaCall("GEA_APPLY_LIST_CHANGES", [
         containerRef,
         libExports.identifier(paramName),
         libExports.identifier("change"),
@@ -54409,7 +54498,7 @@ function generateRenderItemMethod(arrayMap, imports, eventHandlers, eventIdCount
             libExports.assignmentExpression(
               "=",
               libExports.cloneNode(privateRsField),
-              libExports.memberExpression(libExports.identifier(arrayMap.storeVar), libExports.identifier("__raw"))
+              buildExprGeaMember(libExports.identifier(arrayMap.storeVar), "GEA_PROXY_RAW")
             )
           )
         )
@@ -54425,11 +54514,33 @@ function generateRenderItemMethod(arrayMap, imports, eventHandlers, eventIdCount
     returnStmt
   );
   if (handlerPropsInMap.length > 0 && classBody) {
-    const handleItemHandler = jsMethod`__handleItemHandler(itemId, e) {
-    const fn = this.__itemHandlers_?.[itemId];
-    if (fn) fn(e);
-  }`;
-    if (!classBody.body.some((m) => libExports.isClassMethod(m) && libExports.isIdentifier(m.key) && m.key.name === "__handleItemHandler")) {
+    const handleItemHandlerBody = libExports.blockStatement([
+      libExports.variableDeclaration("const", [
+        libExports.variableDeclarator(
+          libExports.identifier("fn"),
+          libExports.optionalMemberExpression(
+            libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__itemHandlers_")),
+            libExports.identifier("itemId"),
+            true,
+            true
+          )
+        )
+      ]),
+      libExports.ifStatement(
+        libExports.identifier("fn"),
+        libExports.expressionStatement(libExports.callExpression(libExports.identifier("fn"), [libExports.identifier("e")]))
+      )
+    ]);
+    const handleItemHandler = libExports.classMethod(
+      "method",
+      libExports.identifier("GEA_HANDLE_ITEM_HANDLER"),
+      [libExports.identifier("itemId"), libExports.identifier("e")],
+      handleItemHandlerBody,
+      true
+    );
+    if (!classBody.body.some(
+      (m) => libExports.isClassMethod(m) && m.computed === true && libExports.isIdentifier(m.key) && m.key.name === "GEA_HANDLE_ITEM_HANDLER"
+    )) {
       classBody.body.unshift(handleItemHandler);
     }
   }
@@ -54463,7 +54574,16 @@ function getArrayCapName(arrayPropName) {
   return arrayPropName.charAt(0).toUpperCase() + arrayPropName.slice(1);
 }
 function getComponentArrayItemsName(arrayPropName) {
-  return `_${arrayPropName}Items`;
+  const safe = arrayPropName.replace(/[^a-zA-Z0-9_$]/g, "_");
+  return `_gea_${safe}_items`;
+}
+function buildComponentArrayItemsSymbolDecl(arrayPropName, itemsBinding) {
+  return libExports.variableDeclaration("const", [
+    libExports.variableDeclarator(
+      libExports.identifier(itemsBinding),
+      libExports.callExpression(libExports.identifier("geaListItemsSymbol"), [libExports.stringLiteral(arrayPropName)])
+    )
+  ]);
 }
 function getComponentArrayRefreshMethodName(arrayPropName) {
   return `__refresh${getArrayCapName(arrayPropName)}Items`;
@@ -54531,6 +54651,7 @@ function generateComponentArrayResult(um, arrayPropName, imports, propNames, _cl
     finalPropsExpr = cloned;
   }
   const itemsName = getComponentArrayItemsName(arrayPropName);
+  const symbolConstDecl = buildComponentArrayItemsSymbolDecl(arrayPropName, itemsName);
   let arrAccessExpr;
   let arrSetupStatements = [];
   if (storeArrayAccess) {
@@ -54573,7 +54694,7 @@ function generateComponentArrayResult(um, arrayPropName, imports, propNames, _cl
       if (!libExports.isVariableDeclaration(stmt)) continue;
       for (const decl of stmt.declarations) {
         if (libExports.isIdentifier(decl.init) && storeVarNames.has(decl.init.name)) {
-          decl.init = libExports.memberExpression(libExports.identifier(decl.init.name), libExports.identifier("__raw"));
+          decl.init = buildExprGeaMember(libExports.identifier(decl.init.name), "GEA_PROXY_RAW");
         }
       }
     }
@@ -54587,7 +54708,7 @@ function generateComponentArrayResult(um, arrayPropName, imports, propNames, _cl
   const keyExpr = itemIdProp && itemIdProp !== ITEM_IS_KEY ? libExports.callExpression(libExports.identifier("String"), [libExports.memberExpression(libExports.identifier("opt"), libExports.identifier(itemIdProp))]) : itemIdProp === ITEM_IS_KEY ? libExports.callExpression(libExports.identifier("String"), [libExports.identifier("opt")]) : libExports.binaryExpression("+", libExports.stringLiteral("__idx_"), libExports.identifier("__k"));
   const mapParams = [libExports.identifier("opt")];
   if (indexVar || !itemIdProp) mapParams.push(libExports.identifier("__k"));
-  const childCall = libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__child")), [
+  const childCall = libExports.callExpression(buildThisGeaMember("GEA_CHILD"), [
     libExports.identifier(comp.componentTag),
     libExports.cloneNode(itemPropsCall, true),
     libExports.cloneNode(keyExpr, true)
@@ -54597,11 +54718,12 @@ function generateComponentArrayResult(um, arrayPropName, imports, propNames, _cl
   const parenthesized = libExports.parenthesizedExpression ? libExports.parenthesizedExpression(nullishCoalesce) : nullishCoalesce;
   const mapCallExpr = libExports.callExpression(libExports.memberExpression(parenthesized, libExports.identifier("map")), [mapCallback]);
   const constructorInit = libExports.expressionStatement(
-    libExports.assignmentExpression("=", libExports.memberExpression(libExports.thisExpression(), libExports.identifier(itemsName)), mapCallExpr)
+    libExports.assignmentExpression("=", libExports.memberExpression(libExports.thisExpression(), libExports.identifier(itemsName), true), mapCallExpr)
   );
   return {
     itemPropsMethod,
     constructorInit,
+    symbolConstDecl,
     componentTag: comp.componentTag,
     containerBindingId: um.containerBindingId,
     containerUserIdExpr: um.containerUserIdExpr,
@@ -54635,7 +54757,7 @@ const BOOLEAN_HTML_ATTRS = /* @__PURE__ */ new Set([
 function generateCreatedHooks(stores, hasArrayConfigs, observeListConfigs = []) {
   const body = [];
   if (hasArrayConfigs) {
-    body.push(js`this.__ensureArrayConfigs();`);
+    body.push(libExports.expressionStatement(buildThisGeaCall("GEA_ENSURE_ARRAY_CONFIGS")));
   }
   const observeListPathKeys = /* @__PURE__ */ new Set();
   for (const config of observeListConfigs) {
@@ -54664,7 +54786,7 @@ function generateCreatedHooks(stores, hasArrayConfigs, observeListConfigs = []) 
       if (handlers.length === 1 && !handlers[0].isVia) {
         body.push(
           libExports.expressionStatement(
-            libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__observe")), [
+            libExports.callExpression(thisGea("GEA_OBSERVE"), [
               storeVarExpr,
               pathArray,
               libExports.memberExpression(libExports.thisExpression(), libExports.identifier(handlers[0].methodName))
@@ -54695,10 +54817,10 @@ function generateCreatedHooks(stores, hasArrayConfigs, observeListConfigs = []) 
               ])
             );
             if (h.dynamicKeyExpr) {
-              const keyId = libExports.identifier(`__geaKey${hi}`);
-              const changeId = libExports.identifier(`__geaChange${hi}`);
-              const partsId = libExports.identifier(`__geaParts${hi}`);
-              const prevRootId = libExports.identifier(`__geaPrevRoot${hi}`);
+              const keyId = libExports.identifier(`geaDynKey${hi}`);
+              const changeId = libExports.identifier(`geaDynChange${hi}`);
+              const partsId = libExports.identifier(`geaDynParts${hi}`);
+              const prevRootId = libExports.identifier(`geaDynPrevRoot${hi}`);
               const prefixChecks = h.pathParts.map(
                 (part, idx) => libExports.binaryExpression(
                   "===",
@@ -54776,7 +54898,7 @@ function generateCreatedHooks(stores, hasArrayConfigs, observeListConfigs = []) 
         }
         body.push(
           libExports.expressionStatement(
-            libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__observe")), [
+            libExports.callExpression(thisGea("GEA_OBSERVE"), [
               storeVarExpr,
               pathArray,
               libExports.arrowFunctionExpression([vParam, cParam], libExports.blockStatement(callStmts))
@@ -54790,17 +54912,15 @@ function generateCreatedHooks(stores, hasArrayConfigs, observeListConfigs = []) 
       const itemsName = getComponentArrayItemsName(config.arrayPropName);
       const itemPropsMethodName = `__itemProps_${config.arrayPropName}`;
       const configProps = [
-        libExports.objectProperty(libExports.identifier("items"), libExports.memberExpression(libExports.thisExpression(), libExports.identifier(itemsName))),
-        libExports.objectProperty(libExports.identifier("itemsKey"), libExports.stringLiteral(itemsName)),
+        libExports.objectProperty(libExports.identifier("items"), libExports.memberExpression(libExports.thisExpression(), libExports.identifier(itemsName), true)),
+        libExports.objectProperty(libExports.identifier("itemsKey"), libExports.identifier(itemsName)),
         libExports.objectProperty(
           libExports.identifier("container"),
           libExports.arrowFunctionExpression(
             [],
             config.containerUserIdExpr ? libExports.callExpression(libExports.memberExpression(libExports.identifier("document"), libExports.identifier("getElementById")), [
               libExports.cloneNode(config.containerUserIdExpr, true)
-            ]) : config.containerBindingId ? libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__el")), [
-              libExports.stringLiteral(config.containerBindingId)
-            ]) : jsExpr`this.$(":scope")`
+            ]) : config.containerBindingId ? libExports.callExpression(thisGea("GEA_EL"), [libExports.stringLiteral(config.containerBindingId)]) : jsExpr`this.$(":scope")`
           )
         ),
         libExports.objectProperty(libExports.identifier("Ctor"), libExports.identifier(config.componentTag)),
@@ -54854,11 +54974,7 @@ function generateCreatedHooks(stores, hasArrayConfigs, observeListConfigs = []) 
       }
       body.push(
         libExports.expressionStatement(
-          libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__observeList")), [
-            storeVarExpr,
-            pathArray,
-            libExports.objectExpression(configProps)
-          ])
+          libExports.callExpression(thisGea("GEA_OBSERVE_LIST"), [storeVarExpr, pathArray, libExports.objectExpression(configProps)])
         )
       );
     }
@@ -54899,6 +55015,15 @@ function classMethodUsesParam(method, index) {
 function serializeAstNode(node) {
   return node ? JSON.stringify(node) : "";
 }
+const thisGea = buildThisGeaMember;
+function insertStmtBeforeClass(classPath, stmt) {
+  const parent = classPath.parentPath;
+  if (parent.isExportDefaultDeclaration()) {
+    parent.insertBefore(stmt);
+  } else {
+    classPath.insertBefore(stmt);
+  }
+}
 function expressionReferencesIdentifier(expr, name) {
   let found = false;
   const program = libExports.program([libExports.expressionStatement(libExports.cloneNode(expr, true))]);
@@ -54914,16 +55039,16 @@ function expressionReferencesIdentifier(expr, name) {
   return found;
 }
 function generateLocalStateObserverSetup(observeHandlers, hasArrayConfigs) {
-  const localStore = libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__store"));
+  const localStore = buildThisGeaMember("GEA_STORE_ROOT");
   const body = [];
   if (hasArrayConfigs) {
-    body.push(js`this.__ensureArrayConfigs();`);
+    body.push(libExports.expressionStatement(buildThisGeaCall("GEA_ENSURE_ARRAY_CONFIGS")));
   }
   body.push(js`if (!${localStore}) { return; }`);
   for (const observeHandler of observeHandlers) {
     body.push(
       libExports.expressionStatement(
-        libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__observe")), [
+        libExports.callExpression(thisGea("GEA_OBSERVE"), [
           libExports.thisExpression(),
           libExports.arrayExpression(observeHandler.pathParts.map((part) => libExports.stringLiteral(part))),
           libExports.memberExpression(libExports.thisExpression(), libExports.identifier(observeHandler.methodName))
@@ -54931,7 +55056,13 @@ function generateLocalStateObserverSetup(observeHandlers, hasArrayConfigs) {
       )
     );
   }
-  const method = jsMethod`${id("__setupLocalStateObservers")}() {}`;
+  const method = libExports.classMethod(
+    "method",
+    libExports.identifier("GEA_SETUP_LOCAL_STATE_OBSERVERS"),
+    [],
+    libExports.blockStatement([]),
+    true
+  );
   method.body.body.push(...body);
   return method;
 }
@@ -54964,6 +55095,7 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
       traverse$4(ast, {
         ClassDeclaration(classPath) {
           if (!libExports.isIdentifier(classPath.node.id) || classPath.node.id.name !== className) return;
+          ensureGeaCompilerSymbolImports(ast);
           let originalClassBody;
           traverse$4(originalAST, {
             noScope: true,
@@ -55056,7 +55188,7 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                 libExports.memberExpression(libExports.thisExpression(), libExports.identifier("id")),
                 libExports.stringLiteral("-" + pb.bindingId)
               )
-            ) : pb.selector === ":scope" ? libExports.memberExpression(libExports.thisExpression(), libExports.identifier("element_")) : libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("$")), [
+            ) : pb.selector === ":scope" ? thisGea("GEA_ELEMENT") : libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("$")), [
               libExports.stringLiteral(pb.selector)
             ]);
             const valueExpr = pb.expression && pb.setupStatements ? libExports.identifier("__boundValue") : libExports.identifier("value");
@@ -55134,21 +55266,16 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                 assignStmt,
                 // After replacing innerHTML for children, re-initialize child
                 // components that were created from the new HTML string.
-                libExports.expressionStatement(
-                  libExports.callExpression(
-                    libExports.memberExpression(libExports.thisExpression(), libExports.identifier("instantiateChildComponents_")),
-                    []
-                  )
-                ),
+                libExports.expressionStatement(libExports.callExpression(buildThisGeaMember("GEA_INSTANTIATE_CHILD_COMPONENTS"), [])),
                 // Reconnect compiled children from the parent component whose
                 // DOM elements were replaced by the innerHTML update.
                 libExports.ifStatement(
                   libExports.memberExpression(libExports.thisExpression(), libExports.identifier("parentComponent")),
                   libExports.expressionStatement(
                     libExports.callExpression(
-                      libExports.memberExpression(
+                      buildExprGeaMember(
                         libExports.memberExpression(libExports.thisExpression(), libExports.identifier("parentComponent")),
-                        libExports.identifier("mountCompiledChildComponents_")
+                        "GEA_MOUNT_COMPILED_CHILD_COMPONENTS"
                       ),
                       []
                     )
@@ -55349,7 +55476,7 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                   libExports.binaryExpression("===", valueExpr, libExports.nullLiteral()),
                   libExports.binaryExpression("===", valueExpr, libExports.identifier("undefined"))
                 );
-                const newAttrValueExpr = isBooleanAttr ? libExports.stringLiteral("") : URL_ATTRS.has(attrName) ? libExports.callExpression(libExports.identifier("__sanitizeAttr"), [
+                const newAttrValueExpr = isBooleanAttr ? libExports.stringLiteral("") : URL_ATTRS.has(attrName) ? libExports.callExpression(libExports.identifier("geaSanitizeAttr"), [
                   libExports.stringLiteral(attrName),
                   libExports.callExpression(libExports.identifier("String"), [valueExpr])
                 ]) : libExports.callExpression(libExports.identifier("String"), [valueExpr]);
@@ -55555,8 +55682,28 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
               const parsed = JSON.parse(entry.observeKey);
               const storeVarName = parsed.storeVar || void 0;
               const methodNameStr = getObserveMethodName(propPath, storeVarName);
-              const prevProp = `__geaPrev_guard_${methodNameStr}`;
-              const rerenderMethod = jsMethod`${id(methodNameStr)}(__v, __c) { if (!__v === !this.${id(prevProp)}) return; this.${id(prevProp)} = __v; this.__geaRequestRender(); }`;
+              const prevGuardMem = libExports.memberExpression(
+                libExports.thisExpression(),
+                libExports.callExpression(libExports.identifier("geaPrevGuardSymbol"), [libExports.stringLiteral(methodNameStr)]),
+                true
+              );
+              const rerenderMethod = libExports.classMethod(
+                "method",
+                libExports.identifier(methodNameStr),
+                [libExports.identifier("__v"), libExports.identifier("__c")],
+                libExports.blockStatement([
+                  libExports.ifStatement(
+                    libExports.binaryExpression(
+                      "===",
+                      libExports.unaryExpression("!", libExports.identifier("__v")),
+                      libExports.unaryExpression("!", prevGuardMem)
+                    ),
+                    libExports.returnStatement()
+                  ),
+                  libExports.expressionStatement(libExports.assignmentExpression("=", prevGuardMem, libExports.identifier("__v"))),
+                  libExports.expressionStatement(buildThisGeaCall("GEA_REQUEST_RENDER"))
+                ])
+              );
               mergeObserveMethod(entry.observeKey, rerenderMethod);
               if (!stateProps.has(entry.observeKey)) {
                 stateProps.set(entry.observeKey, entry.pathParts);
@@ -55621,9 +55768,11 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                     usesTargetComponent: true
                   }));
                   if (delegatedEvents.length > 0) {
-                    appendCompiledEventMethods(classPath.node.body, delegatedEvents);
+                    appendCompiledEventMethods(classPath.node.body, delegatedEvents, [], ast);
                   }
                 }
+                ensureImport(ast, "@geajs/core", "geaListItemsSymbol");
+                insertStmtBeforeClass(classPath, arrayResult.symbolConstDecl);
                 inlineIntoConstructor(classPath.node.body, [
                   ...arrayResult.arrSetupStatements.map((s) => libExports.cloneNode(s, true)),
                   arrayResult.constructorInit
@@ -55646,9 +55795,7 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                   const containerSuffix = arrayResult.containerBindingId;
                   const containerExpr = arrayResult.containerUserIdExpr ? libExports.callExpression(libExports.memberExpression(libExports.identifier("document"), libExports.identifier("getElementById")), [
                     libExports.cloneNode(arrayResult.containerUserIdExpr, true)
-                  ]) : containerSuffix ? libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__el")), [
-                    libExports.stringLiteral(containerSuffix)
-                  ]) : jsExpr`this.$(":scope")`;
+                  ]) : containerSuffix ? libExports.callExpression(thisGea("GEA_EL"), [libExports.stringLiteral(containerSuffix)]) : jsExpr`this.$(":scope")`;
                   const itemIdProp = arrayResult.itemIdProperty;
                   const keyFn = itemIdProp && itemIdProp !== ITEM_IS_KEY ? libExports.arrowFunctionExpression(
                     [libExports.identifier("opt")],
@@ -55676,8 +55823,8 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                       libExports.variableDeclaration("const", [
                         libExports.variableDeclarator(
                           libExports.identifier("__new"),
-                          libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__reconcileList")), [
-                            libExports.memberExpression(libExports.thisExpression(), libExports.identifier(itemsName)),
+                          libExports.callExpression(thisGea("GEA_RECONCILE_LIST"), [
+                            libExports.memberExpression(libExports.thisExpression(), libExports.identifier(itemsName), true),
                             libExports.identifier("__arr"),
                             libExports.cloneNode(containerExpr, true),
                             libExports.identifier(arrayResult.componentTag),
@@ -55696,7 +55843,7 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                         libExports.assignmentExpression(
                           "=",
                           libExports.memberExpression(
-                            libExports.memberExpression(libExports.thisExpression(), libExports.identifier(itemsName)),
+                            libExports.memberExpression(libExports.thisExpression(), libExports.identifier(itemsName), true),
                             libExports.identifier("length")
                           ),
                           libExports.numericLiteral(0)
@@ -55705,7 +55852,7 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                       libExports.expressionStatement(
                         libExports.callExpression(
                           libExports.memberExpression(
-                            libExports.memberExpression(libExports.thisExpression(), libExports.identifier(itemsName)),
+                            libExports.memberExpression(libExports.thisExpression(), libExports.identifier(itemsName), true),
                             libExports.identifier("push")
                           ),
                           [libExports.spreadElement(libExports.identifier("__new"))]
@@ -55892,11 +56039,7 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                   libExports.identifier(getObserveMethodName(dep.pathParts, dep.storeVar)),
                   [libExports.identifier("value"), libExports.identifier("change")],
                   libExports.blockStatement([
-                    libExports.expressionStatement(
-                      libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__geaSyncMap")), [
-                        libExports.numericLiteral(mapIdx)
-                      ])
-                    )
+                    libExports.expressionStatement(libExports.callExpression(thisGea("GEA_SYNC_MAP"), [libExports.numericLiteral(mapIdx)]))
                   ])
                 )
               );
@@ -55955,13 +56098,13 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
           );
           if (elRefFieldNames.length > 0) {
             const hasReset = classPath.node.body.body.some(
-              (m) => libExports.isClassMethod(m) && libExports.isIdentifier(m.key) && m.key.name === "__resetEls"
+              (m) => libExports.isClassMethod(m) && m.computed === true && libExports.isIdentifier(m.key) && m.key.name === "GEA_RESET_ELS"
             );
             if (!hasReset) {
               classPath.node.body.body.push(
                 libExports.classMethod(
                   "method",
-                  libExports.identifier("__resetEls"),
+                  libExports.identifier("GEA_RESET_ELS"),
                   [],
                   libExports.blockStatement(
                     elRefFieldNames.map(
@@ -55973,7 +56116,10 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                         )
                       )
                     )
-                  )
+                  ),
+                  false,
+                  false,
+                  true
                 )
               );
               applied = true;
@@ -56017,9 +56163,12 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
               stateProps.set(observeKey, parts);
             }
           }
-          const hasOnPropChange = classPath.node.body.body.some(
-            (member) => libExports.isClassMethod(member) && libExports.isIdentifier(member.key) && member.key.name === "__onPropChange"
-          );
+          const hasOnPropChange = classPath.node.body.body.some((member) => {
+            if (!libExports.isClassMethod(member) || !libExports.isIdentifier(member.key)) return false;
+            if (member.computed && member.key.name === "GEA_ON_PROP_CHANGE") return true;
+            if (!member.computed && member.key.name === "__onPropChange") return true;
+            return false;
+          });
           const childObserveGroups = /* @__PURE__ */ new Map();
           compiledChildren.forEach((child) => {
             if (childHasNoProps(child)) return;
@@ -56433,9 +56582,9 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
               }).map((child) => {
                 const updateExpr = libExports.expressionStatement(
                   libExports.callExpression(
-                    libExports.memberExpression(
+                    buildExprGeaMember(
                       libExports.memberExpression(libExports.thisExpression(), libExports.identifier(child.instanceVar)),
-                      libExports.identifier("__geaUpdateProps")
+                      "GEA_UPDATE_PROPS"
                     ),
                     [
                       libExports.callExpression(
@@ -56475,7 +56624,7 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
           unresolvedBindings.forEach(({ info, binding }) => {
             const deps = info.dependencies || collectUnresolvedDependencies([info], stateRefs, classPath.node.body);
             const mapIdx = getMapIndex(binding.arrayPathParts);
-            const delegateName = `__geaSyncMapDelegate_${mapIdx}`;
+            const delegateName = `geaSyncMapDelegate_${mapIdx}`;
             const hasNonRelationalDeps = deps.some(
               (dep) => !(info.relationalClassBindings || []).find((rb) => rb.observeKey === dep.observeKey)
             );
@@ -56507,11 +56656,7 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                   classPath.node.body.body.push(
                     appendToBody(
                       jsMethod`${id(delegateName)}() {}`,
-                      libExports.expressionStatement(
-                        libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__geaSyncMap")), [
-                          libExports.numericLiteral(mapIdx)
-                        ])
-                      )
+                      libExports.expressionStatement(libExports.callExpression(thisGea("GEA_SYNC_MAP"), [libExports.numericLiteral(mapIdx)]))
                     )
                   );
                   delegateEmitted = true;
@@ -56523,11 +56668,7 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                 });
               } else {
                 const syncBody = libExports.blockStatement([
-                  libExports.expressionStatement(
-                    libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__geaSyncMap")), [
-                      libExports.numericLiteral(mapIdx)
-                    ])
-                  )
+                  libExports.expressionStatement(libExports.callExpression(thisGea("GEA_SYNC_MAP"), [libExports.numericLiteral(mapIdx)]))
                 ]);
                 mergeObserveMethod(
                   dep.observeKey,
@@ -56619,9 +56760,11 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                   usesTargetComponent: true
                 }));
                 if (delegatedEvents.length > 0) {
-                  appendCompiledEventMethods(classPath.node.body, delegatedEvents);
+                  appendCompiledEventMethods(classPath.node.body, delegatedEvents, [], ast);
                 }
               }
+              ensureImport(ast, "@geajs/core", "geaListItemsSymbol");
+              insertStmtBeforeClass(classPath, arrayResult.symbolConstDecl);
               inlineIntoConstructor(classPath.node.body, [
                 ...arrayResult.arrSetupStatements.map((s) => libExports.cloneNode(s, true)),
                 arrayResult.constructorInit
@@ -56662,14 +56805,12 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
               const depObserveKey = buildObserveKey(depPath, arrayMap.storeVar);
               const depMethodName = getObserveMethodName(depPath, arrayMap.storeVar);
               const refreshStmt = libExports.expressionStatement(
-                libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__refreshList")), [
-                  libExports.stringLiteral(pathKey)
-                ])
+                libExports.callExpression(thisGea("GEA_REFRESH_LIST"), [libExports.stringLiteral(pathKey)])
               );
               const existing = addedMethods.get(depObserveKey);
               if (existing && libExports.isBlockStatement(existing.body)) {
                 const renderedGuardIdx = existing.body.body.findIndex(
-                  (s) => libExports.isIfStatement(s) && libExports.isMemberExpression(s.test) && libExports.isIdentifier(s.test.property) && s.test.property.name === "rendered_"
+                  (s) => libExports.isIfStatement(s) && libExports.isMemberExpression(s.test) && s.test.computed === true && libExports.isIdentifier(s.test.property) && s.test.property.name === "GEA_RENDERED"
                 );
                 if (renderedGuardIdx >= 0) {
                   existing.body.body.splice(renderedGuardIdx, 0, refreshStmt);
@@ -56715,7 +56856,7 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
               MemberExpression(mePath) {
                 const resolved = resolvePath(mePath.node, stateRefs);
                 if (!resolved?.parts?.length || !resolved.isImportedState) return;
-                if (resolved.parts.some((p) => p === "__raw")) return;
+                if (resolved.parts.some((p) => p === "__raw" || p === "GEA_PROXY_RAW")) return;
                 const depKey = buildObserveKey(resolved.parts, resolved.storeVar);
                 if (!getterDepKeys.has(depKey) && !externalDeps.has(depKey)) {
                   externalDeps.set(depKey, { parts: [...resolved.parts], storeVar: resolved.storeVar });
@@ -56726,11 +56867,7 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
               const depMethodName = getObserveMethodName(dep.parts, dep.storeVar);
               if (!stateProps.has(depKey)) stateProps.set(depKey, dep.parts);
               const delegateBody = libExports.blockStatement([
-                libExports.expressionStatement(
-                  libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__refreshList")), [
-                    libExports.stringLiteral(pathKey)
-                  ])
-                )
+                libExports.expressionStatement(libExports.callExpression(thisGea("GEA_REFRESH_LIST"), [libExports.stringLiteral(pathKey)]))
               ]);
               const delegateMethod = libExports.classMethod(
                 "method",
@@ -56764,7 +56901,7 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
               const strippedInTemplate = templateMethod && (analysis.conditionalSlots || []).length > 0 ? stripHtmlArrayMapJoinInTemplateMethod(templateMethod, arrayMap) : false;
               if (strippedInSlots || strippedInTemplate) {
                 const currentValueExpr = arrayMap.storeVar ? buildMemberChainFromParts(libExports.identifier(arrayMap.storeVar), arrayMap.arrayPathParts) : buildMemberChainFromParts(libExports.thisExpression(), arrayMap.arrayPathParts);
-                const initialArrayName = `__geaInitial_${arrayHandlerMethodName}`;
+                const initialArrayName = `geaInitial_${arrayHandlerMethodName}`;
                 initialHtmlArrayRefreshOnMount.push(
                   libExports.variableDeclaration("const", [
                     libExports.variableDeclarator(libExports.identifier(initialArrayName), currentValueExpr)
@@ -56872,17 +57009,17 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
             }
           }
           if (renderEventHandlers.length > 0) {
-            applied = appendCompiledEventMethods(classPath.node.body, renderEventHandlers) || applied;
+            applied = appendCompiledEventMethods(classPath.node.body, renderEventHandlers, [], ast) || applied;
           }
           if (unresolvedEventHandlers.length > 0) {
-            applied = appendCompiledEventMethods(classPath.node.body, unresolvedEventHandlers) || applied;
+            applied = appendCompiledEventMethods(classPath.node.body, unresolvedEventHandlers, [], ast) || applied;
           }
           if (applied) {
             const importedStores = /* @__PURE__ */ new Map();
             const localObserveHandlers = /* @__PURE__ */ new Map();
             const ensureStoreGroup = (storeVar) => {
               if (!importedStores.has(storeVar)) {
-                const captureExpression = libExports.memberExpression(libExports.identifier(storeVar), libExports.identifier("__store"));
+                const captureExpression = buildExprGeaMember(libExports.identifier(storeVar), "GEA_STORE_ROOT");
                 importedStores.set(storeVar, {
                   captureExpression,
                   observeHandlers: /* @__PURE__ */ new Map()
@@ -57302,7 +57439,7 @@ function generateUnresolvedRelationalObserver(arrayMap, unresolvedMap, relBindin
     )
   ]);
   const commonPreamble = [
-    js`if (!this.rendered_) return;`,
+    libExports.ifStatement(libExports.unaryExpression("!", thisGea("GEA_RENDERED")), libExports.blockStatement([libExports.returnStatement()])),
     lazyInit(containerName, containerLookup),
     ...jsBlockBody`if (!${containerRef}) return;`,
     ...setupStatements,
@@ -57426,9 +57563,7 @@ function generateMapRegistration(arrayMap, unresolvedMap, templatePropNames, who
   } else if (arrayMap.itemIdProperty && arrayMap.itemIdProperty !== ITEM_IS_KEY) {
     registerArgs.push(libExports.stringLiteral(arrayMap.itemIdProperty));
   }
-  return libExports.expressionStatement(
-    libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__geaRegisterMap")), registerArgs)
-  );
+  return libExports.expressionStatement(libExports.callExpression(thisGea("GEA_REGISTER_MAP"), registerArgs));
 }
 function collectFreeIdentifiers(nodes) {
   const names = /* @__PURE__ */ new Set();
@@ -57523,7 +57658,10 @@ function replaceMapWithComponentArrayItems(templateMethod, arrayExpr, itemsName,
         toReplace = path.parentPath.parentPath;
       }
       const replacement = opts?.slotBranch ? libExports.stringLiteral("") : libExports.callExpression(
-        libExports.memberExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier(itemsName)), libExports.identifier("join")),
+        libExports.memberExpression(
+          libExports.memberExpression(libExports.thisExpression(), libExports.identifier(itemsName), true),
+          libExports.identifier("join")
+        ),
         [libExports.stringLiteral("")]
       );
       toReplace.replaceWith(replacement);
@@ -57569,7 +57707,27 @@ function inlineIntoConstructor(classBody, statements) {
 }
 function ensureDisposeCalls(classBody, targets) {
   const disposeStatements = targets.map(
-    (target) => js`this.${id(target)}?.forEach?.(item => item?.dispose?.());`
+    (target) => libExports.expressionStatement(
+      libExports.optionalCallExpression(
+        libExports.optionalMemberExpression(
+          libExports.memberExpression(libExports.thisExpression(), libExports.identifier(target), true),
+          libExports.identifier("forEach"),
+          false,
+          true
+        ),
+        [
+          libExports.arrowFunctionExpression(
+            [libExports.identifier("item")],
+            libExports.optionalCallExpression(
+              libExports.optionalMemberExpression(libExports.identifier("item"), libExports.identifier("dispose"), false, true),
+              [],
+              true
+            )
+          )
+        ],
+        true
+      )
+    )
   );
   const existingDispose = classBody.body.find(
     (member) => libExports.isClassMethod(member) && libExports.isIdentifier(member.key) && member.key.name === "dispose"
@@ -57583,9 +57741,12 @@ function ensureDisposeCalls(classBody, targets) {
   );
 }
 function ensureOnPropChangeMethod(classBody, inlinePatchBodies, compiledChildren, arrayRefreshDeps, conditionalSlots = [], unresolvedMapPropRefreshDeps = []) {
-  const existing = classBody.body.find(
-    (member) => libExports.isClassMethod(member) && libExports.isIdentifier(member.key) && member.key.name === "__onPropChange"
-  );
+  const existing = classBody.body.find((member) => {
+    if (!libExports.isClassMethod(member) || !libExports.isIdentifier(member.key)) return false;
+    if (member.computed && member.key.name === "GEA_ON_PROP_CHANGE") return true;
+    if (!member.computed && member.key.name === "__onPropChange") return true;
+    return false;
+  });
   if (existing) return;
   const directForwardCalls = [];
   const nonDirectChildren = [];
@@ -57603,9 +57764,9 @@ function ensureOnPropChangeMethod(classBody, inlinePatchBodies, compiledChildren
             guard,
             libExports.expressionStatement(
               libExports.callExpression(
-                libExports.memberExpression(
+                buildExprGeaMember(
                   libExports.memberExpression(libExports.thisExpression(), libExports.identifier(child.instanceVar)),
-                  libExports.identifier("__geaUpdateProps")
+                  "GEA_UPDATE_PROPS"
                 ),
                 [libExports.objectExpression([libExports.objectProperty(libExports.identifier("key"), libExports.identifier("value"), true)])]
               )
@@ -57619,9 +57780,9 @@ function ensureOnPropChangeMethod(classBody, inlinePatchBodies, compiledChildren
               libExports.binaryExpression("===", libExports.identifier("key"), libExports.stringLiteral(m.parentPropName)),
               libExports.expressionStatement(
                 libExports.callExpression(
-                  libExports.memberExpression(
+                  buildExprGeaMember(
                     libExports.memberExpression(libExports.thisExpression(), libExports.identifier(child.instanceVar)),
-                    libExports.identifier("__geaUpdateProps")
+                    "GEA_UPDATE_PROPS"
                   ),
                   [libExports.objectExpression([libExports.objectProperty(libExports.identifier(m.childPropName), libExports.identifier("value"))])]
                 )
@@ -57653,10 +57814,7 @@ function ensureOnPropChangeMethod(classBody, inlinePatchBodies, compiledChildren
   const childRefreshCalls = childRefreshEntries.map(({ child, depProps }) => {
     const call = libExports.expressionStatement(
       libExports.callExpression(
-        libExports.memberExpression(
-          libExports.memberExpression(libExports.thisExpression(), libExports.identifier(child.instanceVar)),
-          libExports.identifier("__geaUpdateProps")
-        ),
+        buildExprGeaMember(libExports.memberExpression(libExports.thisExpression(), libExports.identifier(child.instanceVar)), "GEA_UPDATE_PROPS"),
         [
           libExports.callExpression(
             libExports.memberExpression(libExports.thisExpression(), libExports.identifier(`__buildProps_${child.instanceVar.replace(/^_/, "")}`)),
@@ -57691,9 +57849,7 @@ function ensureOnPropChangeMethod(classBody, inlinePatchBodies, compiledChildren
   if (conditionalSlots.length > 0) {
     for (let i = 0; i < conditionalSlots.length; i++) {
       const slot = conditionalSlots[i];
-      const call = libExports.expressionStatement(
-        libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__geaPatchCond")), [libExports.numericLiteral(i)])
-      );
+      const call = libExports.expressionStatement(libExports.callExpression(thisGea("GEA_PATCH_COND"), [libExports.numericLiteral(i)]));
       if (slot.dependentPropNames.length > 0) {
         const guard = slot.dependentPropNames.reduce((acc, prop) => {
           const test = libExports.binaryExpression("===", libExports.identifier("key"), libExports.stringLiteral(prop));
@@ -57712,11 +57868,7 @@ function ensureOnPropChangeMethod(classBody, inlinePatchBodies, compiledChildren
     )
   );
   const unresolvedMapRefreshCalls = unresolvedMapPropRefreshDeps.map((dep) => {
-    const call = libExports.expressionStatement(
-      libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__geaSyncMap")), [
-        libExports.numericLiteral(dep.mapIdx)
-      ])
-    );
+    const call = libExports.expressionStatement(libExports.callExpression(thisGea("GEA_SYNC_MAP"), [libExports.numericLiteral(dep.mapIdx)]));
     if (dep.propNames.length > 0) {
       const guard = dep.propNames.reduce((acc, prop) => {
         const test = libExports.binaryExpression("===", libExports.identifier("key"), libExports.stringLiteral(prop));
@@ -57735,7 +57887,18 @@ function ensureOnPropChangeMethod(classBody, inlinePatchBodies, compiledChildren
   ];
   if (allKeyGuarded.length === 0) return;
   const merged = mergeKeyGuards(allKeyGuarded);
-  classBody.body.push(appendToBody(jsMethod`${id("__onPropChange")}(key, value) {}`, ...merged));
+  classBody.body.push(
+    appendToBody(
+      libExports.classMethod(
+        "method",
+        libExports.identifier("GEA_ON_PROP_CHANGE"),
+        [libExports.identifier("key"), libExports.identifier("value")],
+        libExports.blockStatement([]),
+        true
+      ),
+      ...merged
+    )
+  );
 }
 function serializeKeyGuard(test) {
   if (libExports.isBinaryExpression(test) && test.operator === "===" && libExports.isIdentifier(test.left, { name: "key" }) && libExports.isStringLiteral(test.right)) {
@@ -57896,7 +58059,11 @@ function generateConditionalPatchMethods(classBody, slots, templatePropNames, wh
       libExports.expressionStatement(
         libExports.assignmentExpression(
           "=",
-          libExports.memberExpression(libExports.thisExpression(), libExports.identifier(`__geaCond_${i}`)),
+          libExports.memberExpression(
+            libExports.thisExpression(),
+            libExports.callExpression(libExports.identifier("geaCondValueSymbol"), [libExports.numericLiteral(i)]),
+            true
+          ),
           libExports.unaryExpression("!", libExports.unaryExpression("!", rewrittenCondExprsSafe[i]))
         )
       )
@@ -57934,7 +58101,7 @@ function generateConditionalPatchMethods(classBody, slots, templatePropNames, wh
     };
     registerCondCalls.push(
       libExports.expressionStatement(
-        libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__geaRegisterCond")), [
+        libExports.callExpression(thisGea("GEA_REGISTER_COND"), [
           libExports.numericLiteral(i),
           libExports.stringLiteral(slot.slotId),
           libExports.arrowFunctionExpression([], libExports.blockStatement(getCondBody)),
@@ -58252,76 +58419,81 @@ function replaceMapInConditionalSlots(slots, arrayMap) {
 }
 function generateStoreInlinePatchObserver(pathParts, storeVar, patchStatements) {
   const method = jsMethod`${id(getObserveMethodName(pathParts, storeVar))}(value, change) {}`;
-  method.body.body.push(
-    libExports.ifStatement(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("rendered_")), libExports.blockStatement(patchStatements))
-  );
+  method.body.body.push(libExports.ifStatement(thisGea("GEA_RENDERED"), libExports.blockStatement(patchStatements)));
   return method;
 }
 function generateRerenderObserver(pathParts, storeVar, truthinessOnly) {
   const method = jsMethod`${id(getObserveMethodName(pathParts, storeVar))}(value, change) {}`;
   if (storeVar) {
-    const prevProp = `__geaPrev_${getObserveMethodName(pathParts, storeVar)}`;
+    const observePrevMem = libExports.memberExpression(
+      libExports.thisExpression(),
+      libExports.callExpression(libExports.identifier("geaObservePrevSymbol"), [
+        libExports.stringLiteral(getObserveMethodName(pathParts, storeVar))
+      ]),
+      true
+    );
     if (truthinessOnly) {
       method.body.body.push(
-        ...jsBlockBody`
-          if (!value === !this.${id(prevProp)}) return;
-          this.${id(prevProp)} = value;
-        `
+        libExports.ifStatement(
+          libExports.binaryExpression(
+            "===",
+            libExports.unaryExpression("!", libExports.identifier("value")),
+            libExports.unaryExpression("!", observePrevMem)
+          ),
+          libExports.returnStatement()
+        ),
+        libExports.expressionStatement(libExports.assignmentExpression("=", observePrevMem, libExports.identifier("value")))
       );
     } else {
       method.body.body.push(
-        ...jsBlockBody`
-          if (value === this.${id(prevProp)}) return;
-          this.${id(prevProp)} = value;
-        `
+        libExports.ifStatement(libExports.binaryExpression("===", libExports.identifier("value"), observePrevMem), libExports.returnStatement()),
+        libExports.expressionStatement(libExports.assignmentExpression("=", observePrevMem, libExports.identifier("value")))
       );
     }
   }
   method.body.body.push(
     libExports.ifStatement(
-      libExports.memberExpression(libExports.thisExpression(), libExports.identifier("rendered_")),
-      libExports.blockStatement([
-        libExports.expressionStatement(
-          libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__geaRequestRender")), [])
-        )
-      ])
+      thisGea("GEA_RENDERED"),
+      libExports.blockStatement([libExports.expressionStatement(libExports.callExpression(thisGea("GEA_REQUEST_RENDER"), []))])
     )
   );
   return method;
 }
 function generateConditionalSlotObserveMethod(pathParts, storeVar, slotIndices, emitEarlyReturn = true) {
   const method = jsMethod`${id(getObserveMethodName(pathParts, storeVar))}(value, change) {}`;
-  const anyPatchedExpr = slotIndices.map((i) => libExports.memberExpression(libExports.thisExpression(), libExports.identifier(`__geaCondPatched_${i}`))).reduce((acc, expr) => libExports.logicalExpression("||", acc, expr));
+  const anyPatchedExpr = slotIndices.map(
+    (i) => libExports.memberExpression(
+      libExports.thisExpression(),
+      libExports.callExpression(libExports.identifier("geaCondPatchedSymbol"), [libExports.numericLiteral(i)]),
+      true
+    )
+  ).reduce((acc, expr) => libExports.logicalExpression("||", acc, expr));
   const patchStatements = [];
   if (slotIndices.length === 1) {
     patchStatements.push(libExports.ifStatement(anyPatchedExpr, libExports.returnStatement()));
   }
   slotIndices.forEach((slotIndex) => {
+    const patchedMem = libExports.memberExpression(
+      libExports.thisExpression(),
+      libExports.callExpression(libExports.identifier("geaCondPatchedSymbol"), [libExports.numericLiteral(slotIndex)]),
+      true
+    );
     patchStatements.push(
       libExports.expressionStatement(
         libExports.assignmentExpression(
           "=",
-          libExports.memberExpression(libExports.thisExpression(), libExports.identifier(`__geaCondPatched_${slotIndex}`)),
-          libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__geaPatchCond")), [
-            libExports.numericLiteral(slotIndex)
-          ])
+          patchedMem,
+          libExports.callExpression(thisGea("GEA_PATCH_COND"), [libExports.numericLiteral(slotIndex)])
         )
       )
     );
     patchStatements.push(
       libExports.ifStatement(
-        libExports.memberExpression(libExports.thisExpression(), libExports.identifier(`__geaCondPatched_${slotIndex}`)),
+        patchedMem,
         libExports.blockStatement([
           libExports.expressionStatement(
             libExports.callExpression(libExports.identifier("queueMicrotask"), [
-              libExports.arrowFunctionExpression(
-                [],
-                libExports.assignmentExpression(
-                  "=",
-                  libExports.memberExpression(libExports.thisExpression(), libExports.identifier(`__geaCondPatched_${slotIndex}`)),
-                  libExports.booleanLiteral(false)
-                )
-              )
+              libExports.arrowFunctionExpression([], libExports.assignmentExpression("=", patchedMem, libExports.booleanLiteral(false)))
             ])
           )
         ])
@@ -58331,28 +58503,22 @@ function generateConditionalSlotObserveMethod(pathParts, storeVar, slotIndices, 
   if (emitEarlyReturn) {
     patchStatements.push(libExports.ifStatement(anyPatchedExpr, libExports.returnStatement()));
   }
-  method.body.body.push(
-    libExports.ifStatement(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("rendered_")), libExports.blockStatement(patchStatements))
-  );
+  method.body.body.push(libExports.ifStatement(thisGea("GEA_RENDERED"), libExports.blockStatement(patchStatements)));
   return method;
 }
 function generateStateChildSwapObserver(pathParts, storeVar) {
   const method = jsMethod`${id(getObserveMethodName(pathParts, storeVar))}(value, change) {}`;
   method.body.body.push(
     libExports.ifStatement(
-      libExports.memberExpression(libExports.thisExpression(), libExports.identifier("rendered_")),
-      libExports.blockStatement([
-        libExports.expressionStatement(
-          libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__geaSwapStateChildren")), [])
-        )
-      ])
+      thisGea("GEA_RENDERED"),
+      libExports.blockStatement([libExports.expressionStatement(libExports.callExpression(thisGea("GEA_SWAP_STATE_CHILDREN"), []))])
     )
   );
   return method;
 }
 function generateStateChildSwapMethod(classBody, stateChildSlots) {
   const existing = classBody.body.find(
-    (member) => libExports.isClassMethod(member) && libExports.isIdentifier(member.key) && member.key.name === "__geaSwapStateChildren"
+    (member) => libExports.isClassMethod(member) && member.computed && libExports.isIdentifier(member.key) && member.key.name === "GEA_SWAP_STATE_CHILDREN"
   );
   if (existing) return;
   const templateMethod = classBody.body.find(
@@ -58375,9 +58541,9 @@ function generateStateChildSwapMethod(classBody, stateChildSlots) {
     if (!hasBuildProps) return null;
     return libExports.expressionStatement(
       libExports.callExpression(
-        libExports.memberExpression(
+        buildExprGeaMember(
           libExports.memberExpression(libExports.thisExpression(), libExports.identifier(slot.childInstanceVar)),
-          libExports.identifier("__geaUpdateProps")
+          "GEA_UPDATE_PROPS"
         ),
         [libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier(buildPropsName)), [])]
       )
@@ -58386,7 +58552,7 @@ function generateStateChildSwapMethod(classBody, stateChildSlots) {
   const swapCalls = stateChildSlots.map((slot) => {
     const guardClone = libExports.cloneNode(slot.guardExpr, true);
     return libExports.expressionStatement(
-      libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__geaSwapChild")), [
+      libExports.callExpression(thisGea("GEA_SWAP_CHILD"), [
         libExports.stringLiteral(slot.markerId),
         libExports.logicalExpression(
           "&&",
@@ -58399,9 +58565,10 @@ function generateStateChildSwapMethod(classBody, stateChildSlots) {
   const filteredSetup = pruneUnusedSetupDestructuring(setupStatements, [...propsUpdateCalls, ...swapCalls]);
   const method = libExports.classMethod(
     "method",
-    libExports.identifier("__geaSwapStateChildren"),
+    libExports.identifier("GEA_SWAP_STATE_CHILDREN"),
     [],
-    libExports.blockStatement([...filteredSetup, ...propsUpdateCalls, ...swapCalls])
+    libExports.blockStatement([...filteredSetup, ...propsUpdateCalls, ...swapCalls]),
+    true
   );
   classBody.body.push(method);
 }
@@ -58728,7 +58895,7 @@ function transformComponentFile(ast, imports, storeImports, className, sourceFil
           (p) => libExports.isClassDeclaration(p.node)
         );
         if (earlyClassPath) {
-          transformed = appendCompiledEventMethods(earlyClassPath.node.body, earlyReturnCtx.eventHandlers, []) || transformed;
+          transformed = appendCompiledEventMethods(earlyClassPath.node.body, earlyReturnCtx.eventHandlers, [], ast) || transformed;
         }
       }
       for (const info of conditionalSlotInfos) {
@@ -58759,6 +58926,7 @@ function transformComponentFile(ast, imports, storeImports, className, sourceFil
           cloneCtxForPatches
         );
         if (cloneMembers) {
+          ensureImport(ast, "@geajs/core", "GEA_CLONE_TEMPLATE");
           classPath.node.body.body.push(...cloneMembers);
           transformed = true;
         }
@@ -58767,17 +58935,18 @@ function transformComponentFile(ast, imports, storeImports, className, sourceFil
         const classPath2 = path.findParent((p) => libExports.isClassDeclaration(p.node));
         if (classPath2) {
           const setupStatements = returnIndex >= 0 ? body.slice(0, returnIndex) : [];
-          transformed = appendCompiledEventMethods(classPath2.node.body, eventHandlers, setupStatements) || transformed;
+          transformed = appendCompiledEventMethods(classPath2.node.body, eventHandlers, setupStatements, ast) || transformed;
         }
       }
       if (refBindings.length > 0) {
         const classPath2 = path.findParent((p) => libExports.isClassDeclaration(p.node));
         if (classPath2) {
+          ensureImport(ast, "@geajs/core", "GEA_ELEMENT");
           const refStatements = refBindings.flatMap((ref) => {
             const target = ref.targetExpr;
             const q = libExports.callExpression(
               libExports.memberExpression(
-                libExports.memberExpression(libExports.thisExpression(), libExports.identifier("element_")),
+                libExports.memberExpression(libExports.thisExpression(), libExports.identifier("GEA_ELEMENT"), true),
                 libExports.identifier("querySelector")
               ),
               [libExports.stringLiteral(`[data-gea-ref="${ref.refId}"]`)]
@@ -58787,14 +58956,18 @@ function transformComponentFile(ast, imports, storeImports, className, sourceFil
               libExports.expressionStatement(libExports.assignmentExpression("=", target, q))
             ];
           });
-          const existingSetup = classPath2.node.body.body.find(
-            (m) => libExports.isClassMethod(m) && libExports.isIdentifier(m.key) && m.key.name === "__setupRefs"
-          );
+          ensureImport(ast, "@geajs/core", "GEA_SETUP_REFS");
+          const existingSetup = classPath2.node.body.body.find((m) => {
+            if (!libExports.isClassMethod(m) || !libExports.isIdentifier(m.key)) return false;
+            if (m.computed && m.key.name === "GEA_SETUP_REFS") return true;
+            if (!m.computed && m.key.name === "__setupRefs") return true;
+            return false;
+          });
           if (existingSetup && libExports.isClassMethod(existingSetup)) {
             existingSetup.body.body.push(...refStatements);
           } else {
             classPath2.node.body.body.push(
-              libExports.classMethod("method", libExports.identifier("__setupRefs"), [], libExports.blockStatement(refStatements))
+              libExports.classMethod("method", libExports.identifier("GEA_SETUP_REFS"), [], libExports.blockStatement(refStatements), true)
             );
           }
           transformed = true;
@@ -58908,20 +59081,24 @@ function transformComponentFile(ast, imports, storeImports, className, sourceFil
           if (!libExports.isClassMethod(member) || member.kind === "constructor") continue;
           const name = libExports.isIdentifier(member.key) ? member.key.name : null;
           if (!name) continue;
-          const isCompilerGenerated = name === "template" || name === "events" && member.kind === "get" || name.startsWith("__");
+          const isCompilerGenerated = name === "template" || name === "events" && member.kind === "get" || name.startsWith("__") || member.computed && name === "GEA_ON_PROP_CHANGE";
           if (isCompilerGenerated) {
             cacheThisIdInMethod(member);
           }
           if (name === "events" && member.kind === "get") {
+            ensureImport(ast, "@geajs/core", "GEA_ELEMENT");
             wrapEventsGetterWithCache(member);
           }
-          if (name === "__onPropChange") {
+          if (name === "__onPropChange" || member.computed && name === "GEA_ON_PROP_CHANGE") {
             wrapSubpathCacheGuards(member, subpathPcCounter, path.node.body);
           }
         }
         path.stop();
       }
     });
+  }
+  if (transformed) {
+    ensureGeaCompilerSymbolImports(ast);
   }
   return transformed;
 }

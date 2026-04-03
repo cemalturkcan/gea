@@ -1,4 +1,10 @@
-export { default as Component, __escapeHtml, __sanitizeAttr } from './lib/base/component'
+export {
+  default as Component,
+  __escapeHtml as geaEscapeHtml,
+  __sanitizeAttr as geaSanitizeAttr,
+  stashComponentForTransfer,
+} from './lib/base/component'
+export * from './lib/symbols'
 export { resetUidCounter, setUidProvider, clearUidProvider } from './lib/base/uid'
 export {
   Store,

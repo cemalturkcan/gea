@@ -40,8 +40,9 @@ const STORE_REGISTRY_ID = 'virtual:gea-store-registry'
 const RESOLVED_STORE_REGISTRY_ID = '\0' + STORE_REGISTRY_ID
 
 const RECONCILE_SOURCE = `
+import { GEA_DOM_ITEM } from '@geajs/core';
 function getKey(el) {
-  if (el.__geaItem) return String(el.__geaItem.id);
+  if (el[GEA_DOM_ITEM]) return String(el[GEA_DOM_ITEM].id);
   return el.getAttribute('key');
 }
 export function reconcile(oldC, newC) {
@@ -180,41 +181,42 @@ export function unregisterComponentInstance(className, instance) {
 }
 
 function reRenderComponent(instance) {
-  if (!instance || !instance.element_) return;
-  var parent = instance.element_.parentElement;
+  if (!instance || !instance[GEA_ELEMENT]) return;
+  var parent = instance[GEA_ELEMENT].parentElement;
   if (!parent) return;
-  var index = Array.prototype.indexOf.call(parent.children, instance.element_);
+  var index = Array.prototype.indexOf.call(parent.children, instance[GEA_ELEMENT]);
   var props = Object.assign({}, instance.props);
   var __stateSnapshot = {};
   var __ownKeys = Object.getOwnPropertyNames(instance);
   for (var __ki = 0; __ki < __ownKeys.length; __ki++) {
     var __k = __ownKeys[__ki];
-    if (__k.charAt(0) === '_' || __k === 'props' || __k === 'element_' || __k === 'rendered_' || __k === 'id') continue;
+    if (__k.charAt(0) === '_' || __k === 'props' || __k === 'id') continue;
     var __desc = Object.getOwnPropertyDescriptor(instance, __k);
     if (__desc && (__desc.get || __desc.set)) continue;
     try { __stateSnapshot[__k] = instance[__k]; } catch(e) {}
   }
-  instance.rendered_ = false;
-  if (instance.cleanupBindings_) instance.cleanupBindings_();
-  if (instance.teardownSelfListeners_) instance.teardownSelfListeners_();
+  instance[GEA_RENDERED] = false;
+  if (typeof instance[GEA_CLEANUP_BINDINGS] === 'function') instance[GEA_CLEANUP_BINDINGS]();
+  if (typeof instance[GEA_TEARDOWN_SELF_LISTENERS] === 'function') instance[GEA_TEARDOWN_SELF_LISTENERS]();
   if (instance.__cleanupCompiledDirectEvents) instance.__cleanupCompiledDirectEvents();
-  if (instance.__childComponents && instance.__childComponents.length) {
-    instance.__childComponents.forEach(function(child) { if (child && child.dispose) child.dispose(); });
-    instance.__childComponents = [];
+  var __cc = instance[GEA_CHILD_COMPONENTS];
+  if (__cc && __cc.length) {
+    __cc.forEach(function(child) { if (child && child.dispose) child.dispose(); });
+    instance[GEA_CHILD_COMPONENTS] = [];
   }
-  if (instance.element_ && instance.element_.parentNode) {
-    instance.element_.parentNode.removeChild(instance.element_);
+  if (instance[GEA_ELEMENT] && instance[GEA_ELEMENT].parentNode) {
+    instance[GEA_ELEMENT].parentNode.removeChild(instance[GEA_ELEMENT]);
   }
-  instance.element_ = null;
+  instance[GEA_ELEMENT] = null;
   instance.props = props;
   var __restoreKeys = Object.getOwnPropertyNames(__stateSnapshot);
   for (var __ri = 0; __ri < __restoreKeys.length; __ri++) {
     try { instance[__restoreKeys[__ri]] = __stateSnapshot[__restoreKeys[__ri]]; } catch(e) {}
   }
-  if (!instance.__bindings) instance.__bindings = [];
+  if (!instance[GEA_BINDINGS]) instance[GEA_BINDINGS] = [];
   if (!instance.__bindingRemovers) instance.__bindingRemovers = [];
-  if (!instance.__selfListeners) instance.__selfListeners = [];
-  if (!instance.__childComponents) instance.__childComponents = [];
+  if (!instance[GEA_SELF_LISTENERS]) instance[GEA_SELF_LISTENERS] = [];
+  if (!instance[GEA_CHILD_COMPONENTS]) instance[GEA_CHILD_COMPONENTS] = [];
   instance.render(parent, index);
   if (typeof instance.createdHooks === 'function') {
     instance.createdHooks(instance.props);
@@ -544,16 +546,20 @@ export function geaPlugin(): Plugin {
               )
               if (result) transformed = true
             }
-            // Inject __geaTagName on each component class so the tag name
-            // survives minification (the constructor registers via ctor.name
-            // which gets mangled; __geaTagName is a string literal).
+            // Static [GEA_CTOR_TAG_NAME] so the tag name survives minification.
             for (const cn of componentClassNames) {
               const kebab = pascalToKebabCase(cn)
               traverse(ast, {
                 noScope: true,
                 ClassDeclaration(path: any) {
                   if (!path.node.id || path.node.id.name !== cn) return
-                  const prop = t.classProperty(t.identifier('__geaTagName'), t.stringLiteral(kebab))
+                  const prop = t.classProperty(
+                    t.identifier('GEA_CTOR_TAG_NAME'),
+                    t.stringLiteral(kebab),
+                    undefined,
+                    undefined,
+                    true,
+                  )
                   prop.static = true
                   path.node.body.body.unshift(prop)
                   path.stop()
@@ -561,6 +567,7 @@ export function geaPlugin(): Plugin {
               })
               transformed = true
             }
+            ensureImport(ast, '@geajs/core', 'GEA_CTOR_TAG_NAME')
           } else {
             transformed = transformNonComponentJSX(ast, imports)
           }
@@ -590,8 +597,8 @@ export function geaPlugin(): Plugin {
         if (!transformed) return null
 
         // Inject XSS prevention helper imports when the compiled output uses them
-        ensureImport(ast, '@geajs/core', '__escapeHtml')
-        ensureImport(ast, '@geajs/core', '__sanitizeAttr')
+        ensureImport(ast, '@geajs/core', 'geaEscapeHtml')
+        ensureImport(ast, '@geajs/core', 'geaSanitizeAttr')
 
         const output = generate(ast, { sourceMaps: true, sourceFileName: cleanId }, code)
         return { code: output.code, map: output.map }

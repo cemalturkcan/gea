@@ -1,3 +1,12 @@
+import {
+  GEA_ATTACH_BINDINGS,
+  GEA_ELEMENT,
+  GEA_INSTANTIATE_CHILD_COMPONENTS,
+  GEA_MOUNT_COMPILED_CHILD_COMPONENTS,
+  GEA_RENDERED,
+  GEA_SETUP_EVENT_DIRECTIVES,
+} from '@geajs/core'
+
 // ---------------------------------------------------------------------------
 // GEA SSR – Shared type definitions
 // ---------------------------------------------------------------------------
@@ -33,7 +42,7 @@ export type StoreSnapshot = StoreSnapshotEntry[]
 
 /** Own keys on @geajs/core `Store` that are implementation details (not user data). */
 export const STORE_IMPL_OWN_KEYS = new Set([
-  '_selfProxy',
+  // _selfProxy and most internals live on WeakMap / symbol keys — not enumerable string keys
   '_pendingChanges',
   '_pendingChangesPool',
   '_flushScheduled',
@@ -56,8 +65,8 @@ export const STORE_IMPL_OWN_KEYS = new Set([
  */
 export interface GeaComponentInstance<P extends Record<string, unknown> = Record<string, unknown>> {
   props: P
-  element_?: Element | null
-  rendered_?: boolean
+  [GEA_ELEMENT]?: Element | null
+  [GEA_RENDERED]?: boolean
 
   /** Must return an HTML string (or something coercible to string). */
   template(props?: P): string
@@ -65,11 +74,11 @@ export interface GeaComponentInstance<P extends Record<string, unknown> = Record
   /** Full client-side render into a DOM element. */
   render?(element: Element): void
 
-  // Hydration lifecycle hooks (all optional)
-  attachBindings_?(): void
-  mountCompiledChildComponents_?(): void
-  instantiateChildComponents_?(): void
-  setupEventDirectives_?(): void
+  // Hydration lifecycle hooks (all optional; engine uses well-known symbols)
+  [GEA_ATTACH_BINDINGS]?: () => void
+  [GEA_MOUNT_COMPILED_CHILD_COMPONENTS]?: () => void
+  [GEA_INSTANTIATE_CHILD_COMPONENTS]?: () => void
+  [GEA_SETUP_EVENT_DIRECTIVES]?: () => void
   onAfterRender?(): void
   onAfterRenderHooks?(): void
   __geaRequestRender?(): void

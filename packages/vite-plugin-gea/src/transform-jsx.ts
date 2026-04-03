@@ -490,7 +490,7 @@ const URL_ATTRS = new Set(['href', 'src', 'action', 'formaction', 'data', 'cite'
 
 function wrapWithSanitizeAttr(attrName: string, expr: t.Expression): t.Expression {
   if (!URL_ATTRS.has(attrName)) return expr
-  return t.callExpression(t.identifier('__sanitizeAttr'), [
+  return t.callExpression(t.identifier('geaSanitizeAttr'), [
     t.stringLiteral(attrName),
     t.callExpression(t.identifier('String'), [expr]),
   ])
@@ -768,9 +768,10 @@ function replaceJSXInExpression(
     const mapItemVariable = t.isIdentifier(fn.params[0]) ? fn.params[0].name : 'item'
     const itemTemplate = extractItemTemplate(fn)
     const mapItemIdProperty = detectItemIdProperty(itemTemplate, mapItemVariable) || 'id'
-    const mapKeyExpr = !detectItemIdProperty(itemTemplate, mapItemVariable) && hasExplicitItemKey(itemTemplate)
-      ? extractKeyExpression(itemTemplate)
-      : undefined
+    const mapKeyExpr =
+      !detectItemIdProperty(itemTemplate, mapItemVariable) && hasExplicitItemKey(itemTemplate)
+        ? extractKeyExpression(itemTemplate)
+        : undefined
     const mapCtx = {
       ...ctx,
       inMapCallback: true,
@@ -1501,12 +1502,14 @@ function processChildren(
         // - Map callback expressions: item properties may hold component instances
         //   whose toString() returns HTML (e.g. {item.content} in Tabs)
         const skipEscape =
-          childCallInfo || isChildrenPropAccess(rawExpr) || expressionContainsJSX(rawExpr) || ctx.inMapCallback || callsJSXReturningProperty(rawExpr, ctx.classBody)
+          childCallInfo ||
+          isChildrenPropAccess(rawExpr) ||
+          expressionContainsJSX(rawExpr) ||
+          ctx.inMapCallback ||
+          callsJSXReturningProperty(rawExpr, ctx.classBody)
         const safeExpr = skipEscape
           ? expr
-          : t.callExpression(t.identifier('__escapeHtml'), [
-              t.callExpression(t.identifier('String'), [expr]),
-            ])
+          : t.callExpression(t.identifier('geaEscapeHtml'), [t.callExpression(t.identifier('String'), [expr])])
         parts.push({ type: 'expression', value: safeExpr })
       }
     }

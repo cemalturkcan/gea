@@ -10,7 +10,7 @@ import { JSDOM } from 'jsdom'
 import { parseSource } from '../src/parse'
 import { transformComponentFile } from '../src/transform-component'
 import { geaPlugin } from '../src/index'
-import { __escapeHtml, __sanitizeAttr } from '../../gea/src/lib/base/component'
+import { buildEvalPrelude, mergeEvalBindings } from './helpers/compile'
 
 const generate = 'default' in babelGenerator ? babelGenerator.default : babelGenerator
 
@@ -98,11 +98,12 @@ async function loadRuntimeModules(seed: string) {
   return Promise.all([
     import(`../../gea/src/lib/base/component.tsx?${seed}`),
     import(`../../gea/src/lib/store.ts?${seed}`),
+    import(`../../gea/src/lib/symbols.ts?${seed}`),
   ])
 }
 
-// --- Optimization #3: Prop patch methods (inlined into __onPropChange) ---
-test('compiler inlines prop text patches into __onPropChange', () => {
+// --- Optimization #3: Prop patch methods (inlined into GEA_ON_PROP_CHANGE) ---
+test('compiler inlines prop text patches into GEA_ON_PROP_CHANGE', () => {
   const output = transformComponentSource(`
     import { Component } from '@geajs/core'
 
@@ -113,12 +114,12 @@ test('compiler inlines prop text patches into __onPropChange', () => {
     }
   `)
 
-  assert.match(output, /__onPropChange/)
+  assert.match(output, /GEA_ON_PROP_CHANGE/)
   assert.match(output, /textContent = value/)
   assert.doesNotMatch(output, /__geaPatchProp_count\(/)
 })
 
-test('compiler inlines this.props text patches into __onPropChange', () => {
+test('compiler inlines this.props text patches into GEA_ON_PROP_CHANGE', () => {
   const output = transformComponentSource(`
     import { Component } from '@geajs/core'
 
@@ -129,12 +130,12 @@ test('compiler inlines this.props text patches into __onPropChange', () => {
     }
   `)
 
-  assert.match(output, /__onPropChange/)
+  assert.match(output, /GEA_ON_PROP_CHANGE/)
   assert.match(output, /textContent = value/)
   assert.doesNotMatch(output, /__geaPatchProp_label\(/)
 })
 
-test('compiler inlines class prop patches into __onPropChange', () => {
+test('compiler inlines class prop patches into GEA_ON_PROP_CHANGE', () => {
   const output = transformComponentSource(`
     import { Component } from '@geajs/core'
 
@@ -145,12 +146,12 @@ test('compiler inlines class prop patches into __onPropChange', () => {
     }
   `)
 
-  assert.match(output, /__onPropChange/)
+  assert.match(output, /GEA_ON_PROP_CHANGE/)
   assert.match(output, /className/)
   assert.doesNotMatch(output, /__geaPatchProp_activeClass\(/)
 })
 
-test('compiler generates __geaPatchProp_* for attribute props (data-*, aria-*)', () => {
+test('compiler inlines attribute prop patches (data-*, aria-*) into GEA_ON_PROP_CHANGE', () => {
   const output = transformComponentSource(`
     import { Component } from '@geajs/core'
 
@@ -161,7 +162,7 @@ test('compiler generates __geaPatchProp_* for attribute props (data-*, aria-*)',
     }
   `)
 
-  assert.match(output, /__onPropChange/)
+  assert.match(output, /GEA_ON_PROP_CHANGE/)
   assert.match(output, /setAttribute/)
   assert.match(output, /removeAttribute/)
 })
@@ -185,38 +186,40 @@ test('ComponentManager createElement produces valid DOM from HTML string', async
   }
 })
 
-// --- Optimization #6: Store __raw ---
-test('store state proxy exposes __raw as alias for __getTarget', async () => {
+// --- Optimization #6: Store [GEA_PROXY_RAW] ---
+test('store state proxy exposes GEA_PROXY_RAW as alias for GEA_PROXY_GET_TARGET', async () => {
   const restoreDom = installDom()
 
   try {
-    const [, { Store }] = await loadRuntimeModules(`opt-raw-${Date.now()}`)
+    const [, { Store }, { GEA_PROXY_GET_TARGET, GEA_PROXY_RAW }] = await loadRuntimeModules(`opt-raw-${Date.now()}`)
     const store = new Store({ items: [{ id: 1, name: 'a' }] })
 
-    assert.strictEqual(store.items.__raw, store.items.__getTarget)
-    assert.ok(Array.isArray(store.items.__raw))
-    assert.equal(store.items.__raw.length, 1)
-    assert.equal(store.items.__raw[0].name, 'a')
+    assert.strictEqual(store.items[GEA_PROXY_RAW], store.items[GEA_PROXY_GET_TARGET])
+    assert.ok(Array.isArray(store.items[GEA_PROXY_RAW]))
+    assert.equal(store.items[GEA_PROXY_RAW].length, 1)
+    assert.equal(store.items[GEA_PROXY_RAW][0].name, 'a')
   } finally {
     restoreDom()
   }
 })
 
-test('store __raw forEach passes raw values without proxy overhead', async () => {
+test('store GEA_PROXY_RAW forEach passes raw values without proxy overhead', async () => {
   const restoreDom = installDom()
 
   try {
-    const [, { Store }] = await loadRuntimeModules(`opt-raw-foreach-${Date.now()}`)
+    const [, { Store }, { GEA_PROXY_GET_TARGET, GEA_PROXY_IS_PROXY, GEA_PROXY_RAW }] = await loadRuntimeModules(
+      `opt-raw-foreach-${Date.now()}`,
+    )
     const store = new Store({ items: [{ id: 1 }, { id: 2 }] })
 
     const collected: unknown[] = []
-    store.items.__raw.forEach((item: { id: number }) => {
+    store.items[GEA_PROXY_RAW].forEach((item: { id: number }) => {
       collected.push(item)
-      assert.ok(!(item as any).__isProxy, 'raw forEach should pass unproxied values')
+      assert.ok(!(item as any)[GEA_PROXY_IS_PROXY], 'raw forEach should pass unproxied values')
     })
 
     assert.equal(collected.length, 2)
-    assert.equal(collected[0], store.items.__getTarget[0])
+    assert.equal(collected[0], store.items[GEA_PROXY_GET_TARGET][0])
   } finally {
     restoreDom()
   }
@@ -239,8 +242,8 @@ test('style object expression is computed once, not triplicated', () => {
   `)
 
   // Object.entries().map().join() is always a string — guard is unnecessary.
-  // Expect at most 2 occurrences: one in template(), one in __onPropChange().
-  // Before fix: 4 occurrences (3 in template guard + 1 in __onPropChange).
+  // Expect at most 2 occurrences: one in template(), one in GEA_ON_PROP_CHANGE().
+  // Before fix: 4 occurrences (3 in template guard + 1 in GEA_ON_PROP_CHANGE).
   const styleExprCount = (output.match(/Object\.entries/g) || []).length
   assert.ok(
     styleExprCount <= 2,
@@ -308,17 +311,17 @@ test('functional component with multiple conds omits unused destructured props f
     'OptionCard',
   )
 
-  // Verify __geaRegisterCond is generated
-  assert.match(output, /__geaRegisterCond\(0/, 'should generate __geaRegisterCond(0,...)')
-  assert.match(output, /__geaRegisterCond\(1/, 'should generate __geaRegisterCond(1,...)')
+  // Verify [GEA_REGISTER_COND] is generated
+  assert.match(output, /\[GEA_REGISTER_COND\]\(0/, 'should generate [GEA_REGISTER_COND](0,...)')
+  assert.match(output, /\[GEA_REGISTER_COND\]\(1/, 'should generate [GEA_REGISTER_COND](1,...)')
 
   // Cond 0's truthy callback returns static HTML (✓ span) — should NOT have
   // destructured props since the HTML doesn't reference any of them.
   // Match the 4th argument (truthy callback) — either block body or expression body
   const cond0Match = output.match(
-    /__geaRegisterCond\(0,\s*"c0",\s*\(\)\s*=>\s*\{[\s\S]*?\},\s*(\(\)\s*=>\s*\{[\s\S]*?\}|\(\)\s*=>\s*[^,]+),/,
+    /\[GEA_REGISTER_COND\]\(0,\s*"c0",\s*\(\)\s*=>\s*\{[\s\S]*?\},\s*(\(\)\s*=>\s*\{[\s\S]*?\}|\(\)\s*=>\s*[^,]+),/,
   )
-  assert.ok(cond0Match, 'should find __geaRegisterCond(0,...) truthy callback')
+  assert.ok(cond0Match, 'should find [GEA_REGISTER_COND](0,...) truthy callback')
   const cond0TruthyCallback = cond0Match![1]
   assert.doesNotMatch(
     cond0TruthyCallback,
@@ -352,8 +355,8 @@ test('compiler generates patch for array item with multiple text expressions', (
     }
   `)
 
-  assert.match(output, /__ensureArrayConfigs\(\)/)
-  assert.match(output, /__applyListChanges/)
+  assert.match(output, /\[GEA_ENSURE_ARRAY_CONFIGS\]\(\)/)
+  assert.match(output, /\[GEA_APPLY_LIST_CHANGES\]/)
   assert.match(output, /propPatchers/)
   assert.match(output, /item\.label.*item\.id/, 'prop patcher should combine label and id in single update')
 })
@@ -444,8 +447,8 @@ export default class StatusStore extends Store {
     )
 
     // Both subscriptions should exist, pointing to the same method
-    const observeCalls = output.match(/this\.__observe\(store/g) || []
-    assert.ok(observeCalls.length >= 2, 'Should have at least 2 __observe subscriptions')
+    const observeCalls = output.match(/this\[GEA_OBSERVE\]\(store/g) || []
+    assert.ok(observeCalls.length >= 2, 'Should have at least 2 [GEA_OBSERVE] subscriptions')
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
@@ -501,14 +504,14 @@ export default class MultiStore extends Store {
 })
 
 async function compileJsxComponent(source: string, id: string, className: string, bindings: Record<string, unknown>) {
-  const allBindings = { __escapeHtml, __sanitizeAttr, ...bindings }
+  const allBindings = mergeEvalBindings(bindings)
   const plugin = geaPlugin()
   const transform = typeof plugin.transform === 'function' ? plugin.transform : plugin.transform?.handler
   const result = await transform?.call({} as never, source, id)
   assert.ok(result)
 
   const code = typeof result === 'string' ? result : result.code
-  const compiledSource = `${code
+  const compiledSource = `${buildEvalPrelude()}${code
     .replace(/^import .*;$/gm, '')
     .replaceAll('import.meta.hot', 'undefined')
     .replaceAll('import.meta.url', '""')

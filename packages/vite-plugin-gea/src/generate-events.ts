@@ -5,8 +5,10 @@ import { id, jsBlockBody, jsMethod } from 'eszter'
 import type { EventHandler } from './ir.ts'
 import { rewriteItemVarInExpression } from './generate-array-patch.ts'
 import {
+  buildExprGeaMember,
   buildMemberChainFromParts,
   buildOptionalMemberChain,
+  ensureImport,
   extractHandlerBody,
   replacePropRefsInExpression,
   replacePropRefsInStatements,
@@ -111,18 +113,34 @@ function ensureMapItemHelper(
             ),
           )
   const method = jsMethod`${id(helperName)}(e) {}`
-  method.body.body.push(
-    ...buildGeaItemDomWalk(),
-    ...jsBlockBody`
-      if (!__el) return null;
-      if (__el.__geaItem) return __el.__geaItem;
-      const __itemId = __el.__geaKey ?? (__el.getAttribute && __el.getAttribute('data-gea-item-id'));
-      if (__itemId == null) return null;
-      const __items = ${itemsExpr};
-      const __arr = Array.isArray(__items) ? __items : Array.isArray(__items?.__getTarget) ? __items.__getTarget : [];
-      return __arr.find(${findPredicate}) || __itemId;
-    `,
-  )
+  if (!ctx.keyExpression && ctx.itemIdProperty && ctx.itemIdProperty !== ITEM_IS_KEY) {
+    method.body.body.push(
+      ...buildGeaItemDomWalk(),
+      ...jsBlockBody`
+        if (!__el) return null;
+        if (__el[GEA_DOM_ITEM]) return __el[GEA_DOM_ITEM];
+        const __itemId = __el[GEA_DOM_KEY] ?? (__el.getAttribute && __el.getAttribute('data-gea-item-id'));
+        if (__itemId == null) return null;
+        const __items = ${itemsExpr};
+        const __arr = Array.isArray(__items) ? __items : Array.isArray(__items?.[GEA_PROXY_GET_TARGET]) ? __items[GEA_PROXY_GET_TARGET] : [];
+        const __found = __arr.find(${findPredicate});
+        return __found != null ? __found : { ${ctx.itemIdProperty}: __itemId };
+      `,
+    )
+  } else {
+    method.body.body.push(
+      ...buildGeaItemDomWalk(),
+      ...jsBlockBody`
+        if (!__el) return null;
+        if (__el[GEA_DOM_ITEM]) return __el[GEA_DOM_ITEM];
+        const __itemId = __el[GEA_DOM_KEY] ?? (__el.getAttribute && __el.getAttribute('data-gea-item-id'));
+        if (__itemId == null) return null;
+        const __items = ${itemsExpr};
+        const __arr = Array.isArray(__items) ? __items : Array.isArray(__items?.[GEA_PROXY_GET_TARGET]) ? __items[GEA_PROXY_GET_TARGET] : [];
+        return __arr.find(${findPredicate}) || __itemId;
+      `,
+    )
+  }
   classBody.body.unshift(method)
 }
 
@@ -143,6 +161,7 @@ export function appendCompiledEventMethods(
   classBody: t.ClassBody,
   handlers: EventHandler[],
   setupStatements: t.Statement[] = [],
+  fileAst?: t.File,
 ): boolean {
   if (handlers.length === 0) return false
 
@@ -150,6 +169,11 @@ export function appendCompiledEventMethods(
   const mapHandlers = handlers.filter(
     (h): h is EventHandler & { mapContext: NonNullable<EventHandler['mapContext']> } => Boolean(h.mapContext),
   )
+  if (mapHandlers.length > 0 && fileAst) {
+    ensureImport(fileAst, '@geajs/core', 'GEA_MAPS')
+    ensureImport(fileAst, '@geajs/core', 'GEA_DOM_KEY')
+    ensureImport(fileAst, '@geajs/core', 'GEA_DOM_ITEM')
+  }
   const seenContexts = new Set<string>()
   for (const h of mapHandlers) {
     const key = getMapContextKey(h.mapContext)
@@ -379,7 +403,7 @@ function replacePropsObjectRefsInNode(node: t.Node, propsObjectName: string): t.
       replacePropsObjectRefsInNode(node.object, propsObjectName) as t.Expression,
       node.property as t.Expression,
       node.computed,
-      node.optional,
+      node.optional ?? true,
     )
   }
   if (t.isOptionalCallExpression(node)) {
@@ -388,7 +412,7 @@ function replacePropsObjectRefsInNode(node: t.Node, propsObjectName: string): t.
       node.arguments.map(
         (a) => (t.isExpression(a) ? replacePropsObjectRefsInNode(a, propsObjectName) : a) as t.Expression,
       ),
-      node.optional,
+      node.optional ?? true,
     )
   }
   if (t.isConditionalExpression(node)) {
@@ -490,7 +514,7 @@ function buildArrayItemsExpr(ctx: NonNullable<EventHandler['mapContext']>, opts:
     return t.callExpression(
       t.memberExpression(
         t.memberExpression(
-          t.memberExpression(t.thisExpression(), t.identifier('__geaMaps')),
+          t.memberExpression(t.thisExpression(), t.identifier('GEA_MAPS'), true),
           t.numericLiteral(mapIdx),
           true,
         ),
@@ -501,7 +525,7 @@ function buildArrayItemsExpr(ctx: NonNullable<EventHandler['mapContext']>, opts:
   }
   const base = ctx.isImportedState
     ? opts.raw
-      ? t.memberExpression(t.identifier(ctx.storeVar || 'store'), t.identifier('__raw'))
+      ? buildExprGeaMember(t.identifier(ctx.storeVar || 'store'), 'GEA_PROXY_RAW')
       : t.identifier(ctx.storeVar || 'store')
     : t.thisExpression()
   if (ctx.arrayPathParts.length === 0) return base
@@ -516,7 +540,7 @@ function buildArrayItemsExpr(ctx: NonNullable<EventHandler['mapContext']>, opts:
 function buildGeaItemDomWalk(): t.Statement[] {
   return jsBlockBody`
     var __el = e.target;
-    while (__el && __el.__geaKey == null && (!__el.getAttribute || !__el.getAttribute('data-gea-item-id'))) __el = __el.parentElement;
+    while (__el && __el[GEA_DOM_KEY] == null && (!__el.getAttribute || !__el.getAttribute('data-gea-item-id'))) __el = __el.parentElement;
   `
 }
 
@@ -536,8 +560,8 @@ function buildMapEventBody(handler: EventHandler, paramContext: TemplateParamCon
     const preamble = [
       ...buildGeaItemDomWalk(),
       ...jsBlockBody`
-        if (!__el || !__el.__geaItem) return;
-        const ${id(ctx.indexVariable!)} = ${rawArrayExpr}.indexOf(__el.__geaItem);
+        if (!__el || !__el[GEA_DOM_ITEM]) return;
+        const ${id(ctx.indexVariable!)} = ${rawArrayExpr}.indexOf(__el[GEA_DOM_ITEM]);
       `,
     ]
     return [...preamble, ...handlerBody]
@@ -552,7 +576,7 @@ function buildMapEventBody(handler: EventHandler, paramContext: TemplateParamCon
     preamble.push(
       ...buildGeaItemDomWalk(),
       ...jsBlockBody`
-        const ${id(ctx.indexVariable!)} = __el ? ${rawArrayExpr}.indexOf(__el.__geaItem) : -1;
+        const ${id(ctx.indexVariable!)} = __el ? ${rawArrayExpr}.indexOf(__el[GEA_DOM_ITEM]) : -1;
       `,
     )
   }

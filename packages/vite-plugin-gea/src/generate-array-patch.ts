@@ -3,6 +3,7 @@ import { appendToBody, id, js, jsMethod } from 'eszter'
 import type { NodePath } from '@babel/traverse'
 import type { ArrayMapBinding } from './ir.ts'
 import {
+  buildExprGeaMember,
   buildOptionalMemberChain,
   buildTrimmedClassValueExpression,
   camelToKebab,
@@ -442,9 +443,7 @@ export function generatePatchItemMethod(
       ? t.logicalExpression('??', buildOptionalMemberChain(t.identifier('item'), itemIdProperty), t.identifier('item'))
       : t.identifier('item')
   const itemIdExpr = t.callExpression(t.identifier('String'), [rawItemIdExpr])
-  body.push(
-    t.expressionStatement(t.assignmentExpression('=', t.memberExpression(elVar, t.identifier('__geaKey')), itemIdExpr)),
-  )
+  body.push(t.expressionStatement(t.assignmentExpression('=', buildExprGeaMember(elVar, 'GEA_DOM_KEY'), itemIdExpr)))
 
   const rowElsProp = `__rowEls_${arrayMap.containerBindingId ?? 'list'}`
   const privateElsRef = t.memberExpression(t.thisExpression(), t.privateName(t.identifier(rowElsProp)))
@@ -469,9 +468,7 @@ export function generatePatchItemMethod(
   const patchPrivateFields: string[] = [rowElsProp]
 
   body.push(
-    t.expressionStatement(
-      t.assignmentExpression('=', t.memberExpression(elVar, t.identifier('__geaItem')), t.identifier('item')),
-    ),
+    t.expressionStatement(t.assignmentExpression('=', buildExprGeaMember(elVar, 'GEA_DOM_ITEM'), t.identifier('item'))),
   )
 
   const params: t.Identifier[] = [t.identifier('row'), t.identifier('item'), t.identifier('__prevItem')]
@@ -522,6 +519,9 @@ export function collectPatchEntries(arrayMap: ArrayMapBinding): PatchPlan {
   if (t.isJSXElement(modified)) {
     const rootTagName = getJSXTagName(modified.openingElement.name)
     const rootIsComponent = isComponentTag(rootTagName)
+    if (!rootIsComponent && !requiresRerender) {
+      requiresRerender = templateHasChildComponent(modified)
+    }
     walkJSXForPatch(modified, [], entries, rootIsComponent)
   }
   for (const ent of entries) {
@@ -617,7 +617,9 @@ function walkJSXForPatch(node: t.JSXElement, path: number[], entries: PatchEntry
   let elementIndex = 0
   for (const child of node.children) {
     if (t.isJSXElement(child)) {
-      walkJSXForPatch(child, [...path, elementIndex], entries)
+      if (!isComponentTag(getJSXTagName(child.openingElement.name))) {
+        walkJSXForPatch(child, [...path, elementIndex], entries)
+      }
       elementIndex++
     }
   }
@@ -855,7 +857,7 @@ export function generateCreateItemMethod(
           t.expressionStatement(
             t.assignmentExpression(
               '=',
-              t.memberExpression(t.identifier('el'), t.identifier('__geaProps')),
+              buildExprGeaMember(t.identifier('el'), 'GEA_DOM_PROPS'),
               t.objectExpression(propsProperties),
             ),
           ),
@@ -911,7 +913,7 @@ export function generateCreateItemMethod(
             t.assignmentExpression(
               '=',
               t.cloneNode(privateRsField),
-              t.memberExpression(t.identifier(arrayMap.storeVar!), t.identifier('__raw')),
+              buildExprGeaMember(t.identifier(arrayMap.storeVar!), 'GEA_PROXY_RAW'),
             ),
           ),
         ),
@@ -968,7 +970,7 @@ export function generateCreateItemMethod(
     t.expressionStatement(
       t.assignmentExpression(
         '=',
-        t.memberExpression(cVar, t.identifier('__geaTpl')),
+        buildExprGeaMember(cVar, 'GEA_MAP_CONFIG_TPL'),
         t.memberExpression(
           t.memberExpression(t.identifier('__tw'), t.identifier('content')),
           t.identifier('firstElementChild'),
@@ -978,7 +980,7 @@ export function generateCreateItemMethod(
     t.expressionStatement(
       t.optionalCallExpression(
         t.optionalMemberExpression(
-          t.memberExpression(cVar, t.identifier('__geaTpl')),
+          buildExprGeaMember(cVar, 'GEA_MAP_CONFIG_TPL'),
           t.identifier('removeAttribute'),
           false,
           true,
@@ -994,13 +996,13 @@ export function generateCreateItemMethod(
       t.ifStatement(
         t.logicalExpression(
           '&&',
-          t.memberExpression(cVar, t.identifier('__geaTpl')),
-          t.memberExpression(t.memberExpression(cVar, t.identifier('__geaTpl')), t.identifier('className')),
+          buildExprGeaMember(cVar, 'GEA_MAP_CONFIG_TPL'),
+          t.memberExpression(buildExprGeaMember(cVar, 'GEA_MAP_CONFIG_TPL'), t.identifier('className')),
         ),
         t.expressionStatement(
           t.assignmentExpression(
             '=',
-            t.memberExpression(t.memberExpression(cVar, t.identifier('__geaTpl')), t.identifier('className')),
+            t.memberExpression(buildExprGeaMember(cVar, 'GEA_MAP_CONFIG_TPL'), t.identifier('className')),
             t.stringLiteral(''),
           ),
         ),
@@ -1009,20 +1011,20 @@ export function generateCreateItemMethod(
   }
   body.push(
     t.ifStatement(
-      t.unaryExpression('!', t.memberExpression(cVar, t.identifier('__geaTpl'))),
+      t.unaryExpression('!', buildExprGeaMember(cVar, 'GEA_MAP_CONFIG_TPL')),
       t.blockStatement([t.tryStatement(t.blockStatement(tplInit), loggingCatchClause())]),
     ),
   )
 
   body.push(
     t.ifStatement(
-      t.memberExpression(cVar, t.identifier('__geaTpl')),
+      buildExprGeaMember(cVar, 'GEA_MAP_CONFIG_TPL'),
       t.blockStatement([
         t.variableDeclaration('var', [
           t.variableDeclarator(
             elVar,
             t.callExpression(
-              t.memberExpression(t.memberExpression(cVar, t.identifier('__geaTpl')), t.identifier('cloneNode')),
+              t.memberExpression(buildExprGeaMember(cVar, 'GEA_MAP_CONFIG_TPL'), t.identifier('cloneNode')),
               [t.booleanLiteral(true)],
             ),
           ),
@@ -1239,19 +1241,15 @@ export function generateCreateItemMethod(
       : t.identifier('item')
   const patchItemIdExpr = t.callExpression(t.identifier('String'), [rawPatchItemIdExpr])
   body.push(
-    t.expressionStatement(
-      t.assignmentExpression('=', t.memberExpression(elVar, t.identifier('__geaKey')), patchItemIdExpr),
-    ),
+    t.expressionStatement(t.assignmentExpression('=', buildExprGeaMember(elVar, 'GEA_DOM_KEY'), patchItemIdExpr)),
   )
 
   body.push(
-    t.expressionStatement(
-      t.assignmentExpression('=', t.memberExpression(elVar, t.identifier('__geaItem')), t.identifier('item')),
-    ),
+    t.expressionStatement(t.assignmentExpression('=', buildExprGeaMember(elVar, 'GEA_DOM_ITEM'), t.identifier('item'))),
   )
 
   // For component-root map items, set __geaProps with actual JS values
-  // so extractComponentProps_ can use them instead of stringified HTML attributes
+  // so GEA_EXTRACT_COMPONENT_PROPS can use them instead of stringified HTML attributes
   if (itemTemplateRootIsComponent && t.isJSXElement(arrayMap.itemTemplate)) {
     const propsProperties: t.ObjectProperty[] = []
     const cloned = t.cloneNode(arrayMap.itemTemplate, true) as t.JSXElement
@@ -1282,11 +1280,7 @@ export function generateCreateItemMethod(
     if (propsProperties.length > 0) {
       body.push(
         t.expressionStatement(
-          t.assignmentExpression(
-            '=',
-            t.memberExpression(elVar, t.identifier('__geaProps')),
-            t.objectExpression(propsProperties),
-          ),
+          t.assignmentExpression('=', buildExprGeaMember(elVar, 'GEA_DOM_PROPS'), t.objectExpression(propsProperties)),
         ),
       )
     }
@@ -1338,4 +1332,13 @@ function branchContainsJSX(expr: t.Expression): boolean {
     },
   })
   return containsJSX
+}
+
+function templateHasChildComponent(root: t.JSXElement): boolean {
+  for (const child of root.children) {
+    if (!t.isJSXElement(child)) continue
+    if (isComponentTag(getJSXTagName(child.openingElement.name))) return true
+    if (templateHasChildComponent(child)) return true
+  }
+  return false
 }

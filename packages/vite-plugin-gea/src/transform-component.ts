@@ -17,6 +17,8 @@ import { appendCompiledEventMethods } from './generate-events.ts'
 import { injectChildComponents, injectComponentRegistrations, getDirectPropMappings } from './generate-components.ts'
 import { getTemplateParamBinding } from './template-param-utils.ts'
 import {
+  ensureImport,
+  ensureGeaCompilerSymbolImports,
   pruneUnusedSetupDestructuring,
   cacheThisIdInMethod,
   wrapEventsGetterWithCache,
@@ -227,7 +229,7 @@ export function transformComponentFile(
         ) as NodePath<t.ClassDeclaration> | null
         if (earlyClassPath) {
           transformed =
-            appendCompiledEventMethods(earlyClassPath.node.body, earlyReturnCtx.eventHandlers, []) || transformed
+            appendCompiledEventMethods(earlyClassPath.node.body, earlyReturnCtx.eventHandlers, [], ast) || transformed
         }
       }
 
@@ -261,6 +263,7 @@ export function transformComponentFile(
           cloneCtxForPatches,
         )
         if (cloneMembers) {
+          ensureImport(ast, '@geajs/core', 'GEA_CLONE_TEMPLATE')
           classPath.node.body.body.push(...cloneMembers)
           transformed = true
         }
@@ -270,18 +273,20 @@ export function transformComponentFile(
         const classPath = path.findParent((p) => t.isClassDeclaration(p.node)) as NodePath<t.ClassDeclaration> | null
         if (classPath) {
           const setupStatements = returnIndex >= 0 ? body.slice(0, returnIndex) : []
-          transformed = appendCompiledEventMethods(classPath.node.body, eventHandlers, setupStatements) || transformed
+          transformed =
+            appendCompiledEventMethods(classPath.node.body, eventHandlers, setupStatements, ast) || transformed
         }
       }
 
       if (refBindings.length > 0) {
         const classPath = path.findParent((p) => t.isClassDeclaration(p.node)) as NodePath<t.ClassDeclaration> | null
         if (classPath) {
+          ensureImport(ast, '@geajs/core', 'GEA_ELEMENT')
           const refStatements: t.Statement[] = refBindings.flatMap((ref) => {
             const target = ref.targetExpr as t.LVal
             const q = t.callExpression(
               t.memberExpression(
-                t.memberExpression(t.thisExpression(), t.identifier('element_')),
+                t.memberExpression(t.thisExpression(), t.identifier('GEA_ELEMENT'), true),
                 t.identifier('querySelector'),
               ),
               [t.stringLiteral(`[data-gea-ref="${ref.refId}"]`)],
@@ -291,14 +296,16 @@ export function transformComponentFile(
               t.expressionStatement(t.assignmentExpression('=', target, q)),
             ]
           })
-          const existingSetup = classPath.node.body.body.find(
-            (m) => t.isClassMethod(m) && t.isIdentifier(m.key) && m.key.name === '__setupRefs',
-          )
+          ensureImport(ast, '@geajs/core', 'GEA_SETUP_REFS')
+          const existingSetup = classPath.node.body.body.find((m) => {
+            if (!t.isClassMethod(m) || !t.isIdentifier(m.key)) return false
+            return m.computed && m.key.name === 'GEA_SETUP_REFS'
+          })
           if (existingSetup && t.isClassMethod(existingSetup)) {
             existingSetup.body.body.push(...refStatements)
           } else {
             classPath.node.body.body.push(
-              t.classMethod('method', t.identifier('__setupRefs'), [], t.blockStatement(refStatements)),
+              t.classMethod('method', t.identifier('GEA_SETUP_REFS'), [], t.blockStatement(refStatements), true),
             )
           }
           transformed = true
@@ -433,20 +440,31 @@ export function transformComponentFile(
           const name = t.isIdentifier(member.key) ? member.key.name : null
           if (!name) continue
           const isCompilerGenerated =
-            name === 'template' || (name === 'events' && member.kind === 'get') || name.startsWith('__')
+            name === 'template' ||
+            (name === 'events' && member.kind === 'get') ||
+            name.startsWith('__') ||
+            (member.computed && name === 'GEA_ON_PROP_CHANGE')
           if (isCompilerGenerated) {
             cacheThisIdInMethod(member)
           }
           if (name === 'events' && member.kind === 'get') {
+            ensureImport(ast, '@geajs/core', 'GEA_ELEMENT')
             wrapEventsGetterWithCache(member)
           }
-          if (name === '__onPropChange') {
+          if (member.computed && name === 'GEA_ON_PROP_CHANGE') {
             wrapSubpathCacheGuards(member, subpathPcCounter, path.node.body)
           }
         }
         path.stop()
       },
     })
+  }
+
+  // SSR skips applyStaticReactivity (which normally calls ensureGeaCompilerSymbolImports). Child injection
+  // and other transforms still emit this[GEA_*] — ensure every symbol is imported for SSR eval.
+  // Also covers client when applyStaticReactivity returns early (no bindings) but children were injected.
+  if (transformed) {
+    ensureGeaCompilerSymbolImports(ast)
   }
 
   return transformed

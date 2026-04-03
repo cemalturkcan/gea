@@ -521,14 +521,14 @@ export function replaceThisPropsRootWithValueParam(expr: t.Expression, propName:
         visit(e.object as t.Expression),
         e.property as t.Expression,
         e.computed,
-        e.optional,
+        e.optional ?? true,
       )
     }
     if (t.isOptionalCallExpression(e)) {
       return t.optionalCallExpression(
         visit(e.callee as t.Expression),
         e.arguments.map((a) => (t.isExpression(a) ? visit(a) : a) as t.Expression),
-        e.optional,
+        e.optional ?? true,
       )
     }
     if (t.isCallExpression(e)) {
@@ -676,14 +676,14 @@ export function optionalizeMemberChainsFromBindingRoot(expr: t.Expression, rootN
         visit(e.object as t.Expression),
         e.property as t.Expression,
         e.computed,
-        e.optional,
+        e.optional ?? true,
       )
     }
     if (t.isOptionalCallExpression(e)) {
       return t.optionalCallExpression(
         visit(e.callee as t.Expression),
         e.arguments.map((a) => (t.isExpression(a) ? visit(a) : a) as t.Expression),
-        e.optional,
+        e.optional ?? true,
       )
     }
     if (t.isCallExpression(e)) {
@@ -820,14 +820,14 @@ export function optionalizeMemberChainsAfterComputedItemKey(expr: t.Expression, 
         visit(e.object as t.Expression),
         e.property as t.Expression,
         e.computed,
-        e.optional,
+        e.optional ?? true,
       )
     }
     if (t.isOptionalCallExpression(e)) {
       return t.optionalCallExpression(
         visit(e.callee as t.Expression),
         e.arguments.map((a) => (t.isExpression(a) ? visit(a) : a) as t.Expression),
-        e.optional,
+        e.optional ?? true,
       )
     }
     if (t.isCallExpression(e)) {
@@ -1000,14 +1000,14 @@ function replacePropRefsInNode(
       r(node.object) as t.Expression,
       node.property as t.Expression,
       node.computed,
-      node.optional,
+      node.optional ?? true,
     )
   }
   if (t.isOptionalCallExpression(node)) {
     return t.optionalCallExpression(
       r(node.callee) as t.Expression,
       node.arguments.map((a) => (t.isExpression(a) ? r(a) : a) as t.Expression),
-      node.optional,
+      node.optional ?? true,
     )
   }
   if (t.isConditionalExpression(node)) {
@@ -1157,13 +1157,13 @@ function isThisIdMember(node: t.Node): boolean {
 
 /**
  * Wrap the events getter body so it caches the result in `this.__evts`
- * only after `this.element_` is set (root DOM exists). That avoids caching
+ * only after `this[GEA_ELEMENT]` is set (root DOM exists). That avoids caching
  * handler refs while the subclass constructor is still running — e.g. class
  * field arrow handlers are assigned only after `super()` returns, but
  * `setComponent` may read `events` during `Component`'s constructor.
  *
  * Before: `get events() { ... return { click: {...} }; }`
- * After:  `get events() { if (this.__evts && this.element_) return this.__evts; ... const r = {...}; if (this.element_) this.__evts = r; return r; }`
+ * After:  `get events() { if (this.__evts && this[GEA_ELEMENT]) return this.__evts; ... const r = {...}; if (this[GEA_ELEMENT]) this.__evts = r; return r; }`
  */
 export function wrapEventsGetterWithCache(getter: t.ClassMethod): void {
   const body = getter.body.body
@@ -1171,8 +1171,8 @@ export function wrapEventsGetterWithCache(getter: t.ClassMethod): void {
   if (!returnStmt?.argument) return
 
   const cachedProp = t.memberExpression(t.thisExpression(), t.identifier('__evts'))
-  const elementProp = t.memberExpression(t.thisExpression(), t.identifier('element_'))
-  const tmpId = t.identifier('__geaEvtsResult')
+  const elementProp = t.memberExpression(t.thisExpression(), t.identifier('GEA_ELEMENT'), true)
+  const tmpId = t.identifier('geaEvtsResult')
   const objectExpr = returnStmt.argument as t.Expression
 
   const returnIndex = body.indexOf(returnStmt)
@@ -1782,7 +1782,7 @@ function renameIdentifier(node: t.Node, from: string, to: string): void {
 /**
  * Statements with no `value.*` reads often follow a `const __boundValue = value.x` in the same
  * `if (key === ...)` block — they must stay in the same wrapped group or `__boundValue` goes out of scope.
- * Do not merge zero-path statements that trigger child/prop refresh (`__geaUpdateProps`, etc.).
+ * Do not merge zero-path statements that trigger child/prop refresh (`[GEA_UPDATE_PROPS]`, etc.).
  */
 function zeroPathShouldMergeIntoPrevSingle(stmt: t.Statement): boolean {
   if (stmtUsesPropRefreshCall(stmt)) return false
@@ -1795,7 +1795,7 @@ function stmtUsesPropRefreshCall(stmt: t.Statement): boolean {
 
 function containsPropRefreshCall(node: t.Node): boolean {
   if (t.isMemberExpression(node) && t.isIdentifier(node.property)) {
-    if (node.property.name === '__geaUpdateProps' || node.property.name.startsWith('__refresh')) return true
+    if (node.property.name === 'GEA_UPDATE_PROPS' || node.property.name.startsWith('__refresh')) return true
   }
   const keys = t.VISITOR_KEYS[node.type]
   if (!keys) return false
@@ -1881,4 +1881,75 @@ export function loggingCatchClause(extra: t.Statement[] = []): t.CatchClause {
       ...extra,
     ]),
   )
+}
+
+/** `this[GEA_*]` — compiler output; import symbol from `@geajs/core`. */
+export function buildThisGeaMember(symExportName: string): t.MemberExpression {
+  return t.memberExpression(t.thisExpression(), t.identifier(symExportName), true)
+}
+
+export function buildThisGeaCall(symExportName: string, args: t.Expression[] = []): t.CallExpression {
+  return t.callExpression(buildThisGeaMember(symExportName), args)
+}
+
+/** `expr[GEA_*]` (e.g. `el[GEA_DOM_KEY]`). */
+export function buildExprGeaMember(expr: t.Expression, symExportName: string): t.MemberExpression {
+  return t.memberExpression(expr, t.identifier(symExportName), true)
+}
+
+const GEA_COMPILER_SYMBOL_IMPORTS = [
+  'GEA_RENDERED',
+  'GEA_PARENT_COMPONENT',
+  'GEA_ELEMENT',
+  'GEA_MAPS',
+  'GEA_CONDS',
+  'GEA_RESET_ELS',
+  'GEA_OBSERVE',
+  'GEA_OBSERVE_LIST',
+  'GEA_EL',
+  'GEA_UPDATE_TEXT',
+  'GEA_REQUEST_RENDER',
+  'GEA_UPDATE_PROPS',
+  'GEA_SYNC_MAP',
+  'GEA_REGISTER_MAP',
+  'GEA_PATCH_COND',
+  'GEA_PATCH_NODE',
+  'GEA_REGISTER_COND',
+  'GEA_REFRESH_LIST',
+  'GEA_RECONCILE_LIST',
+  'GEA_ENSURE_ARRAY_CONFIGS',
+  'GEA_APPLY_LIST_CHANGES',
+  'GEA_INSTANTIATE_CHILD_COMPONENTS',
+  'GEA_MOUNT_COMPILED_CHILD_COMPONENTS',
+  'GEA_SWAP_CHILD',
+  'GEA_SWAP_STATE_CHILDREN',
+  'GEA_CHILD',
+  'GEA_LIST_CONFIG_REFRESHING',
+  'GEA_DOM_KEY',
+  'GEA_DOM_ITEM',
+  'GEA_DOM_PROPS',
+  'GEA_HANDLE_ITEM_HANDLER',
+  'GEA_MAP_CONFIG_TPL',
+  'GEA_MAP_CONFIG_PREV',
+  'GEA_MAP_CONFIG_COUNT',
+  'geaCondPatchedSymbol',
+  'geaCondValueSymbol',
+  'geaObservePrevSymbol',
+  'geaPrevGuardSymbol',
+  'GEA_SETUP_LOCAL_STATE_OBSERVERS',
+  'GEA_CLONE_TEMPLATE',
+  'GEA_SETUP_REFS',
+  'GEA_ON_PROP_CHANGE',
+  'GEA_SELF_PROXY',
+  'GEA_STORE_ROOT',
+  'GEA_PROXY_RAW',
+  'GEA_PROXY_GET_TARGET',
+  'geaSanitizeAttr',
+  'geaEscapeHtml',
+] as const
+
+export function ensureGeaCompilerSymbolImports(ast: t.File): void {
+  for (const name of GEA_COMPILER_SYMBOL_IMPORTS) {
+    ensureImport(ast, '@geajs/core', name)
+  }
 }

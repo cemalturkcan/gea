@@ -5,8 +5,10 @@ import { appendToBody, id, js, jsBlockBody, jsExpr, jsMethod } from 'eszter'
 import type { ArrayMapBinding, ConditionalMapBinding, RelationalMapBinding } from './ir.ts'
 import { ITEM_IS_KEY } from './analyze-helpers.ts'
 import {
+  buildExprGeaMember,
   buildOptionalMemberChain,
   buildMemberChain,
+  buildThisGeaCall,
   buildTrimmedClassValueExpression,
   getJSXTagName,
   isComponentTag,
@@ -156,7 +158,7 @@ function buildPropPatcherFunction(
               t.variableDeclarator(
                 t.identifier('__newAttr'),
                 URL_ATTRS.has(attrName)
-                  ? t.callExpression(t.identifier('__sanitizeAttr'), [
+                  ? t.callExpression(t.identifier('geaSanitizeAttr'), [
                       t.stringLiteral(attrName),
                       t.callExpression(t.identifier('String'), [t.identifier('__attrValue')]),
                     ])
@@ -564,7 +566,9 @@ export function generateEnsureArrayConfigsMethod(arrayMaps: ArrayMapBinding[]): 
     )
   })
 
-  return appendToBody(jsMethod`${id('__ensureArrayConfigs')}() {}`, ...body)
+  const method = t.classMethod('method', t.identifier('GEA_ENSURE_ARRAY_CONFIGS'), [], t.blockStatement([]), true)
+  method.body!.body.push(...body)
+  return method
 }
 
 export function generateArrayRelationalObserver(
@@ -654,14 +658,14 @@ export function generateArrayConditionalPatchObserver(
   const containerRef = t.memberExpression(t.thisExpression(), t.identifier(containerName))
   const proxiedArr = arrayMap.isImportedState
     ? buildMemberChain(
-        t.memberExpression(t.identifier(arrayMap.storeVar || 'store'), t.identifier('__store')),
+        buildExprGeaMember(t.identifier(arrayMap.storeVar || 'store'), 'GEA_STORE_ROOT'),
         arrayPath,
       )
     : buildMemberChain(t.thisExpression(), arrayPath)
 
   const rawArrExpr = t.logicalExpression(
     '||',
-    t.memberExpression(t.cloneNode(proxiedArr, true), t.identifier('__getTarget')),
+    buildExprGeaMember(t.cloneNode(proxiedArr, true), 'GEA_PROXY_GET_TARGET'),
     t.cloneNode(proxiedArr, true),
   )
 
@@ -721,14 +725,14 @@ export function generateArrayConditionalRerenderObserver(arrayMap: ArrayMapBindi
   const configRef = t.memberExpression(t.thisExpression(), t.identifier(getArrayConfigPropName(arrayMap)))
   const proxiedArr = arrayMap.isImportedState
     ? buildMemberChain(
-        t.memberExpression(t.identifier(arrayMap.storeVar || 'store'), t.identifier('__store')),
+        buildExprGeaMember(t.identifier(arrayMap.storeVar || 'store'), 'GEA_STORE_ROOT'),
         arrayPath,
       )
     : buildMemberChain(t.thisExpression(), arrayPath)
 
   const rawArrExpr = t.logicalExpression(
     '||',
-    t.memberExpression(t.cloneNode(proxiedArr, true), t.identifier('__getTarget')),
+    buildExprGeaMember(t.cloneNode(proxiedArr, true), 'GEA_PROXY_GET_TARGET'),
     t.cloneNode(proxiedArr, true),
   )
 
@@ -807,9 +811,7 @@ export function generateArrayConditionalRerenderObserver(arrayMap: ArrayMapBindi
       t.ifStatement(
         t.unaryExpression('!', t.identifier('__skipArrayConditionalRerender')),
         t.blockStatement([
-          t.expressionStatement(
-            t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('__ensureArrayConfigs')), []),
-          ),
+          t.expressionStatement(buildThisGeaCall('GEA_ENSURE_ARRAY_CONFIGS')),
           t.variableDeclaration('const', [
             t.variableDeclarator(
               t.identifier('__arr'),
@@ -821,7 +823,7 @@ export function generateArrayConditionalRerenderObserver(arrayMap: ArrayMapBindi
             ),
           ]),
           t.expressionStatement(
-            t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('__applyListChanges')), [
+            buildThisGeaCall('GEA_APPLY_LIST_CHANGES', [
               containerRef,
               t.identifier('__arr'),
               t.nullLiteral(),
@@ -961,16 +963,12 @@ function buildElsLookup(
                 '||',
                 t.binaryExpression(
                   '==',
-                  t.memberExpression(t.identifier('__ch'), t.identifier('__geaKey')),
+                  buildExprGeaMember(t.identifier('__ch'), 'GEA_DOM_KEY'),
                   t.cloneNode(idExpr, true),
                 ),
                 t.logicalExpression(
                   '&&',
-                  t.binaryExpression(
-                    '==',
-                    t.memberExpression(t.identifier('__ch'), t.identifier('__geaKey')),
-                    t.nullLiteral(),
-                  ),
+                  t.binaryExpression('==', buildExprGeaMember(t.identifier('__ch'), 'GEA_DOM_KEY'), t.nullLiteral()),
                   t.binaryExpression(
                     '==',
                     t.optionalCallExpression(
@@ -1064,11 +1062,9 @@ export function generateArrayHandlers(
         t.returnStatement(),
       ]),
     ),
+    t.expressionStatement(buildThisGeaCall('GEA_ENSURE_ARRAY_CONFIGS')),
     t.expressionStatement(
-      t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('__ensureArrayConfigs')), []),
-    ),
-    t.expressionStatement(
-      t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('__applyListChanges')), [
+      buildThisGeaCall('GEA_APPLY_LIST_CHANGES', [
         containerRef,
         t.identifier(paramName),
         t.identifier('change'),

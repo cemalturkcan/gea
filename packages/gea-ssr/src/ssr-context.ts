@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { setUidProvider } from '@geajs/core'
+import { GEA_PROXY_GET_RAW_TARGET, setUidProvider } from '@geajs/core'
 import { STORE_IMPL_OWN_KEYS } from './types'
 
 export { STORE_IMPL_OWN_KEYS } from './types'
@@ -113,10 +113,10 @@ export function cloneStoreData(store: object): Record<string, unknown> {
  * Get the raw target from a Store Proxy, or return the object as-is.
  */
 function unwrapProxy(store: object): object {
-  // Access __getRawTarget via Reflect.get (not `in`) because the Store Proxy's
+  // Access GEA_PROXY_GET_RAW_TARGET via Reflect.get (not `in`) because the Store Proxy's
   // `has` trap delegates internal props to Reflect.has on the raw target, which
-  // returns false since __getRawTarget is synthetic — only the `get` trap handles it.
-  const raw: unknown = Reflect.get(store, '__getRawTarget')
+  // returns false since the symbol is synthetic — only the `get` trap handles it.
+  const raw: unknown = Reflect.get(store, GEA_PROXY_GET_RAW_TARGET)
   if (typeof raw === 'object' && raw !== null) return raw
   return store
 }

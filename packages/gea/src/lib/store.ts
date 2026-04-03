@@ -1,4 +1,39 @@
 import { tryComponentRootBridgeGet, tryComponentRootBridgeSet } from './component-root-bridge'
+import {
+  GEA_SELF_PROXY,
+  GEA_STORE_ROOT,
+  GEA_STORE_ADD_OBSERVER,
+  GEA_STORE_ADD_DESCENDANTS_FOR_OBJECT_REPLACEMENT,
+  GEA_STORE_CLEAR_ARRAY_INDEX_CACHE,
+  GEA_STORE_COLLECT_DESCENDANT_OBSERVER_NODES,
+  GEA_STORE_COLLECT_MATCHING_OBSERVER_NODES,
+  GEA_STORE_COLLECT_MATCHING_OBSERVER_NODES_FROM_NODE,
+  GEA_STORE_CREATE_PROXY,
+  GEA_STORE_DELIVER_ARRAY_ITEM_PROP_BATCH,
+  GEA_STORE_DELIVER_KNOWN_ARRAY_ITEM_PROP_BATCH,
+  GEA_STORE_DELIVER_TOP_LEVEL_BATCH,
+  GEA_STORE_EMIT_CHANGES,
+  GEA_STORE_FLUSH_CHANGES,
+  GEA_STORE_GET_CACHED_ARRAY_META,
+  GEA_STORE_GET_BROWSER_ROOT_PROXY_HANDLER_FOR_TESTS,
+  GEA_PROXY_GET_PATH,
+  GEA_PROXY_GET_RAW_TARGET,
+  GEA_PROXY_GET_TARGET,
+  GEA_PROXY_IS_PROXY,
+  GEA_PROXY_RAW,
+  GEA_STORE_GET_DIRECT_TOP_LEVEL_OBSERVED_VALUE,
+  GEA_STORE_GET_OBSERVER_NODE,
+  GEA_STORE_GET_TOP_LEVEL_OBSERVED_VALUE,
+  GEA_STORE_INTERCEPT_ARRAY_ITERATOR,
+  GEA_STORE_INTERCEPT_ARRAY_METHOD,
+  GEA_STORE_NORMALIZE_BATCH,
+  GEA_STORE_NOTIFY_HANDLERS,
+  GEA_STORE_NOTIFY_HANDLERS_WITH_VALUE,
+  GEA_STORE_QUEUE_CHANGE,
+  GEA_STORE_QUEUE_DIRECT_ARRAY_ITEM_PRIMITIVE_CHANGE,
+  GEA_STORE_SCHEDULE_FLUSH,
+  GEA_STORE_TRACK_PENDING_CHANGE,
+} from './symbols'
 
 export interface StoreChange {
   type: string
@@ -61,7 +96,15 @@ interface StoreInstancePrivate {
 const storeInstancePrivate = new WeakMap<Store, StoreInstancePrivate>()
 
 function storeRaw(st: Store): Store {
-  return ((st as any).__getRawTarget ?? (st as any).__raw ?? st) as Store
+  return ((st as any)[GEA_PROXY_GET_RAW_TARGET] ?? (st as any)[GEA_PROXY_RAW] ?? st) as Store
+}
+
+function unwrapNestedProxyValue(value: any): any {
+  if (value && typeof value === 'object' && value[GEA_PROXY_IS_PROXY]) {
+    const raw = value[GEA_PROXY_GET_TARGET]
+    if (raw !== undefined) return raw
+  }
+  return value
 }
 
 function getPriv(st: Store): StoreInstancePrivate {
@@ -200,33 +243,14 @@ export function findPropertyDescriptor(obj: any, prop: string): PropertyDescript
 }
 
 /**
- * Top-level keys on Component / router integration that still use public fields today.
- * (Migrating these to `#` private fields removes the need for this set entirely.)
- * Not a user "underscore rule" — only exact Gea runtime/compiler field names.
+ * Top-level string keys that must not be wrapped in reactive proxies at the store root.
+ * Engine state for components lives in WeakMaps / symbol keys; symbol keys are never wrapped.
  */
 const SKIP_REACTIVE_WRAP_AT_ROOT = new Set<string>([
-  '__selfProxy',
   'props',
-  'actions',
-  'parentComponent',
   'events',
-  'id_',
-  'element_',
-  'rendered_',
-  '__rawProps_',
-  '__bindings',
-  '__selfListeners',
-  '__childComponents',
-  '__geaDependencies',
-  '__geaEventBindings',
-  '__geaPropBindings',
-  '__geaAttrBindings',
-  '__observer_removers__',
-  '__geaMaps',
-  '__geaConds',
-  '__resetEls',
-  '__geaCompiledChild',
-  '__geaItemKey',
+  /** Backing array for compiler / __observeList keyed rows (holds Component instances; identity must stay raw). */
+  'compiledItems',
   '_routerDepth',
   '_router',
   '_routesApplied',
@@ -310,7 +334,7 @@ export class Store {
       if (shouldSkipReactiveWrapForPath(prop)) return value
       const entry = getPriv(t).topLevelProxies.get(prop)
       if (entry && entry[0] === value) return entry[1]
-      const p = t._createProxy(value, prop, [prop])
+      const p = t[GEA_STORE_CREATE_PROXY](value, prop, [prop])
       getPriv(t).topLevelProxies.set(prop, [value, p])
       return p
     }
@@ -349,15 +373,12 @@ export class Store {
       if (!getPriv(t).flushScheduled) {
         getPriv(t).flushScheduled = true
         Store.#pendingStores.add(t)
-        queueMicrotask(() => t._flushChanges())
+        queueMicrotask(() => t[GEA_STORE_FLUSH_CHANGES]())
       }
       return true
     }
 
-    if (value.__isProxy) {
-      const raw = value.__getTarget
-      if (raw !== undefined) value = raw
-    }
+    value = unwrapNestedProxyValue(value)
 
     const hadProp = Object.prototype.hasOwnProperty.call(t, prop)
     const oldValue = hadProp ? (t as any)[prop] : undefined
@@ -380,7 +401,7 @@ export class Store {
       }
       if (isAppend) {
         const start = oldValue.length
-        t._emitChanges([
+        t[GEA_STORE_EMIT_CHANGES]([
           {
             type: 'append',
             property: prop,
@@ -410,7 +431,7 @@ export class Store {
     if (!getPriv(t).flushScheduled) {
       getPriv(t).flushScheduled = true
       Store.#pendingStores.add(t)
-      queueMicrotask(() => t._flushChanges())
+      queueMicrotask(() => t[GEA_STORE_FLUSH_CHANGES]())
     }
     return true
   }
@@ -425,7 +446,7 @@ export class Store {
     }
     getPriv(t).topLevelProxies.delete(prop)
     delete (t as any)[prop]
-    t._emitChanges([
+    t[GEA_STORE_EMIT_CHANGES]([
       {
         type: 'delete',
         property: prop,
@@ -458,10 +479,11 @@ export class Store {
     if (!Store.#browserRootProxyHandler) {
       Store.#browserRootProxyHandler = {
         get(t, prop, receiver) {
-          if (typeof prop === 'symbol') return Reflect.get(t, prop, receiver)
-          if (prop === '__isProxy') return true
-          if (prop === '__raw') return t
-          if (prop === '__getRawTarget') return t
+          if (typeof prop === 'symbol') {
+            if (prop === GEA_PROXY_IS_PROXY) return true
+            if (prop === GEA_PROXY_RAW || prop === GEA_PROXY_GET_RAW_TARGET) return t
+            return Reflect.get(t, prop, receiver)
+          }
           if (typeof prop === 'string') {
             const bridged = tryComponentRootBridgeGet(t, prop)
             if (bridged?.ok) {
@@ -505,6 +527,10 @@ export class Store {
     return Store.#browserRootProxyHandler
   }
 
+  static [GEA_STORE_GET_BROWSER_ROOT_PROXY_HANDLER_FOR_TESTS](): ProxyHandler<Store> {
+    return Store.#getBrowserRootProxyHandler()
+  }
+
   constructor(initialData?: Record<string, any>) {
     const priv: StoreInstancePrivate = {
       selfProxy: undefined,
@@ -528,7 +554,7 @@ export class Store {
       : Store.#getBrowserRootProxyHandler()
     const proxy = new Proxy(this, handler) as this
     priv.selfProxy = proxy
-    ;(this as any).__selfProxy = proxy
+    ;(this as any)[GEA_SELF_PROXY] = proxy
 
     if (initialData) {
       for (const key of Object.keys(initialData)) {
@@ -545,14 +571,14 @@ export class Store {
   }
 
   /** Used by vite plugin when passing store to components. Same as `this`. */
-  get __store(): this {
+  get [GEA_STORE_ROOT](): this {
     return this
   }
 
   flushSync(): void {
     const p = getPriv(this)
     if (p.pendingChanges.length > 0) {
-      this._flushChanges()
+      this[GEA_STORE_FLUSH_CHANGES]()
     }
   }
 
@@ -570,10 +596,10 @@ export class Store {
 
   observe(path: string | string[], handler: StoreObserver): () => void {
     const pathParts = splitPath(path)
-    return this._addObserver(pathParts, handler)
+    return this[GEA_STORE_ADD_OBSERVER](pathParts, handler)
   }
 
-  private _addObserver(pathParts: string[], handler: StoreObserver): () => void {
+  private [GEA_STORE_ADD_OBSERVER](pathParts: string[], handler: StoreObserver): () => void {
     const p = getPriv(this)
     const nodes = [p.observerRoot]
     let node = p.observerRoot
@@ -601,7 +627,7 @@ export class Store {
     }
   }
 
-  private _collectMatchingObserverNodes(pathParts: string[]): ObserverNode[] {
+  private [GEA_STORE_COLLECT_MATCHING_OBSERVER_NODES](pathParts: string[]): ObserverNode[] {
     const matches: ObserverNode[] = []
     let node: ObserverNode | undefined = getPriv(this).observerRoot
 
@@ -616,25 +642,25 @@ export class Store {
     return matches
   }
 
-  private _collectDescendantObserverNodes(node: ObserverNode, matches: ObserverNode[]): void {
+  private [GEA_STORE_COLLECT_DESCENDANT_OBSERVER_NODES](node: ObserverNode, matches: ObserverNode[]): void {
     for (const child of node.children.values()) {
       if (child.handlers.size > 0) matches.push(child)
-      if (child.children.size > 0) this._collectDescendantObserverNodes(child, matches)
+      if (child.children.size > 0) this[GEA_STORE_COLLECT_DESCENDANT_OBSERVER_NODES](child, matches)
     }
   }
 
   /** When a property is replaced with a new object, descendant observers
    *  must be notified because their nested values may have changed. */
-  private _addDescendantsForObjectReplacement(change: StoreChange, matches: ObserverNode[]): void {
+  private [GEA_STORE_ADD_DESCENDANTS_FOR_OBJECT_REPLACEMENT](change: StoreChange, matches: ObserverNode[]): void {
     if ((change.type === 'update' || change.type === 'add') && change.newValue && typeof change.newValue === 'object') {
-      const node = this._getObserverNode(change.pathParts)
+      const node = this[GEA_STORE_GET_OBSERVER_NODE](change.pathParts)
       if (node && node.children.size > 0) {
-        this._collectDescendantObserverNodes(node, matches)
+        this[GEA_STORE_COLLECT_DESCENDANT_OBSERVER_NODES](node, matches)
       }
     }
   }
 
-  private _getObserverNode(pathParts: string[]): ObserverNode | null {
+  private [GEA_STORE_GET_OBSERVER_NODE](pathParts: string[]): ObserverNode | null {
     let node: ObserverNode | undefined = getPriv(this).observerRoot
     for (let i = 0; i < pathParts.length; i++) {
       node = node.children.get(pathParts[i])
@@ -643,7 +669,7 @@ export class Store {
     return node
   }
 
-  private _collectMatchingObserverNodesFromNode(
+  private [GEA_STORE_COLLECT_MATCHING_OBSERVER_NODES_FROM_NODE](
     startNode: ObserverNode,
     pathParts: string[],
     offset: number,
@@ -660,14 +686,14 @@ export class Store {
     return matches
   }
 
-  private _notifyHandlers(node: ObserverNode, relevant: StoreChange[]): void {
+  private [GEA_STORE_NOTIFY_HANDLERS](node: ObserverNode, relevant: StoreChange[]): void {
     const value = getByPathParts(storeRaw(this), node.pathParts)
     for (const handler of node.handlers) {
       handler(value, relevant)
     }
   }
 
-  private _notifyHandlersWithValue(node: ObserverNode, value: any, relevant: StoreChange[]): void {
+  private [GEA_STORE_NOTIFY_HANDLERS_WITH_VALUE](node: ObserverNode, value: any, relevant: StoreChange[]): void {
     const handlers = node.handlers
     if (handlers.size === 1) {
       handlers.values().next().value!(value, relevant)
@@ -678,13 +704,13 @@ export class Store {
     }
   }
 
-  private _getDirectTopLevelObservedValue(change: StoreChange): any {
+  private [GEA_STORE_GET_DIRECT_TOP_LEVEL_OBSERVED_VALUE](change: StoreChange): any {
     const nextValue = change.newValue
     if (Array.isArray(nextValue) && nextValue.length === 0) return nextValue
     return Store.#noDirectTopLevelValue
   }
 
-  private _getTopLevelObservedValue(change: StoreChange): any {
+  private [GEA_STORE_GET_TOP_LEVEL_OBSERVED_VALUE](change: StoreChange): any {
     if (change.type === 'delete') return undefined
     const value = (this as any)[change.property]
     if (value === null || value === undefined || typeof value !== 'object') return value
@@ -693,16 +719,16 @@ export class Store {
     const p = getPriv(this)
     const entry = p.topLevelProxies.get(change.property)
     if (entry && entry[0] === value) return entry[1]
-    const proxy = this._createProxy(value, change.property, [change.property])
+    const proxy = this[GEA_STORE_CREATE_PROXY](value, change.property, [change.property])
     p.topLevelProxies.set(change.property, [value, proxy])
     return proxy
   }
 
-  private _clearArrayIndexCache(arr: any): void {
+  private [GEA_STORE_CLEAR_ARRAY_INDEX_CACHE](arr: any): void {
     if (arr && typeof arr === 'object') getPriv(this).arrayIndexProxyCache.delete(arr)
   }
 
-  private _normalizeBatch(batch: StoreChange[]): StoreChange[] {
+  private [GEA_STORE_NORMALIZE_BATCH](batch: StoreChange[]): StoreChange[] {
     if (batch.length < 2) return batch
 
     let allLeafArrayPropUpdates = true
@@ -753,7 +779,7 @@ export class Store {
     return batch
   }
 
-  private _deliverArrayItemPropBatch(batch: StoreChange[]): boolean {
+  private [GEA_STORE_DELIVER_ARRAY_ITEM_PROP_BATCH](batch: StoreChange[]): boolean {
     if (!batch[0]?.isArrayItemPropUpdate) return false
 
     const arrayPathParts = batch[0].arrayPathParts
@@ -773,24 +799,24 @@ export class Store {
 
     if (!allSameArray) return false
 
-    return this._deliverKnownArrayItemPropBatch(batch, arrayPathParts!)
+    return this[GEA_STORE_DELIVER_KNOWN_ARRAY_ITEM_PROP_BATCH](batch, arrayPathParts!)
   }
 
-  private _deliverKnownArrayItemPropBatch(batch: StoreChange[], arrayPathParts: string[]): boolean {
-    const arrayNode = this._getObserverNode(arrayPathParts)
+  private [GEA_STORE_DELIVER_KNOWN_ARRAY_ITEM_PROP_BATCH](batch: StoreChange[], arrayPathParts: string[]): boolean {
+    const arrayNode = this[GEA_STORE_GET_OBSERVER_NODE](arrayPathParts)
     if (
       getPriv(this).observerRoot.handlers.size === 0 &&
       arrayNode &&
       arrayNode.children.size === 0 &&
       arrayNode.handlers.size > 0
     ) {
-      this._notifyHandlers(arrayNode, batch)
+      this[GEA_STORE_NOTIFY_HANDLERS](arrayNode, batch)
       return true
     }
 
-    const commonMatches = this._collectMatchingObserverNodes(arrayPathParts)
+    const commonMatches = this[GEA_STORE_COLLECT_MATCHING_OBSERVER_NODES](arrayPathParts)
     for (let i = 0; i < commonMatches.length; i++) {
-      this._notifyHandlers(commonMatches[i], batch)
+      this[GEA_STORE_NOTIFY_HANDLERS](commonMatches[i], batch)
     }
 
     if (!arrayNode || arrayNode.children.size === 0) return true
@@ -800,7 +826,11 @@ export class Store {
 
     for (let i = 0; i < batch.length; i++) {
       const change = batch[i]
-      const matches = this._collectMatchingObserverNodesFromNode(arrayNode, change.pathParts, suffixOffset)
+      const matches = this[GEA_STORE_COLLECT_MATCHING_OBSERVER_NODES_FROM_NODE](
+        arrayNode,
+        change.pathParts,
+        suffixOffset,
+      )
       for (let j = 0; j < matches.length; j++) {
         const node = matches[j]
         let relevant = deliveries.get(node)
@@ -813,13 +843,13 @@ export class Store {
     }
 
     for (const [node, relevant] of deliveries) {
-      this._notifyHandlers(node, relevant)
+      this[GEA_STORE_NOTIFY_HANDLERS](node, relevant)
     }
 
     return true
   }
 
-  private _deliverTopLevelBatch(batch: StoreChange[]): boolean {
+  private [GEA_STORE_DELIVER_TOP_LEVEL_BATCH](batch: StoreChange[]): boolean {
     const raw = storeRaw(this)
     const root = getPriv(this).observerRoot
     if (root.handlers.size > 0) return false
@@ -839,11 +869,14 @@ export class Store {
         if (nv === null || nv === undefined || typeof nv !== 'object') {
           value = nv
         } else {
-          const directValue = this._getDirectTopLevelObservedValue(change)
-          value = directValue !== Store.#noDirectTopLevelValue ? directValue : this._getTopLevelObservedValue(change)
+          const directValue = this[GEA_STORE_GET_DIRECT_TOP_LEVEL_OBSERVED_VALUE](change)
+          value =
+            directValue !== Store.#noDirectTopLevelValue
+              ? directValue
+              : this[GEA_STORE_GET_TOP_LEVEL_OBSERVED_VALUE](change)
         }
       }
-      this._notifyHandlersWithValue(node, value, batch)
+      this[GEA_STORE_NOTIFY_HANDLERS_WITH_VALUE](node, value, batch)
       return true
     }
 
@@ -858,9 +891,12 @@ export class Store {
 
       let delivery = deliveries.get(node)
       if (!delivery) {
-        const directValue = this._getDirectTopLevelObservedValue(change)
+        const directValue = this[GEA_STORE_GET_DIRECT_TOP_LEVEL_OBSERVED_VALUE](change)
         delivery = {
-          value: directValue !== Store.#noDirectTopLevelValue ? directValue : this._getTopLevelObservedValue(change),
+          value:
+            directValue !== Store.#noDirectTopLevelValue
+              ? directValue
+              : this[GEA_STORE_GET_TOP_LEVEL_OBSERVED_VALUE](change),
           relevant: [],
         }
         deliveries.set(node, delivery)
@@ -869,12 +905,12 @@ export class Store {
     }
 
     for (const [node, delivery] of deliveries) {
-      this._notifyHandlersWithValue(node, delivery.value, delivery.relevant)
+      this[GEA_STORE_NOTIFY_HANDLERS_WITH_VALUE](node, delivery.value, delivery.relevant)
     }
     return true
   }
 
-  private _flushChanges(): void {
+  private [GEA_STORE_FLUSH_CHANGES](): void {
     const raw = storeRaw(this)
     const p = getPriv(this)
     p.flushScheduled = false
@@ -892,7 +928,7 @@ export class Store {
     if (
       pendingBatchKind === 1 &&
       pendingBatchArrayPathParts &&
-      this._deliverKnownArrayItemPropBatch(pendingBatch, pendingBatchArrayPathParts)
+      this[GEA_STORE_DELIVER_KNOWN_ARRAY_ITEM_PROP_BATCH](pendingBatch, pendingBatchArrayPathParts)
     ) {
       return
     }
@@ -915,7 +951,7 @@ export class Store {
                 if (Array.isArray(nv) && nv.length === 0) {
                   value = nv
                 } else {
-                  value = this._getTopLevelObservedValue(change)
+                  value = this[GEA_STORE_GET_TOP_LEVEL_OBSERVED_VALUE](change)
                 }
               }
             }
@@ -971,18 +1007,18 @@ export class Store {
       }
     }
 
-    if (this._deliverTopLevelBatch(pendingBatch)) return
+    if (this[GEA_STORE_DELIVER_TOP_LEVEL_BATCH](pendingBatch)) return
 
-    const batch = this._normalizeBatch(pendingBatch)
+    const batch = this[GEA_STORE_NORMALIZE_BATCH](pendingBatch)
 
-    if (this._deliverArrayItemPropBatch(batch)) return
+    if (this[GEA_STORE_DELIVER_ARRAY_ITEM_PROP_BATCH](batch)) return
 
     if (batch.length === 1) {
       const change = batch[0]
-      const matches = this._collectMatchingObserverNodes(change.pathParts)
-      this._addDescendantsForObjectReplacement(change, matches)
+      const matches = this[GEA_STORE_COLLECT_MATCHING_OBSERVER_NODES](change.pathParts)
+      this[GEA_STORE_ADD_DESCENDANTS_FOR_OBJECT_REPLACEMENT](change, matches)
       for (let i = 0; i < matches.length; i++) {
-        this._notifyHandlers(matches[i], batch)
+        this[GEA_STORE_NOTIFY_HANDLERS](matches[i], batch)
       }
       return
     }
@@ -990,8 +1026,8 @@ export class Store {
     const deliveries = new Map<ObserverNode, StoreChange[]>()
     for (let i = 0; i < batch.length; i++) {
       const change = batch[i]
-      const matches = this._collectMatchingObserverNodes(change.pathParts)
-      this._addDescendantsForObjectReplacement(change, matches)
+      const matches = this[GEA_STORE_COLLECT_MATCHING_OBSERVER_NODES](change.pathParts)
+      this[GEA_STORE_ADD_DESCENDANTS_FOR_OBJECT_REPLACEMENT](change, matches)
       for (let j = 0; j < matches.length; j++) {
         const node = matches[j]
         let relevant = deliveries.get(node)
@@ -1004,31 +1040,31 @@ export class Store {
     }
 
     for (const [node, relevant] of deliveries) {
-      this._notifyHandlers(node, relevant)
+      this[GEA_STORE_NOTIFY_HANDLERS](node, relevant)
     }
   }
 
-  private _emitChanges(changes: StoreChange[]): void {
+  private [GEA_STORE_EMIT_CHANGES](changes: StoreChange[]): void {
     const raw = storeRaw(this)
     const p = getPriv(this)
     for (let i = 0; i < changes.length; i++) {
       const change = changes[i]
       p.pendingChanges.push(change)
-      this._trackPendingChange(change)
+      this[GEA_STORE_TRACK_PENDING_CHANGE](change)
     }
     if (!p.flushScheduled) {
       p.flushScheduled = true
       Store.#pendingStores.add(raw)
-      queueMicrotask(() => this._flushChanges())
+      queueMicrotask(() => this[GEA_STORE_FLUSH_CHANGES]())
     }
   }
 
-  private _queueChange(change: StoreChange): void {
+  private [GEA_STORE_QUEUE_CHANGE](change: StoreChange): void {
     getPriv(this).pendingChanges.push(change)
-    this._trackPendingChange(change)
+    this[GEA_STORE_TRACK_PENDING_CHANGE](change)
   }
 
-  private _trackPendingChange(change: StoreChange): void {
+  private [GEA_STORE_TRACK_PENDING_CHANGE](change: StoreChange): void {
     const p = getPriv(this)
     if (p.pendingBatchKind === 2) return
     if (!change.isArrayItemPropUpdate || !change.arrayPathParts) {
@@ -1053,17 +1089,17 @@ export class Store {
     }
   }
 
-  private _scheduleFlush(): void {
+  private [GEA_STORE_SCHEDULE_FLUSH](): void {
     const raw = storeRaw(this)
     const p = getPriv(this)
     if (!p.flushScheduled) {
       p.flushScheduled = true
       Store.#pendingStores.add(raw)
-      queueMicrotask(() => this._flushChanges())
+      queueMicrotask(() => this[GEA_STORE_FLUSH_CHANGES]())
     }
   }
 
-  private _queueDirectArrayItemPrimitiveChange(
+  private [GEA_STORE_QUEUE_DIRECT_ARRAY_ITEM_PRIMITIVE_CHANGE](
     target: any,
     property: string,
     value: any,
@@ -1101,25 +1137,30 @@ export class Store {
     if (!p.flushScheduled) {
       p.flushScheduled = true
       Store.#pendingStores.add(raw)
-      queueMicrotask(() => this._flushChanges())
+      queueMicrotask(() => this[GEA_STORE_FLUSH_CHANGES]())
     }
   }
 
-  private _interceptArrayMethod(arr: any[], method: string, _basePath: string, baseParts: string[]): Function | null {
+  private [GEA_STORE_INTERCEPT_ARRAY_METHOD](
+    arr: any[],
+    method: string,
+    _basePath: string,
+    baseParts: string[],
+  ): Function | null {
     const store = this // eslint-disable-line @typescript-eslint/no-this-alias
     switch (method) {
       case 'splice':
         return function (...args: any[]) {
-          store._clearArrayIndexCache(arr)
+          store[GEA_STORE_CLEAR_ARRAY_INDEX_CACHE](arr)
           const len = arr.length
           const rawStart = args[0] ?? 0
           const start = rawStart < 0 ? Math.max(len + rawStart, 0) : Math.min(rawStart, len)
           const deleteCount = args.length < 2 ? len - start : Math.min(Math.max(args[1] ?? 0, 0), len - start)
-          const items = args.slice(2).map((v) => (v && typeof v === 'object' && v.__isProxy ? v.__getTarget : v))
+          const items = args.slice(2).map((v) => unwrapNestedProxyValue(v))
           const removed = arr.slice(start, start + deleteCount)
           Array.prototype.splice.call(arr, start, deleteCount, ...items)
           if (deleteCount === 0 && items.length > 0 && start === len) {
-            store._emitChanges([
+            store[GEA_STORE_EMIT_CHANGES]([
               {
                 type: 'append',
                 property: String(start),
@@ -1151,17 +1192,17 @@ export class Store {
               newValue: items[i],
             })
           }
-          if (changes.length > 0) store._emitChanges(changes)
+          if (changes.length > 0) store[GEA_STORE_EMIT_CHANGES](changes)
           return removed
         }
       case 'push':
         return function (...items: any[]) {
-          store._clearArrayIndexCache(arr)
-          const rawItems = items.map((v) => (v && typeof v === 'object' && v.__isProxy ? v.__getTarget : v))
+          store[GEA_STORE_CLEAR_ARRAY_INDEX_CACHE](arr)
+          const rawItems = items.map((v) => unwrapNestedProxyValue(v))
           const startIndex = arr.length
           Array.prototype.push.apply(arr, rawItems)
           if (rawItems.length > 0) {
-            store._emitChanges([
+            store[GEA_STORE_EMIT_CHANGES]([
               {
                 type: 'append',
                 property: String(startIndex),
@@ -1179,12 +1220,12 @@ export class Store {
       case 'shift':
         return function () {
           if (arr.length === 0) return undefined
-          store._clearArrayIndexCache(arr)
+          store[GEA_STORE_CLEAR_ARRAY_INDEX_CACHE](arr)
           const idx = method === 'pop' ? arr.length - 1 : 0
           const removed = arr[idx]
           if (method === 'pop') Array.prototype.pop.call(arr)
           else Array.prototype.shift.call(arr)
-          store._emitChanges([
+          store[GEA_STORE_EMIT_CHANGES]([
             {
               type: 'delete',
               property: String(idx),
@@ -1197,8 +1238,8 @@ export class Store {
         }
       case 'unshift':
         return function (...items: any[]) {
-          store._clearArrayIndexCache(arr)
-          const rawItems = items.map((v) => (v && typeof v === 'object' && v.__isProxy ? v.__getTarget : v))
+          store[GEA_STORE_CLEAR_ARRAY_INDEX_CACHE](arr)
+          const rawItems = items.map((v) => unwrapNestedProxyValue(v))
           Array.prototype.unshift.apply(arr, rawItems)
           const changes: StoreChange[] = []
           for (let i = 0; i < rawItems.length; i++) {
@@ -1210,13 +1251,13 @@ export class Store {
               newValue: rawItems[i],
             })
           }
-          if (changes.length > 0) store._emitChanges(changes)
+          if (changes.length > 0) store[GEA_STORE_EMIT_CHANGES](changes)
           return arr.length
         }
       case 'sort':
       case 'reverse':
         return function (...args: any[]) {
-          store._clearArrayIndexCache(arr)
+          store[GEA_STORE_CLEAR_ARRAY_INDEX_CACHE](arr)
           const previousOrder = arr.slice()
           Array.prototype[method].apply(arr, args)
           const used = new Array(previousOrder.length).fill(false)
@@ -1232,7 +1273,7 @@ export class Store {
             }
             permutation[i] = previousIndex === -1 ? i : previousIndex
           }
-          store._emitChanges([
+          store[GEA_STORE_EMIT_CHANGES]([
             {
               type: 'reorder',
               property: baseParts[baseParts.length - 1] || '',
@@ -1249,7 +1290,7 @@ export class Store {
     }
   }
 
-  private _interceptArrayIterator(
+  private [GEA_STORE_INTERCEPT_ARRAY_ITERATOR](
     arr: any[],
     method: string,
     basePath: string,
@@ -1261,10 +1302,7 @@ export class Store {
       case 'includes': {
         const native = method === 'indexOf' ? Array.prototype.indexOf : Array.prototype.includes
         return function (searchElement: any, fromIndex?: number) {
-          const raw =
-            searchElement && typeof searchElement === 'object' && searchElement.__isProxy
-              ? searchElement.__getTarget
-              : searchElement
+          const raw = unwrapNestedProxyValue(searchElement)
           return native.call(arr, raw, fromIndex)
         }
       }
@@ -1313,7 +1351,7 @@ export class Store {
     }
   }
 
-  private _getCachedArrayMeta(baseParts: string[]): ArrayProxyMeta | null {
+  private [GEA_STORE_GET_CACHED_ARRAY_META](baseParts: string[]): ArrayProxyMeta | null {
     const map = getPriv(this).internedArrayPaths
     for (let i = baseParts.length - 1; i >= 0; i--) {
       if (!isNumericIndex(baseParts[i])) continue
@@ -1343,7 +1381,12 @@ export class Store {
     return null
   }
 
-  private _createProxy(target: any, basePath: string, baseParts: string[] = [], arrayMeta?: ArrayProxyMeta): any {
+  private [GEA_STORE_CREATE_PROXY](
+    target: any,
+    basePath: string,
+    baseParts: string[] = [],
+    arrayMeta?: ArrayProxyMeta,
+  ): any {
     if (!target || typeof target !== 'object') return target
 
     // Return cached proxy if one already exists for this raw object.
@@ -1355,7 +1398,7 @@ export class Store {
     }
 
     const store = this // eslint-disable-line @typescript-eslint/no-this-alias
-    const cachedArrayMeta = arrayMeta ?? store._getCachedArrayMeta(baseParts)
+    const cachedArrayMeta = arrayMeta ?? store[GEA_STORE_GET_CACHED_ARRAY_META](baseParts)
     // Defer Map creation until actually needed (saves allocation for read-only items)
     let pathCache: Map<string, string[]> | undefined
     let leafCache: Map<string, string[]> | undefined
@@ -1406,20 +1449,15 @@ export class Store {
       return parts
     }
 
-    const createProxy = store._createProxy.bind(store)
+    const createProxy = store[GEA_STORE_CREATE_PROXY].bind(store)
 
     const proxy = new Proxy(target, {
       get(obj: any, prop: string | symbol) {
+        if (prop === GEA_STORE_ROOT) return getPriv(store).selfProxy || store
+        if (prop === GEA_PROXY_IS_PROXY) return true
+        if (prop === GEA_PROXY_RAW || prop === GEA_PROXY_GET_TARGET) return obj
+        if (prop === GEA_PROXY_GET_PATH) return basePath
         if (typeof prop === 'symbol') return obj[prop]
-        // Meta property checks (used by framework internals)
-        // charCode 95 = '_', fast pre-check to skip for normal properties
-        if ((prop as string).charCodeAt(0) === 95 && (prop as string).charCodeAt(1) === 95) {
-          if (prop === '__getTarget') return obj
-          if (prop === '__isProxy') return true
-          if (prop === '__raw') return obj
-          if (prop === '__getPath') return basePath
-          if (prop === '__store') return getPriv(store).selfProxy || store
-        }
 
         const value = obj[prop]
         if (value === null || value === undefined) return value
@@ -1434,8 +1472,8 @@ export class Store {
           let cached = methodCache.get(prop)
           if (cached !== undefined) return cached
           cached =
-            store._interceptArrayMethod(obj, prop, basePath, baseParts) ||
-            store._interceptArrayIterator(obj, prop, basePath, baseParts, createProxy) ||
+            store[GEA_STORE_INTERCEPT_ARRAY_METHOD](obj, prop, basePath, baseParts) ||
+            store[GEA_STORE_INTERCEPT_ARRAY_ITERATOR](obj, prop, basePath, baseParts, createProxy) ||
             value.bind(obj)
           methodCache.set(prop, cached)
           return cached
@@ -1508,7 +1546,7 @@ export class Store {
           obj[prop] = value
 
           if (cachedArrayMeta && cachedArrayMeta.baseTail.length === 0) {
-            store._queueDirectArrayItemPrimitiveChange(
+            store[GEA_STORE_QUEUE_DIRECT_ARRAY_ITEM_PRIMITIVE_CHANGE](
               obj,
               prop,
               value,
@@ -1535,16 +1573,13 @@ export class Store {
             change.leafPathParts = getCachedLeafPathParts(prop)
             change.isArrayItemPropUpdate = true
           }
-          store._queueChange(change)
-          store._scheduleFlush()
+          store[GEA_STORE_QUEUE_CHANGE](change)
+          store[GEA_STORE_SCHEDULE_FLUSH]()
           return true
         }
 
         // Object value path (less common)
-        if (value && typeof value === 'object' && value.__isProxy) {
-          const raw = value.__getTarget
-          if (raw !== undefined) value = raw
-        }
+        value = unwrapNestedProxyValue(value)
         if (prop === 'length' && Array.isArray(obj)) {
           getPriv(store).arrayIndexProxyCache.delete(obj)
           obj[prop] = value
@@ -1564,8 +1599,8 @@ export class Store {
           for (let i = 0; i < oldValue.length; i++) {
             let o = oldValue[i]
             let v = value[i]
-            if (o && o.__isProxy) o = o.__getTarget
-            if (v && v.__isProxy) v = v.__getTarget
+            if (o) o = unwrapNestedProxyValue(o)
+            if (v) v = unwrapNestedProxyValue(v)
             if (o !== v) {
               isAppend = false
               break
@@ -1597,7 +1632,7 @@ export class Store {
             if (!getPriv(store).flushScheduled) {
               getPriv(store).flushScheduled = true
               Store.#pendingStores.add(storeRaw(store as Store))
-              queueMicrotask(() => store._flushChanges())
+              queueMicrotask(() => store[GEA_STORE_FLUSH_CHANGES]())
             }
             return true
           }
@@ -1625,7 +1660,7 @@ export class Store {
         if (!getPriv(store).flushScheduled) {
           getPriv(store).flushScheduled = true
           Store.#pendingStores.add(storeRaw(store as Store))
-          queueMicrotask(() => store._flushChanges())
+          queueMicrotask(() => store[GEA_STORE_FLUSH_CHANGES]())
         }
         return true
       },
@@ -1655,8 +1690,8 @@ export class Store {
           change.leafPathParts = getCachedLeafPathParts(prop)
           change.isArrayItemPropUpdate = true
         }
-        store._queueChange(change)
-        store._scheduleFlush()
+        store[GEA_STORE_QUEUE_CHANGE](change)
+        store[GEA_STORE_SCHEDULE_FLUSH]()
         return true
       },
     })

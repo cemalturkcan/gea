@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict'
 import babelGenerator from '@babel/generator'
 import * as t from '@babel/types'
+import {
+  GEA_APPLY_LIST_CHANGES,
+  GEA_DOM_ITEM,
+  GEA_DOM_KEY,
+  GEA_DOM_PROPS,
+  GEA_ENSURE_ARRAY_CONFIGS,
+  GEA_MAP_CONFIG_TPL,
+} from '@geajs/core'
 import { JSDOM } from 'jsdom'
 import { generateArrayHandlers, generateEnsureArrayConfigsMethod } from '../../src/generate-array'
 export { generateObserveHandler } from '../../src/generate-observe'
@@ -12,6 +20,18 @@ import { transformComponentFile } from '../../src/transform-component'
 import { generatePatchItemMethod, generateCreateItemMethod } from '../../src/generate-array-patch'
 import { getObserveMethodName, getJSXTagName } from '../../src/utils'
 import { applyListChanges } from '../../../gea/src/lib/base/list'
+
+/** Injected into `new Function` eval so generated harness code can use `this[GEA_*]()` / `el[GEA_DOM_KEY]`. */
+const HARNESS_GEA_SYMBOLS = {
+  GEA_APPLY_LIST_CHANGES,
+  GEA_DOM_ITEM,
+  GEA_DOM_KEY,
+  GEA_DOM_PROPS,
+  GEA_ENSURE_ARRAY_CONFIGS,
+  GEA_MAP_CONFIG_TPL,
+} as const
+
+const HARNESS_GEA_PRELUDE = `const { ${Object.keys(HARNESS_GEA_SYMBOLS).join(', ')} } = geaSyms;`
 
 export { t, getJSXTagName, getObserveMethodName, parseSource, geaPlugin, transformComponentFile }
 export type { ArrayMapBinding, StateRefMeta }
@@ -77,7 +97,7 @@ export function createArrayObserverHarness(arrayMap: ArrayMapBinding) {
           t.expressionStatement(
             t.assignmentExpression(
               '=',
-              t.memberExpression(t.identifier('el'), t.identifier('__geaItem')),
+              t.memberExpression(t.identifier('el'), t.identifier('GEA_DOM_ITEM'), true),
               t.identifier('item'),
             ),
           ),
@@ -161,6 +181,22 @@ export function createArrayObserverHarness(arrayMap: ArrayMapBinding) {
         ),
         t.classMethod(
           'method',
+          t.identifier('GEA_APPLY_LIST_CHANGES'),
+          [t.identifier('container'), t.identifier('array'), t.identifier('changes'), t.identifier('config')],
+          t.blockStatement([
+            t.returnStatement(
+              t.callExpression(t.identifier('applyListChanges'), [
+                t.identifier('container'),
+                t.identifier('array'),
+                t.identifier('changes'),
+                t.identifier('config'),
+              ]),
+            ),
+          ]),
+          true,
+        ),
+        t.classMethod(
+          'method',
           t.identifier('$'),
           [t.identifier('selector')],
           t.blockStatement([
@@ -214,7 +250,10 @@ export function createArrayObserverHarness(arrayMap: ArrayMapBinding) {
   ])
 
   const source = generate(classAst).code
-  const Harness = new Function('applyListChanges', `${source}; return Harness;`)(applyListChanges) as new () => {
+  const Harness = new Function('applyListChanges', 'geaSyms', `${HARNESS_GEA_PRELUDE}\n${source}; return Harness;`)(
+    applyListChanges,
+    HARNESS_GEA_SYMBOLS,
+  ) as new () => {
     root: HTMLElement
   } & Record<string, any>
 

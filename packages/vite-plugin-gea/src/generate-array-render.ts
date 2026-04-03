@@ -8,6 +8,7 @@ const traverse = require('@babel/traverse').default
 import type { ArrayMapBinding, EventHandler, HandlerPropInMap } from './ir.ts'
 import { transformJSXToTemplate } from './transform-jsx.ts'
 import {
+  buildExprGeaMember,
   buildOptionalMemberChain,
   normalizePathParts,
   pathPartsToString,
@@ -359,7 +360,7 @@ export function generateRenderItemMethod(
             t.assignmentExpression(
               '=',
               t.cloneNode(privateRsField),
-              t.memberExpression(t.identifier(arrayMap.storeVar), t.identifier('__raw')),
+              buildExprGeaMember(t.identifier(arrayMap.storeVar), 'GEA_PROXY_RAW'),
             ),
           ),
         ),
@@ -377,12 +378,38 @@ export function generateRenderItemMethod(
   )
 
   if (handlerPropsInMap.length > 0 && classBody) {
-    const handleItemHandler = jsMethod`__handleItemHandler(itemId, e) {
-    const fn = this.__itemHandlers_?.[itemId];
-    if (fn) fn(e);
-  }` as t.ClassMethod
+    const handleItemHandlerBody = t.blockStatement([
+      t.variableDeclaration('const', [
+        t.variableDeclarator(
+          t.identifier('fn'),
+          t.optionalMemberExpression(
+            t.memberExpression(t.thisExpression(), t.identifier('__itemHandlers_')),
+            t.identifier('itemId'),
+            true,
+            true,
+          ),
+        ),
+      ]),
+      t.ifStatement(
+        t.identifier('fn'),
+        t.expressionStatement(t.callExpression(t.identifier('fn'), [t.identifier('e')])),
+      ),
+    ])
+    const handleItemHandler = t.classMethod(
+      'method',
+      t.identifier('GEA_HANDLE_ITEM_HANDLER'),
+      [t.identifier('itemId'), t.identifier('e')],
+      handleItemHandlerBody,
+      true,
+    )
     if (
-      !classBody.body.some((m) => t.isClassMethod(m) && t.isIdentifier(m.key) && m.key.name === '__handleItemHandler')
+      !classBody.body.some(
+        (m) =>
+          t.isClassMethod(m) &&
+          m.computed === true &&
+          t.isIdentifier(m.key) &&
+          m.key.name === 'GEA_HANDLE_ITEM_HANDLER',
+      )
     ) {
       classBody.body.unshift(handleItemHandler)
     }

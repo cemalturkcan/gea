@@ -57,7 +57,7 @@ test('prop text patch keeps nullish guard when derived expr reads properties of 
     }
   `)
 
-  assert.match(output, /__onPropChange/)
+  assert.match(output, /GEA_ON_PROP_CHANGE/)
   assert.match(output, /if \(!\(value === null \|\| value === undefined\)\)/)
 })
 
@@ -259,7 +259,7 @@ test('map event handler using only index skips helper and uses indexOf fast path
     /__getMapItemFromEvent/,
     'index-only handler should not call __getMapItemFromEvent helper',
   )
-  assert.match(eventMethod![1], /\.indexOf\(__el\.__geaItem\)/, 'should resolve index via indexOf on __geaItem')
+  assert.match(eventMethod![1], /\.indexOf\(__el\[GEA_DOM_ITEM]\)/, 'should resolve index via indexOf on __geaItem')
 })
 
 test('map event handler using only item calls helper without indexOf', () => {
@@ -322,5 +322,5 @@ test('map event handler using both item and index calls helper and uses indexOf'
   `)
 
   assert.match(output, /__getMapItemFromEvent/, 'both-needed handler should call __getMapItemFromEvent helper')
-  assert.match(output, /\.indexOf\(__el\.__geaItem\)/, 'should resolve index via indexOf on __geaItem')
+  assert.match(output, /\.indexOf\(__el\[GEA_DOM_ITEM]\)/, 'should resolve index via indexOf on __geaItem')
 })

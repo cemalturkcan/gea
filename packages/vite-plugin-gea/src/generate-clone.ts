@@ -660,7 +660,7 @@ export function generateCloneMembers(
 
   const cloneMethodBody = buildCloneTemplateBody(identityPatches, contentPatches, cloneCtx)
 
-  const cloneMethod = t.classMethod('method', t.identifier('__cloneTemplate'), [], t.blockStatement(cloneMethodBody))
+  const cloneMethod = t.classMethod('method', t.identifier('GEA_CLONE_TEMPLATE'), [], t.blockStatement(cloneMethodBody), true)
 
   return [staticField, cloneMethod]
 }

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it, beforeEach, afterEach } from 'node:test'
 import { JSDOM } from 'jsdom'
+import { GEA_COMPILED_CHILD, GEA_HANDLE_ITEM_HANDLER } from '../src/lib/symbols'
 
 function installDom() {
   const dom = new JSDOM('<!doctype html><html><body></body></html>')
@@ -396,7 +397,7 @@ describe('ComponentManager – event handling', () => {
   })
 
   describe('callItemHandler', () => {
-    it('calls __handleItemHandler for item elements', () => {
+    it('calls [GEA_HANDLE_ITEM_HANDLER] for item elements', () => {
       const mgr = ComponentManager.getInstance()
       let receivedId: string | null = null
       const comp = {
@@ -405,7 +406,7 @@ describe('ComponentManager – event handling', () => {
         render: () => true,
         constructor: Object,
         el: null as any,
-        __handleItemHandler(itemId: string, _e: Event) {
+        [GEA_HANDLE_ITEM_HANDLER](itemId: string, _e: Event) {
           receivedId = itemId
         },
       }
@@ -433,6 +434,58 @@ describe('ComponentManager – event handling', () => {
       const event = new Event('click')
       ;(event as any).targetEl = div
       assert.equal(mgr.callItemHandler(comp, event), true)
+    })
+
+    it('callHandlers does not invoke [GEA_HANDLE_ITEM_HANDLER] after a delegated row handler runs (parent data-gea-event only)', async () => {
+      const seed = `cmcov-skip-item-${Date.now()}-${Math.random()}`
+      const mod = await import(`../src/lib/base/component-manager?${seed}`)
+      const CM = mod.default
+      const { GEA_SKIP_ITEM_HANDLER } = mod as { GEA_SKIP_ITEM_HANDLER: string }
+      CM.instance = undefined
+      const mgr = CM.getInstance()
+
+      let delegatedCalled = false
+      let itemHandlerCalled = false
+      const comp = {
+        id: 'skip-item-chain',
+        rendered: true,
+        render: () => true,
+        constructor: Object,
+        el: null as any,
+        [GEA_HANDLE_ITEM_HANDLER]() {
+          itemHandlerCalled = true
+        },
+        events: {
+          click: {
+            '[data-gea-event="ev0"]': () => {
+              delegatedCalled = true
+            },
+          },
+        },
+      }
+      const root = document.createElement('div')
+      root.id = 'skip-item-chain'
+      document.body.appendChild(root)
+      comp.el = root
+
+      const row = document.createElement('div')
+      row.setAttribute('data-gea-event', 'ev0')
+      const cell = document.createElement('span')
+      cell.setAttribute('data-gea-item-id', '5')
+      row.appendChild(cell)
+      root.appendChild(row)
+
+      mgr.setComponent(comp)
+
+      const event = new Event('click', { bubbles: true })
+      ;(event as any).targetEl = cell
+
+      assert.equal(mgr.callEventsGetterHandler(comp, event as any), GEA_SKIP_ITEM_HANDLER)
+
+      mgr.callHandlers([comp], [comp.events], event as any, [undefined], 0)
+
+      assert.equal(delegatedCalled, true)
+      assert.equal(itemHandlerCalled, false)
     })
 
     it('returns true when targetEl has no getAttribute', () => {
@@ -561,7 +614,7 @@ describe('ComponentManager – event handling', () => {
       const comp = {
         id: 'pending-comp',
         rendered: false,
-        __geaCompiledChild: false,
+        [GEA_COMPILED_CHILD]: false,
         render() {
           rendered = true
           return true
@@ -576,13 +629,13 @@ describe('ComponentManager – event handling', () => {
       assert.equal(rendered, true)
     })
 
-    it('skips __geaCompiledChild components in MutationObserver', async () => {
+    it('skips [GEA_COMPILED_CHILD] components in MutationObserver', async () => {
       const mgr = ComponentManager.getInstance()
       let rendered = false
       const comp = {
         id: 'compiled-pending',
         rendered: false,
-        __geaCompiledChild: true,
+        [GEA_COMPILED_CHILD]: true,
         render() {
           rendered = true
           return true
@@ -652,7 +705,7 @@ describe('ComponentManager – event handling', () => {
         render: () => true,
         constructor: Object,
         el: null as any,
-        __handleItemHandler() {
+        [GEA_HANDLE_ITEM_HANDLER]() {
           return false
         },
       }

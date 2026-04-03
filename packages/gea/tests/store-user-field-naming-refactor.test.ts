@@ -60,6 +60,38 @@ describe('Store – user field names with underscores', () => {
     assert.equal(calls, 1)
   })
 
+  it('legacy-shaped user fields element_ / rendered_ do not collide with engine symbols', async () => {
+    class S extends Store {
+      element_ = 'user-root'
+      rendered_ = false
+    }
+    const s = new S()
+    let elCalls = 0
+    let rdCalls = 0
+    s.observe('element_', () => elCalls++)
+    s.observe('rendered_', () => rdCalls++)
+    s.element_ = 'updated'
+    s.rendered_ = true
+    await flush()
+    assert.equal(elCalls, 1)
+    assert.equal(rdCalls, 1)
+    assert.equal(s.element_, 'updated')
+    assert.equal(s.rendered_, true)
+  })
+
+  it('user field _fooItems is reactive (not reserved for compiler list backing)', async () => {
+    class S extends Store {
+      _fooItems = [1, 2]
+    }
+    const s = new S()
+    let calls = 0
+    s.observe('_fooItems', () => calls++)
+    s._fooItems = [3]
+    await flush()
+    assert.equal(calls, 1)
+    assert.deepEqual(s._fooItems, [3])
+  })
+
   it('nested __data.foo notifies observe("__data")', async () => {
     class S extends Store {
       __data = { foo: 1 }
@@ -97,7 +129,7 @@ describe('Store – user field names with underscores', () => {
   })
 })
 
-describe('Store – plain data fields named props / actions are reactive', () => {
+describe('Store – plain data fields named props / handlers are reactive', () => {
   it('props assignment notifies observe("props")', async () => {
     class S extends Store {
       props = { x: 1 }
@@ -110,14 +142,14 @@ describe('Store – plain data fields named props / actions are reactive', () =>
     assert.equal(calls, 1)
   })
 
-  it('actions assignment notifies observe("actions")', async () => {
+  it('handlers assignment notifies observe("handlers")', async () => {
     class S extends Store {
-      actions = {}
+      handlers = {}
     }
     const s = new S()
     let calls = 0
-    s.observe('actions', () => calls++)
-    s.actions = { run: () => {} }
+    s.observe('handlers', () => calls++)
+    s.handlers = { run: () => {} }
     await flush()
     assert.equal(calls, 1)
   })

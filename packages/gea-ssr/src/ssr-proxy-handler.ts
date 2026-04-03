@@ -1,5 +1,8 @@
 import {
   findPropertyDescriptor,
+  GEA_PROXY_GET_RAW_TARGET,
+  GEA_PROXY_IS_PROXY,
+  GEA_PROXY_RAW,
   isClassConstructorValue,
   rootDeleteProperty,
   rootGetValue,
@@ -21,10 +24,11 @@ export function createSSRRootProxyHandler(): ProxyHandler<Store> {
   if (!cachedHandler) {
     cachedHandler = {
       get(t, prop, receiver) {
-        if (typeof prop === 'symbol') return Reflect.get(t, prop, receiver)
-        if (prop === '__isProxy') return true
-        if (prop === '__raw') return t
-        if (prop === '__getRawTarget') return t
+        if (typeof prop === 'symbol') {
+          if (prop === GEA_PROXY_IS_PROXY) return true
+          if (prop === GEA_PROXY_RAW || prop === GEA_PROXY_GET_RAW_TARGET) return t
+          return Reflect.get(t, prop, receiver)
+        }
         const overlay = resolveOverlay(t)
         if (overlay !== undefined) {
           if (Object.prototype.hasOwnProperty.call(overlay, prop)) {
