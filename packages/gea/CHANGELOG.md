@@ -1,5 +1,9 @@
 # @geajs/core
 
+## 1.1.1
+
+Re-publish of 1.1.0 (version number was already claimed on npm).
+
 ## 1.1.0
 
 ### Minor Changes
