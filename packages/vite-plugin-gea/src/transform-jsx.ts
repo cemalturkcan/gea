@@ -26,6 +26,8 @@ import {
   ITEM_IS_KEY,
   detectItemIdProperty,
   extractItemTemplate,
+  extractKeyExpression,
+  hasExplicitItemKey,
   normalizeDestructuredMapCallback,
 } from './analyze-helpers.ts'
 
@@ -263,6 +265,48 @@ function toHtmlAttrName(attrName: string, isComponent: boolean): string {
   return attrName
 }
 
+/** Strip redundant parens so nested ternaries match `t.isConditionalExpression`. */
+function unwrapExpression(expr: t.Expression): t.Expression {
+  let e = expr
+  while (t.isParenthesizedExpression(e)) {
+    e = e.expression as t.Expression
+  }
+  return e
+}
+
+/**
+ * Build truthy/falsy HTML expressions from the *source* conditional tree before the full-expression
+ * JSX transform. `transformJSXExpression` on the whole nested ternary can rewrite the AST so the
+ * inner `ConditionalExpression` is no longer visible to {@link extractHtmlTemplatesFromConditional},
+ * and the outer falsy branch would incorrectly collapse to only the inner consequent.
+ */
+function extractHtmlTemplatesFromRawConditional(
+  rawExpr: t.Expression,
+  ctx: Ctx,
+  slotId: string,
+): { truthyHtmlExpr?: t.Expression; falsyHtmlExpr?: t.Expression } | null {
+  const childCtx = { ...ctx, elementPathPrefix: '__cs_' + slotId }
+  const top = unwrapExpression(rawExpr)
+  if (t.isLogicalExpression(top) && top.operator === '&&') {
+    return extractHtmlTemplatesFromRawConditional(top.right as t.Expression, ctx, slotId)
+  }
+  if (t.isConditionalExpression(top)) {
+    const truthyHtmlExpr = transformJSXExpression(top.consequent as t.Expression, childCtx)
+    const alt = unwrapExpression(top.alternate as t.Expression)
+    if (t.isConditionalExpression(alt)) {
+      return {
+        truthyHtmlExpr,
+        falsyHtmlExpr: transformJSXExpression(top.alternate as t.Expression, childCtx),
+      }
+    }
+    return {
+      truthyHtmlExpr,
+      falsyHtmlExpr: transformJSXExpression(top.alternate as t.Expression, childCtx),
+    }
+  }
+  return null
+}
+
 function extractHtmlTemplatesFromConditional(expr: t.Expression): {
   truthyHtmlExpr?: t.Expression
   falsyHtmlExpr?: t.Expression
@@ -293,7 +337,13 @@ function extractHtmlTemplatesFromConditional(expr: t.Expression): {
   }
   if (t.isConditionalExpression(expr)) {
     const truthy = extractHtmlTemplatesFromConditional(expr.consequent as t.Expression).truthyHtmlExpr
-    const falsy = extractHtmlTemplatesFromConditional(expr.alternate as t.Expression).truthyHtmlExpr
+    const alt = unwrapExpression(expr.alternate as t.Expression)
+    // Nested ternary: `a ? b : c ? d : e` — the outer falsy branch must be the *entire* inner
+    // conditional, not `extract(inner).truthyHtmlExpr` (which would be only `d`, dropping `e`).
+    if (t.isConditionalExpression(alt)) {
+      return { truthyHtmlExpr: truthy, falsyHtmlExpr: normalizeHtmlExpression(alt) }
+    }
+    const falsy = extractHtmlTemplatesFromConditional(alt).truthyHtmlExpr
     return { truthyHtmlExpr: truthy, falsyHtmlExpr: falsy }
   }
   if (t.isParenthesizedExpression(expr)) {
@@ -324,11 +374,113 @@ function extractChildInstanceRef(expr: t.Expression): { instanceVar: string; gua
   return { instanceVar, guardExpr: expr.left as t.Expression }
 }
 
+/**
+ * True if expression contains any JSX elements or fragments.
+ * Such expressions produce HTML strings after compilation and must NOT be escaped.
+ */
+function expressionContainsJSX(expr: t.Expression): boolean {
+  let found = false
+  const check = (node: t.Node) => {
+    if (found) return
+    if (t.isJSXElement(node) || t.isJSXFragment(node)) {
+      found = true
+      return
+    }
+    for (const key of t.VISITOR_KEYS[node.type] || []) {
+      const child = (node as any)[key]
+      if (Array.isArray(child)) {
+        for (const c of child) {
+          if (c && typeof c === 'object' && 'type' in c) check(c)
+          if (found) return
+        }
+      } else if (child && typeof child === 'object' && 'type' in child) {
+        check(child)
+      }
+      if (found) return
+    }
+  }
+  check(expr)
+  return found
+}
+
+/**
+ * True if expression is a CallExpression whose callee accesses a property name
+ * that is known to be a JSX-returning function in the class body.
+ * Covers render-prop patterns like `activeTab.content()` where
+ * `content: () => <SummaryContent />` is defined in the class.
+ */
+function callsJSXReturningProperty(expr: t.Expression, classBody?: t.ClassBody): boolean {
+  if (!classBody || !t.isCallExpression(expr)) return false
+  // Extract the property name from the callee (e.g. `activeTab.content()` → 'content')
+  let propName: string | undefined
+  if (t.isMemberExpression(expr.callee) && t.isIdentifier(expr.callee.property) && !expr.callee.computed) {
+    propName = expr.callee.property.name
+  }
+  if (!propName) return false
+  // Scan class body for any property/assignment containing an object with
+  // a matching arrow function property whose body contains JSX
+  for (const member of classBody.body) {
+    if (!t.isClassProperty(member) || !member.value) continue
+    const scanValue = (node: t.Node): boolean => {
+      if (t.isObjectExpression(node)) {
+        for (const prop of node.properties) {
+          if (
+            t.isObjectProperty(prop) &&
+            t.isIdentifier(prop.key) &&
+            prop.key.name === propName &&
+            (t.isArrowFunctionExpression(prop.value) || t.isFunctionExpression(prop.value))
+          ) {
+            return expressionContainsJSX(prop.value as t.Expression)
+          }
+        }
+      }
+      if (t.isArrayExpression(node)) {
+        return node.elements.some((el) => el && scanValue(el))
+      }
+      return false
+    }
+    if (scanValue(member.value)) return true
+  }
+  return false
+}
+
+/**
+ * True if expression accesses `props.children` or `this.props.children`.
+ * The `children` prop contains compiler-generated HTML from the parent and must not be escaped.
+ */
+function isChildrenPropAccess(expr: t.Expression): boolean {
+  // Destructured: children (bare identifier from template({ children }))
+  if (t.isIdentifier(expr) && expr.name === 'children') return true
+  // props.children
+  if (
+    t.isMemberExpression(expr) &&
+    t.isIdentifier(expr.property) &&
+    expr.property.name === 'children' &&
+    t.isIdentifier(expr.object) &&
+    expr.object.name === 'props'
+  )
+    return true
+  // this.props.children
+  if (
+    t.isMemberExpression(expr) &&
+    t.isIdentifier(expr.property) &&
+    expr.property.name === 'children' &&
+    t.isMemberExpression(expr.object) &&
+    t.isThisExpression(expr.object.object) &&
+    t.isIdentifier(expr.object.property) &&
+    expr.object.property.name === 'props'
+  )
+    return true
+  return false
+}
+
 /** True if expression can evaluate to false when rendered in template (needs || '' to avoid "false" string). */
 function expressionMayBeFalsy(expr: t.Expression): boolean {
   if (t.isLogicalExpression(expr) && expr.operator === '&&') return true
   if (t.isConditionalExpression(expr)) return true
   if (t.isBooleanLiteral(expr) && !expr.value) return true
+  if (t.isOptionalMemberExpression(expr)) return true
+  if (t.isOptionalCallExpression(expr)) return true
   return false
 }
 
@@ -380,6 +532,16 @@ function escapeHtml(str: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;')
+}
+
+const URL_ATTRS = new Set(['href', 'src', 'action', 'formaction', 'data', 'cite', 'poster', 'background'])
+
+function wrapWithSanitizeAttr(attrName: string, expr: t.Expression): t.Expression {
+  if (!URL_ATTRS.has(attrName)) return expr
+  return t.callExpression(t.identifier('geaSanitizeAttr'), [
+    t.stringLiteral(attrName),
+    t.callExpression(t.identifier('String'), [expr]),
+  ])
 }
 
 function getStaticStringValue(expr: t.Expression): string | null {
@@ -440,24 +602,48 @@ const EVENT_TYPES = new Set([
   'dblclick',
   'change',
   'input',
+  'submit',
+  'reset',
+  'focus',
+  'blur',
   'keydown',
   'keyup',
-  'blur',
-  'focus',
+  'keypress',
   'mousedown',
   'mouseup',
-  'submit',
+  'mouseover',
+  'mouseout',
+  'mouseenter',
+  'mouseleave',
+  'mousemove',
+  'contextmenu',
+  'touchstart',
+  'touchend',
+  'touchmove',
+  'pointerdown',
+  'pointerup',
+  'pointermove',
+  'scroll',
+  'resize',
+  'drag',
+  'dragstart',
+  'dragend',
+  'dragover',
+  'dragleave',
+  'drop',
+  'animationstart',
+  'animationend',
+  'animationiteration',
+  'transitionstart',
+  'transitionend',
+  'transitionrun',
+  'transitioncancel',
   'tap',
   'longTap',
   'swipeRight',
   'swipeUp',
   'swipeLeft',
   'swipeDown',
-  'dragstart',
-  'dragend',
-  'dragover',
-  'dragleave',
-  'drop',
 ])
 
 export interface ConditionalSlotInfo {
@@ -485,16 +671,22 @@ export interface Ctx {
   isRoot?: boolean
   /** elementPath.join(' > ') -> bindingId for injecting id attributes on binding targets */
   elementPathToBindingId?: Map<string, string>
+  /** elementPath.join(' > ') -> user-provided id expression */
+  elementPathToUserIdExpr?: Map<string, t.Expression>
   /** True when processing JSX inside a .map() callback */
   inMapCallback?: boolean
   /** Collect function props to convert to handler registry (itemId + __itemHandlers_) */
   handlerPropsInMap?: HandlerPropInMap[]
   /** itemIdProperty for the current map (e.g. 'id') */
   mapItemIdProperty?: string
+  /** Full key expression AST when key is not a simple item.prop */
+  mapKeyExpression?: t.Expression
   /** Map callback param name (e.g. 'opt', 'item') for itemId expression */
   mapItemVariable?: string
   /** Container binding ID for map items (when set, use `id` instead of `data-gea-item-id`) */
   mapContainerBindingId?: string
+  /** Class body for JSX-returning property detection (render props) */
+  classBody?: t.ClassBody
   sourceFile?: string
   lazyChildComponents?: boolean
   conditionalSlots?: ConditionalSlotInfo[]
@@ -646,13 +838,19 @@ function replaceJSXInExpression(
     normalizeDestructuredMapCallback(fn)
     const handlerPropsInMap: HandlerPropInMap[] = []
     const mapItemVariable = t.isIdentifier(fn.params[0]) ? fn.params[0].name : 'item'
-    const mapItemIdProperty = detectItemIdProperty(extractItemTemplate(fn), mapItemVariable) || 'id'
+    const itemTemplate = extractItemTemplate(fn)
+    const mapItemIdProperty = detectItemIdProperty(itemTemplate, mapItemVariable) || 'id'
+    const mapKeyExpr =
+      !detectItemIdProperty(itemTemplate, mapItemVariable) && hasExplicitItemKey(itemTemplate)
+        ? extractKeyExpression(itemTemplate)
+        : undefined
     const mapCtx = {
       ...ctx,
       inMapCallback: true,
       handlerPropsInMap,
       mapItemIdProperty,
       mapItemVariable,
+      ...(mapKeyExpr ? { mapKeyExpression: mapKeyExpr } : {}),
       conditionalSlots: undefined,
       conditionalSlotCursor: undefined,
       conditionalSlotNodeMap: undefined,
@@ -906,10 +1104,29 @@ function processElement(node: t.JSXElement, parts: TemplatePart[], ctx: Ctx, ele
   )
   let html = `<${effectiveTag}`
   let hasBindingId = false
+  let userIdExprForEvents: t.Expression | undefined
+  let hasDynamicUserId = false
   if (ctx.isRoot) {
-    parts.push({ type: 'string', value: html + ' id="' })
-    parts.push({ type: 'expression', value: t.memberExpression(t.thisExpression(), t.identifier('id')) })
-    html = '"'
+    const rootPathKey = ''
+    const rootUserIdExpr = ctx.elementPathToUserIdExpr?.get(rootPathKey)
+    if (rootUserIdExpr) {
+      if (t.isStringLiteral(rootUserIdExpr)) {
+        html += ` id="${rootUserIdExpr.value}"`
+        userIdExprForEvents = rootUserIdExpr
+      } else {
+        parts.push({ type: 'string', value: html + ' id="' })
+        parts.push({ type: 'expression', value: t.cloneNode(rootUserIdExpr, true) })
+        html = '"'
+        hasDynamicUserId = true
+      }
+      parts.push({ type: 'string', value: html + ' data-gea-cid="' })
+      parts.push({ type: 'expression', value: t.memberExpression(t.thisExpression(), t.identifier('id')) })
+      html = '"'
+    } else {
+      parts.push({ type: 'string', value: html + ' id="' })
+      parts.push({ type: 'expression', value: t.memberExpression(t.thisExpression(), t.identifier('id')) })
+      html = '"'
+    }
     hasBindingId = true
   } else {
     const rawPathKey = elementPath.join(' > ')
@@ -918,24 +1135,39 @@ function processElement(node: t.JSXElement, parts: TemplatePart[], ctx: Ctx, ele
       ctx.elementPathToBindingId?.get(pathKey) ??
       (ctx.elementPathPrefix ? undefined : ctx.elementPathToBindingId?.get(rawPathKey))
     if (bindingId !== undefined && bindingId !== '') {
-      parts.push({ type: 'string', value: html + ' id="' })
-      parts.push({
-        type: 'expression',
-        value: t.binaryExpression(
-          '+',
-          t.memberExpression(t.thisExpression(), t.identifier('id')),
-          t.stringLiteral('-' + bindingId),
-        ),
-      })
-      html = '"'
+      const userIdExpr =
+        ctx.elementPathToUserIdExpr?.get(pathKey) ??
+        (ctx.elementPathPrefix ? undefined : ctx.elementPathToUserIdExpr?.get(rawPathKey))
+      if (userIdExpr) {
+        if (t.isStringLiteral(userIdExpr)) {
+          html += ` id="${userIdExpr.value}"`
+          userIdExprForEvents = userIdExpr
+        } else {
+          parts.push({ type: 'string', value: html + ' id="' })
+          parts.push({ type: 'expression', value: t.cloneNode(userIdExpr, true) })
+          html = '"'
+        }
+      } else {
+        parts.push({ type: 'string', value: html + ' id="' })
+        parts.push({
+          type: 'expression',
+          value: t.binaryExpression(
+            '+',
+            t.memberExpression(t.thisExpression(), t.identifier('id')),
+            t.stringLiteral('-' + bindingId),
+          ),
+        })
+        html = '"'
+      }
       hasBindingId = true
     }
   }
   if (ctx.inMapCallback && elementPath.length === 0 && ctx.mapItemVariable) {
     const itemVar = ctx.mapItemVariable
     const itemIdProp = ctx.mapItemIdProperty
-    const itemIdExpr: t.Expression =
-      itemIdProp && itemIdProp !== ITEM_IS_KEY
+    const itemIdExpr: t.Expression = ctx.mapKeyExpression
+      ? t.callExpression(t.identifier('String'), [t.cloneNode(ctx.mapKeyExpression, true)])
+      : itemIdProp && itemIdProp !== ITEM_IS_KEY
         ? t.logicalExpression('??', buildOptionalMemberChain(t.identifier(itemVar), itemIdProp), t.identifier(itemVar))
         : t.callExpression(t.identifier('String'), [t.identifier(itemVar)])
 
@@ -947,6 +1179,7 @@ function processElement(node: t.JSXElement, parts: TemplatePart[], ctx: Ctx, ele
   }
   let generatedEventSuffix: string | undefined
   let generatedEventToken: string | undefined
+  let dangerouslySetInnerHTMLExpr: t.Expression | undefined
   node.openingElement.attributes.forEach((attr) => {
     if (t.isJSXSpreadAttribute(attr)) {
       const err = new Error(
@@ -959,6 +1192,13 @@ function processElement(node: t.JSXElement, parts: TemplatePart[], ctx: Ctx, ele
     const attrName = attr.name.name
     if (attrName === 'key') return
     if (attrName === 'id' && hasBindingId) return
+    if (attrName === 'dangerouslySetInnerHTML') {
+      const dsiValue = attr.value
+      if (t.isJSXExpressionContainer(dsiValue) && !t.isJSXEmptyExpression(dsiValue.expression)) {
+        dangerouslySetInnerHTMLExpr = dsiValue.expression as t.Expression
+      }
+      return
+    }
     if (attrName === 'ref') {
       const attrValue = attr.value
       if (
@@ -1005,16 +1245,20 @@ function processElement(node: t.JSXElement, parts: TemplatePart[], ctx: Ctx, ele
         let selectorExpression: t.Expression | undefined
         let selector: string | undefined
 
-        if (!ctx.inMapCallback && ctx.isRoot) {
-          selectorExpression = buildEventSelectorExpression()
+        if (!ctx.inMapCallback && ctx.isRoot && !hasDynamicUserId) {
+          selectorExpression = userIdExprForEvents
+            ? buildUserIdSelectorExpression(userIdExprForEvents)
+            : buildEventSelectorExpression()
         } else {
           const rawPathKey2 = elementPath.join(' > ')
           const pathKey2 = ctx.elementPathPrefix ? ctx.elementPathPrefix + ' > ' + rawPathKey2 : rawPathKey2
           const bindingId =
             ctx.elementPathToBindingId?.get(pathKey2) ??
             (ctx.elementPathPrefix ? undefined : ctx.elementPathToBindingId?.get(rawPathKey2))
-          if (!ctx.inMapCallback && bindingId !== undefined) {
-            selectorExpression = buildEventSelectorExpression(bindingId)
+          if (!ctx.inMapCallback && bindingId !== undefined && !hasDynamicUserId) {
+            selectorExpression = userIdExprForEvents
+              ? buildUserIdSelectorExpression(userIdExprForEvents)
+              : buildEventSelectorExpression(bindingId)
           } else if (!ctx.inMapCallback && !ctx.inChildrenProp && !explicitIdAttr) {
             if (!generatedEventSuffix) {
               generatedEventSuffix = `ev${ctx.eventIdCounter?.value ?? 0}`
@@ -1031,6 +1275,16 @@ function processElement(node: t.JSXElement, parts: TemplatePart[], ctx: Ctx, ele
               html = '"'
             }
             selectorExpression = buildEventSelectorExpression(generatedEventSuffix)
+          } else if (explicitIdAttr) {
+            const idExpr = getExplicitIdValueExpression(explicitIdAttr as t.JSXAttribute)
+            if (!idExpr) {
+              const err = new Error(
+                `[gea] Event delegation requires id="..." or id={expr} when an id attribute is present on this element.`,
+              )
+              ;(err as any).__geaCompileError = true
+              throw err
+            }
+            selectorExpression = buildUserIdSelectorExpression(idExpr)
           } else {
             if (!generatedEventToken) {
               generatedEventToken = `ev${ctx.eventIdCounter?.value ?? 0}`
@@ -1161,7 +1415,8 @@ function processElement(node: t.JSXElement, parts: TemplatePart[], ctx: Ctx, ele
         parts.push({ type: 'string', value: html })
         const expr = transformJSXExpression(rawExpr, ctx)
         const skipCondition = buildAttrSkipCondition(expr, rawExpr)
-        const templateExpr = propAttrName === 'class' ? buildTrimmedClassValueExpression(expr) : expr
+        const sanitizedExpr = wrapWithSanitizeAttr(propAttrName, expr)
+        const templateExpr = propAttrName === 'class' ? buildTrimmedClassValueExpression(expr) : sanitizedExpr
         if (t.isBooleanLiteral(skipCondition) && !skipCondition.value) {
           // Attribute is always present — inline it without a conditional wrapper
           parts.push({ type: 'string', value: ` ${propAttrName}="` })
@@ -1192,7 +1447,12 @@ function processElement(node: t.JSXElement, parts: TemplatePart[], ctx: Ctx, ele
     }
   })
 
-  if (node.openingElement.selfClosing) {
+  if (dangerouslySetInnerHTMLExpr) {
+    html += '>'
+    parts.push({ type: 'string', value: html })
+    parts.push({ type: 'expression', value: dangerouslySetInnerHTMLExpr })
+    appendString(parts, `</${effectiveTag}>`)
+  } else if (node.openingElement.selfClosing) {
     if (isComp) {
       parts.push({ type: 'string', value: html + `></${effectiveTag}>` })
     } else if (VOID_ELEMENTS.has(effectiveTag!)) {
@@ -1249,8 +1509,18 @@ function processChildren(
         })
         appendString(parts, `-->`)
         pushString(parts, '')
-        let condExpr = transformJSXExpression(rawExpr, { ...ctx, elementPathPrefix: '__cs_' + slot.slotId })
-        const extracted = extractHtmlTemplatesFromConditional(condExpr)
+        const slotCtx = { ...ctx, elementPathPrefix: '__cs_' + slot.slotId }
+        const eventIdBefore = ctx.eventIdCounter?.value ?? 0
+        let condExpr = transformJSXExpression(rawExpr, slotCtx)
+        const extractCtx: Ctx = {
+          ...ctx,
+          isRoot: false,
+          eventHandlers: ctx.eventHandlers ? [] : undefined,
+          eventIdCounter: ctx.eventIdCounter ? { value: eventIdBefore } : undefined,
+        }
+        const extracted =
+          extractHtmlTemplatesFromRawConditional(rawExpr, extractCtx, slot.slotId) ??
+          extractHtmlTemplatesFromConditional(condExpr)
         slot.truthyHtmlExpr = extracted.truthyHtmlExpr
         slot.falsyHtmlExpr = extracted.falsyHtmlExpr
         if (expressionMayBeFalsy(rawExpr)) {
@@ -1306,7 +1576,23 @@ function processChildren(
         if (expressionMayBeFalsy(rawExpr)) {
           expr = t.logicalExpression('||', expr, t.stringLiteral(''))
         }
-        parts.push({ type: 'expression', value: expr })
+        // Wrap plain text expressions with __escapeHtml to prevent XSS.
+        // Skip escaping for:
+        // - State child slot expressions (childCallInfo != null): compiler-generated HTML
+        // - props.children references: contain HTML from parent component
+        // - Expressions containing JSX: produce compiler-generated HTML
+        // - Map callback expressions: item properties may hold component instances
+        //   whose toString() returns HTML (e.g. {item.content} in Tabs)
+        const skipEscape =
+          childCallInfo ||
+          isChildrenPropAccess(rawExpr) ||
+          expressionContainsJSX(rawExpr) ||
+          ctx.inMapCallback ||
+          callsJSXReturningProperty(rawExpr, ctx.classBody)
+        const safeExpr = skipEscape
+          ? expr
+          : t.callExpression(t.identifier('geaEscapeHtml'), [t.callExpression(t.identifier('String'), [expr])])
+        parts.push({ type: 'expression', value: safeExpr })
       }
     }
   })
@@ -1322,6 +1608,25 @@ function appendString(parts: TemplatePart[], value: string) {
   } else {
     parts.push({ type: 'string', value })
   }
+}
+
+function buildUserIdSelectorExpression(userIdExpr: t.Expression): t.Expression {
+  if (t.isStringLiteral(userIdExpr)) {
+    return t.stringLiteral(`#${userIdExpr.value}`)
+  }
+  return t.templateLiteral(
+    [t.templateElement({ raw: '#', cooked: '#' }, false), t.templateElement({ raw: '', cooked: '' }, true)],
+    [t.cloneNode(userIdExpr, true)],
+  )
+}
+
+/** User-authored `id={...}` / `id="..."` — use #id delegation only; never emit data-gea-event for this element. */
+function getExplicitIdValueExpression(attr: t.JSXAttribute | undefined): t.Expression | undefined {
+  if (!attr || !t.isJSXAttribute(attr) || !t.isJSXIdentifier(attr.name) || attr.name.name !== 'id') return undefined
+  const v = attr.value
+  if (t.isStringLiteral(v)) return t.stringLiteral(v.value)
+  if (t.isJSXExpressionContainer(v) && !t.isJSXEmptyExpression(v.expression)) return v.expression as t.Expression
+  return undefined
 }
 
 function buildEventSelectorExpression(suffix?: string): t.Expression {

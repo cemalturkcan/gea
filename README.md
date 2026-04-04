@@ -66,6 +66,7 @@ This scaffolds a Vite-powered project with TypeScript, a sample store, class and
 | [`@geajs/ui`](packages/gea-ui) | Headless UI primitives — accessible, composable components built on [Zag.js](https://zagjs.com) | [![npm](https://img.shields.io/npm/v/@geajs/ui.svg)](https://www.npmjs.com/package/@geajs/ui) |
 | [`@geajs/mobile`](packages/gea-mobile) | Mobile UI primitives — views, navigation, gestures, layout | [![npm](https://img.shields.io/npm/v/@geajs/mobile.svg)](https://www.npmjs.com/package/@geajs/mobile) |
 | [`@geajs/ssg`](packages/gea-ssg) | Static site generation — markdown content, dynamic routes, sitemap | [![npm](https://img.shields.io/npm/v/@geajs/ssg.svg)](https://www.npmjs.com/package/@geajs/ssg) |
+| [`@geajs/ssr`](packages/gea-ssr) | Server-side rendering — streaming HTML, hydration, store isolation | [![npm](https://img.shields.io/npm/v/@geajs/ssr.svg)](https://www.npmjs.com/package/@geajs/ssr) |
 | [`@geajs/vite-plugin`](packages/vite-plugin-gea) | Vite plugin — JSX transform, reactivity wiring, HMR | [![npm](https://img.shields.io/npm/v/@geajs/vite-plugin.svg)](https://www.npmjs.com/package/@geajs/vite-plugin) |
 | [`create-gea`](packages/create-gea) | Project scaffolder — `npm create gea@latest` | [![npm](https://img.shields.io/npm/v/create-gea.svg)](https://www.npmjs.com/package/create-gea) |
 | [`gea-tools`](packages/gea-tools) | VS Code / Cursor extension — completions, hover, diagnostics | — |
@@ -115,10 +116,17 @@ See the full comparisons: [React vs Gea](docs/comparison/react-vs-gea.md) | [Vue
 | --- | --- |
 | [flight-checkin](examples/flight-checkin) | Multi-step check-in flow with multiple stores, conditional views, and E2E tests |
 | [todo](examples/todo) | Classic todo app demonstrating lists, filtering, and computed values |
-| [router](examples/router) | Client-side routing with `RouterView`, `Link`, and dynamic params |
+| [router-v2](examples/router-v2) | Client-side routing with `RouterView`, `Link`, guards, layouts, and dynamic params |
 | [kanban](examples/kanban) | Kanban board with drag semantics |
 | [mobile-showcase](examples/mobile-showcase) | Mobile UI showcase using `@geajs/mobile` components |
+<<<<<<< HEAD
 | [ssg-basic](examples/ssg-basic) | Static site with markdown content, dynamic routes, and sitemap |
+=======
+| [jira_clone](examples/jira_clone) | Jira-style issue tracker with rich text, tabs, and `@geajs/ui` |
+| [ecommerce](examples/ecommerce) | E-commerce storefront with cart and checkout flow |
+| [sheet-editor](examples/sheet-editor) | Spreadsheet-style editor with formula-like cells |
+| [showcase](examples/showcase) | Component and pattern showcase |
+>>>>>>> origin/main
 
 ## Documentation
 

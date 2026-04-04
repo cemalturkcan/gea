@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test'
 test.describe('mobile-showcase views and navigation', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/')
-    await expect(page.locator('.home-content')).toBeVisible({ timeout: 15000 })
+    await expect(page.locator('.home-content')).toBeVisible({ timeout: 500 })
   })
 
   test('home view renders hero, cards, and component list', async ({ page }) => {
@@ -26,17 +26,17 @@ test.describe('mobile-showcase views and navigation', () => {
 
   test('tapping Feed card navigates to feed view', async ({ page }) => {
     await page.locator('.home-card').nth(0).click()
-    await expect(page.locator('.feed-scroll')).toBeVisible({ timeout: 5000 })
+    await expect(page.locator('.feed-scroll')).toBeVisible({ timeout: 500 })
     // ViewManager keeps old view — use last() for current view's nav title
     await expect(page.locator('.nav-title').last()).toHaveText('Feed')
   })
 
   test('feed view loads initial items', async ({ page }) => {
     await page.locator('.home-card').nth(0).click()
-    await expect(page.locator('.feed-scroll')).toBeVisible({ timeout: 5000 })
+    await expect(page.locator('.feed-scroll')).toBeVisible({ timeout: 500 })
 
     // Should have loaded feed cards (initial load = 8 items)
-    await expect(page.locator('.feed-card')).toHaveCount(8, { timeout: 5000 })
+    await expect(page.locator('.feed-card')).toHaveCount(8, { timeout: 500 })
 
     // Each card should have author, title, and body
     const firstCard = page.locator('.feed-card').first()
@@ -47,7 +47,7 @@ test.describe('mobile-showcase views and navigation', () => {
 
   test('feed card avatars show author initial', async ({ page }) => {
     await page.locator('.home-card').nth(0).click()
-    await expect(page.locator('.feed-card')).toHaveCount(8, { timeout: 5000 })
+    await expect(page.locator('.feed-card')).toHaveCount(8, { timeout: 500 })
 
     // Avatar should show first letter of author
     const avatar = page.locator('.feed-card-avatar').first()
@@ -58,13 +58,13 @@ test.describe('mobile-showcase views and navigation', () => {
 
   test('tapping Tabs card navigates to tabs view', async ({ page }) => {
     await page.locator('.home-card').nth(1).click()
-    await expect(page.locator('tab-view')).toBeVisible({ timeout: 5000 })
+    await expect(page.locator('tab-view')).toBeVisible({ timeout: 500 })
     await expect(page.locator('.nav-title').last()).toHaveText('Tabs')
   })
 
   test('tabs view shows 3 tab items', async ({ page }) => {
     await page.locator('.home-card').nth(1).click()
-    await expect(page.locator('tab-view')).toBeVisible({ timeout: 5000 })
+    await expect(page.locator('tab-view')).toBeVisible({ timeout: 500 })
 
     await expect(page.locator('tab-item')).toHaveCount(3)
     await expect(page.locator('tab-item').nth(0)).toHaveText('Photos')
@@ -74,7 +74,7 @@ test.describe('mobile-showcase views and navigation', () => {
 
   test('tabs view shows photos tab by default with 9 photo items', async ({ page }) => {
     await page.locator('.home-card').nth(1).click()
-    await expect(page.locator('tab-view')).toBeVisible({ timeout: 5000 })
+    await expect(page.locator('tab-view')).toBeVisible({ timeout: 500 })
 
     // Photos view should be visible by default
     await expect(page.locator('.photo-grid')).toBeVisible()
@@ -83,29 +83,29 @@ test.describe('mobile-showcase views and navigation', () => {
 
   test('switching tabs shows messages content', async ({ page }) => {
     await page.locator('.home-card').nth(1).click()
-    await expect(page.locator('tab-view')).toBeVisible({ timeout: 5000 })
+    await expect(page.locator('tab-view')).toBeVisible({ timeout: 500 })
 
     // Switch to Messages tab
     await page.locator('tab-item', { hasText: 'Messages' }).click()
-    await expect(page.locator('.message-list')).toBeVisible({ timeout: 5000 })
+    await expect(page.locator('.message-list')).toBeVisible({ timeout: 500 })
     await expect(page.locator('.message-item')).toHaveCount(4)
   })
 
   test('switching tabs shows settings content', async ({ page }) => {
     await page.locator('.home-card').nth(1).click()
-    await expect(page.locator('tab-view')).toBeVisible({ timeout: 5000 })
+    await expect(page.locator('tab-view')).toBeVisible({ timeout: 500 })
 
     // Switch to Settings tab
     await page.locator('tab-item', { hasText: 'Settings' }).click()
-    await expect(page.locator('.settings-list')).toBeVisible({ timeout: 5000 })
+    await expect(page.locator('.settings-list')).toBeVisible({ timeout: 500 })
     await expect(page.locator('.settings-item')).toHaveCount(5)
   })
 
   test('messages tab shows 4 messages with avatars', async ({ page }) => {
     await page.locator('.home-card').nth(1).click()
-    await expect(page.locator('tab-view')).toBeVisible({ timeout: 5000 })
+    await expect(page.locator('tab-view')).toBeVisible({ timeout: 500 })
     await page.locator('tab-item', { hasText: 'Messages' }).click()
-    await expect(page.locator('.message-list')).toBeVisible({ timeout: 5000 })
+    await expect(page.locator('.message-list')).toBeVisible({ timeout: 500 })
 
     const messages = page.locator('.message-item')
     await expect(messages).toHaveCount(4)
@@ -117,9 +117,9 @@ test.describe('mobile-showcase views and navigation', () => {
 
   test('settings tab shows correct values', async ({ page }) => {
     await page.locator('.home-card').nth(1).click()
-    await expect(page.locator('tab-view')).toBeVisible({ timeout: 5000 })
+    await expect(page.locator('tab-view')).toBeVisible({ timeout: 500 })
     await page.locator('tab-item', { hasText: 'Settings' }).click()
-    await expect(page.locator('.settings-list')).toBeVisible({ timeout: 5000 })
+    await expect(page.locator('.settings-list')).toBeVisible({ timeout: 500 })
 
     const items = page.locator('.settings-item')
     await expect(items).toHaveCount(5)
@@ -130,13 +130,13 @@ test.describe('mobile-showcase views and navigation', () => {
 
   test('tapping Gestures card navigates to gestures view', async ({ page }) => {
     await page.locator('.home-card').nth(2).click()
-    await expect(page.locator('.gesture-content')).toBeVisible({ timeout: 5000 })
+    await expect(page.locator('.gesture-content')).toBeVisible({ timeout: 500 })
     await expect(page.locator('.nav-title').last()).toHaveText('Gestures')
   })
 
   test('gesture view shows empty log initially', async ({ page }) => {
     await page.locator('.home-card').nth(2).click()
-    await expect(page.locator('.gesture-content')).toBeVisible({ timeout: 5000 })
+    await expect(page.locator('.gesture-content')).toBeVisible({ timeout: 500 })
 
     // Should show "No gestures detected yet"
     await expect(page.locator('.gesture-log-empty')).toBeVisible()
@@ -149,24 +149,29 @@ test.describe('mobile-showcase views and navigation', () => {
 
   // Regression: GestureView toggles between an empty placeholder and `.map()` on the same
   // container; incremental list updates plus the conditional branch can duplicate keyed rows
-  // (same `data-gea-item-id` and duplicate `id` — invalid HTML).
-  test('gesture log has at most one DOM node per list item (unique data-gea-item-id)', async ({ page }) => {
+  // (duplicate row `id` — invalid HTML).
+  test('gesture log has at most one DOM node per list item (unique row id)', async ({ page }) => {
     await page.locator('.home-card').nth(2).click()
-    await expect(page.locator('.gesture-content')).toBeVisible({ timeout: 5000 })
+    await expect(page.locator('.gesture-content')).toBeVisible({ timeout: 500 })
 
     const target = page.locator('.gesture-target')
     const log = page.locator('.gesture-log')
 
     for (let i = 0; i < 4; i++) {
       await target.click()
-      await expect(log.locator('.gesture-log-entry').first()).toBeVisible({ timeout: 5000 })
+      await expect(log.locator('.gesture-log-entry').first()).toBeVisible({ timeout: 500 })
     }
 
-    const itemIds = await log
+    const itemKeys = await log
       .locator('.gesture-log-entry')
-      .evaluateAll((els) => els.map((el) => el.getAttribute('data-gea-item-id')))
-    const unique = new Set(itemIds)
-    expect(unique.size).toBe(itemIds.length)
+      .evaluateAll((els) =>
+        els.map(
+          (el: any) =>
+            el[Symbol.for('gea.dom.key')] ?? el.getAttribute('data-gea-item-id') ?? el.id,
+        ),
+      )
+    const unique = new Set(itemKeys)
+    expect(unique.size).toBe(itemKeys.length)
   })
 
   test('sidebar hint text is shown on home', async ({ page }) => {
@@ -185,7 +190,7 @@ test.describe('mobile-showcase views and navigation', () => {
 
       // Navigate to Tabs view
       await page.locator('.home-card').nth(1).click()
-      await expect(page.locator('tab-view')).toBeVisible({ timeout: 5000 })
+      await expect(page.locator('tab-view')).toBeVisible({ timeout: 500 })
 
       // ViewManager keeps old views in the DOM — verify the marker survived
       const markerSurvived = await page

@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
+import { GEA_ON_PROP_CHANGE, GEA_REQUEST_RENDER, GEA_UPDATE_PROPS } from '@geajs/core'
 import test from 'node:test'
 import { installDom, flushMicrotasks } from '../../../../tests/helpers/jsdom-setup'
+import { GEA_RENDERED } from '../../../gea/src/lib/symbols'
 import { compileJsxComponent, loadRuntimeModules } from '../helpers/compile'
 
 test('mapped checkbox events resolve live proxy items and refresh completed class', async () => {
@@ -288,8 +290,8 @@ test('rerender preserves focused input and selection', async () => {
         return `<div id="${this.id}" class="focus-wrap"><input id="${this.id}-field" value="${props.value}" /></div>`
       }
 
-      __onPropChange() {
-        if (this.rendered_) this.__geaRequestRender()
+      [GEA_ON_PROP_CHANGE]() {
+        if (this[GEA_RENDERED]) this[GEA_REQUEST_RENDER]()
       }
     }
 
@@ -305,7 +307,7 @@ test('rerender preserves focused input and selection', async () => {
     input!.focus()
     input!.setSelectionRange(1, 2)
 
-    view.__geaUpdateProps({ value: 'abcd' })
+    view[GEA_UPDATE_PROPS]({ value: 'abcd' })
     await flushMicrotasks()
 
     const rerendered = view.el.querySelector('input') as HTMLInputElement | null
@@ -337,8 +339,8 @@ test('rerender adjusts caret when formatted value grows before cursor', async ()
         return `<div id="${this.id}" class="focus-wrap"><input id="${this.id}-field" value="${props.value}" /></div>`
       }
 
-      __onPropChange() {
-        if (this.rendered_) this.__geaRequestRender()
+      [GEA_ON_PROP_CHANGE]() {
+        if (this[GEA_RENDERED]) this[GEA_REQUEST_RENDER]()
       }
     }
 
@@ -354,7 +356,7 @@ test('rerender adjusts caret when formatted value grows before cursor', async ()
     input!.focus()
     input!.setSelectionRange(5, 5)
 
-    view.__geaUpdateProps({ value: '4242 4' })
+    view[GEA_UPDATE_PROPS]({ value: '4242 4' })
     await flushMicrotasks()
 
     const rerendered = view.el.querySelector('input') as HTMLInputElement | null
@@ -490,15 +492,15 @@ test('input in form with conditional error spans does not rerender when conditio
 
     // Now install spies AFTER the initial condition flip
     let formRerenders = 0
-    const origRender = paymentFormChild.__geaRequestRender.bind(paymentFormChild)
-    paymentFormChild.__geaRequestRender = () => {
+    const origRender = paymentFormChild[GEA_REQUEST_RENDER].bind(paymentFormChild)
+    paymentFormChild[GEA_REQUEST_RENDER] = () => {
       formRerenders++
       return origRender()
     }
 
     let parentRerenders = 0
-    const origParentRender = view.__geaRequestRender.bind(view)
-    view.__geaRequestRender = () => {
+    const origParentRender = view[GEA_REQUEST_RENDER].bind(view)
+    view[GEA_REQUEST_RENDER] = () => {
       parentRerenders++
       return origParentRender()
     }

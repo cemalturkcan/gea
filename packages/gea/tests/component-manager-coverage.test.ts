@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it, beforeEach, afterEach } from 'node:test'
 import { JSDOM } from 'jsdom'
+import { GEA_COMPILED_CHILD, GEA_HANDLE_ITEM_HANDLER } from '../src/lib/symbols'
 
 function installDom() {
   const dom = new JSDOM('<!doctype html><html><body></body></html>')
@@ -123,6 +124,86 @@ describe('ComponentManager – event handling', () => {
       assert.equal(called, true)
     })
 
+    it('invokes events getter at most once per component per handleEvent', () => {
+      const mgr = ComponentManager.getInstance()
+      mgr.loaded_ = false
+      let eventsGets = 0
+      const comp = {
+        id: 'ev-cache',
+        rendered: true,
+        render: () => true,
+        constructor: Object,
+        get events() {
+          eventsGets++
+          return {
+            click: {
+              '.leaf': () => {},
+            },
+          }
+        },
+      }
+      mgr.setComponent(comp)
+
+      const outer = document.createElement('div')
+      outer.id = 'ev-cache'
+      document.body.appendChild(outer)
+      const mid = document.createElement('div')
+      outer.appendChild(mid)
+      const leaf = document.createElement('button')
+      leaf.className = 'leaf'
+      mid.appendChild(leaf)
+
+      const event = new Event('click', { bubbles: true })
+      Object.defineProperty(event, 'target', { value: leaf })
+      mgr.handleEvent(event)
+      assert.equal(eventsGets, 1)
+    })
+
+    it('skips inner component handlers after synthetic bubble passes its root', () => {
+      const mgr = ComponentManager.getInstance()
+      let innerBroadDivCalls = 0
+      const inner = {
+        id: 'inner-broad',
+        rendered: true,
+        render: () => true,
+        constructor: Object,
+        events: {
+          click: {
+            div: () => {
+              innerBroadDivCalls++
+            },
+          },
+        },
+      }
+      const outer = {
+        id: 'outer-broad',
+        rendered: true,
+        render: () => true,
+        constructor: Object,
+        events: { click: {} },
+      }
+      mgr.setComponent(inner)
+      mgr.setComponent(outer)
+
+      const outerEl = document.createElement('div')
+      outerEl.id = 'outer-broad'
+      document.body.appendChild(outerEl)
+      const innerEl = document.createElement('div')
+      innerEl.id = 'inner-broad'
+      outerEl.appendChild(innerEl)
+      const span = document.createElement('span')
+      innerEl.appendChild(span)
+
+      const event = new Event('click', { bubbles: true })
+      Object.defineProperty(event, 'target', { value: span })
+      mgr.handleEvent(event)
+      assert.equal(
+        innerBroadDivCalls,
+        1,
+        'inner delegated handler should only run while targetEl is still inside that component root',
+      )
+    })
+
     it('stops propagation when handler returns false', () => {
       const mgr = ComponentManager.getInstance()
       let secondCalled = false
@@ -210,6 +291,39 @@ describe('ComponentManager – event handling', () => {
       const secondCall = mgr.getParentComps(child)
       assert.equal(secondCall.length, 1)
     })
+
+    it('recomputes when cached parentComps references a removed component', () => {
+      const mgr = ComponentManager.getInstance()
+      const gone = {
+        id: 'gone',
+        rendered: true,
+        render: () => true,
+        constructor: Object,
+      }
+      const kept = {
+        id: 'kept',
+        rendered: true,
+        render: () => true,
+        constructor: Object,
+      }
+      mgr.setComponent(gone)
+      mgr.setComponent(kept)
+
+      const outer = document.createElement('div')
+      outer.id = 'kept'
+      document.body.appendChild(outer)
+      const inner = document.createElement('div')
+      inner.id = 'gone'
+      outer.appendChild(inner)
+      const leaf = document.createElement('span')
+      inner.appendChild(leaf)
+
+      mgr.getParentComps(leaf)
+      mgr.removeComponent(gone)
+      const parents = mgr.getParentComps(leaf)
+      assert.equal(parents.length, 1)
+      assert.equal(parents[0], kept)
+    })
   })
 
   describe('callEventsGetterHandler', () => {
@@ -283,7 +397,7 @@ describe('ComponentManager – event handling', () => {
   })
 
   describe('callItemHandler', () => {
-    it('calls __handleItemHandler for item elements', () => {
+    it('calls [GEA_HANDLE_ITEM_HANDLER] for item elements', () => {
       const mgr = ComponentManager.getInstance()
       let receivedId: string | null = null
       const comp = {
@@ -292,7 +406,7 @@ describe('ComponentManager – event handling', () => {
         render: () => true,
         constructor: Object,
         el: null as any,
-        __handleItemHandler(itemId: string, _e: Event) {
+        [GEA_HANDLE_ITEM_HANDLER](itemId: string, _e: Event) {
           receivedId = itemId
         },
       }
@@ -320,6 +434,58 @@ describe('ComponentManager – event handling', () => {
       const event = new Event('click')
       ;(event as any).targetEl = div
       assert.equal(mgr.callItemHandler(comp, event), true)
+    })
+
+    it('callHandlers does not invoke [GEA_HANDLE_ITEM_HANDLER] after a delegated row handler runs (parent data-gea-event only)', async () => {
+      const seed = `cmcov-skip-item-${Date.now()}-${Math.random()}`
+      const mod = await import(`../src/lib/base/component-manager?${seed}`)
+      const CM = mod.default
+      const { GEA_SKIP_ITEM_HANDLER } = mod as { GEA_SKIP_ITEM_HANDLER: string }
+      CM.instance = undefined
+      const mgr = CM.getInstance()
+
+      let delegatedCalled = false
+      let itemHandlerCalled = false
+      const comp = {
+        id: 'skip-item-chain',
+        rendered: true,
+        render: () => true,
+        constructor: Object,
+        el: null as any,
+        [GEA_HANDLE_ITEM_HANDLER]() {
+          itemHandlerCalled = true
+        },
+        events: {
+          click: {
+            '[data-gea-event="ev0"]': () => {
+              delegatedCalled = true
+            },
+          },
+        },
+      }
+      const root = document.createElement('div')
+      root.id = 'skip-item-chain'
+      document.body.appendChild(root)
+      comp.el = root
+
+      const row = document.createElement('div')
+      row.setAttribute('data-gea-event', 'ev0')
+      const cell = document.createElement('span')
+      cell.setAttribute('data-gea-item-id', '5')
+      row.appendChild(cell)
+      root.appendChild(row)
+
+      mgr.setComponent(comp)
+
+      const event = new Event('click', { bubbles: true })
+      ;(event as any).targetEl = cell
+
+      assert.equal(mgr.callEventsGetterHandler(comp, event as any), GEA_SKIP_ITEM_HANDLER)
+
+      mgr.callHandlers([comp], [comp.events], event as any, [undefined], 0)
+
+      assert.equal(delegatedCalled, true)
+      assert.equal(itemHandlerCalled, false)
     })
 
     it('returns true when targetEl has no getAttribute', () => {
@@ -448,7 +614,7 @@ describe('ComponentManager – event handling', () => {
       const comp = {
         id: 'pending-comp',
         rendered: false,
-        __geaCompiledChild: false,
+        [GEA_COMPILED_CHILD]: false,
         render() {
           rendered = true
           return true
@@ -463,13 +629,13 @@ describe('ComponentManager – event handling', () => {
       assert.equal(rendered, true)
     })
 
-    it('skips __geaCompiledChild components in MutationObserver', async () => {
+    it('skips [GEA_COMPILED_CHILD] components in MutationObserver', async () => {
       const mgr = ComponentManager.getInstance()
       let rendered = false
       const comp = {
         id: 'compiled-pending',
         rendered: false,
-        __geaCompiledChild: true,
+        [GEA_COMPILED_CHILD]: true,
         render() {
           rendered = true
           return true
@@ -539,7 +705,7 @@ describe('ComponentManager – event handling', () => {
         render: () => true,
         constructor: Object,
         el: null as any,
-        __handleItemHandler() {
+        [GEA_HANDLE_ITEM_HANDLER]() {
           return false
         },
       }

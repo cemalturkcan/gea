@@ -15458,18 +15458,18 @@ function requireGetFunctionName () {
 	return getFunctionName;
 }
 
-var traverse$f = {};
+var traverse$g = {};
 
 var hasRequiredTraverse;
 
 function requireTraverse () {
-	if (hasRequiredTraverse) return traverse$f;
+	if (hasRequiredTraverse) return traverse$g;
 	hasRequiredTraverse = 1;
 
-	Object.defineProperty(traverse$f, "__esModule", {
+	Object.defineProperty(traverse$g, "__esModule", {
 	  value: true
 	});
-	traverse$f.default = traverse;
+	traverse$g.default = traverse;
 	var _index = requireDefinitions();
 	function traverse(node, handlers, state) {
 	  if (typeof handlers === "function") {
@@ -15514,7 +15514,7 @@ function requireTraverse () {
 	}
 
 	
-	return traverse$f;
+	return traverse$g;
 }
 
 var isBinding = {};
@@ -44367,7 +44367,7 @@ var libExports$1 = requireLib$2();
 
 var libExports = requireLib$5();
 
-const traverse$e = babelTraverse.default || babelTraverse;
+const traverse$f = babelTraverse.default || babelTraverse;
 function parseSource$1(code) {
   const ast = libExports$1.parse(code, {
     sourceType: "module",
@@ -44391,7 +44391,7 @@ function parseSource$1(code) {
     if (libExports.isLogicalExpression(node)) return checkReturnsJSX(node.right);
     return false;
   };
-  traverse$e(ast, {
+  traverse$f(ast, {
     ImportDeclaration(path) {
       const source = path.node.source.value;
       path.node.specifiers.forEach(
@@ -44492,7 +44492,7 @@ function collectStateReferences(ast, storeImports = /* @__PURE__ */ new Map()) {
   storeImports.forEach((source, localName) => {
     stateRefs.set(localName, { kind: "imported", source });
   });
-  traverse$e(ast, {
+  traverse$f(ast, {
     VariableDeclarator(path) {
       const init = path.node.init;
       if (!init) return;
@@ -44536,7 +44536,7 @@ function collectStateReferences(ast, storeImports = /* @__PURE__ */ new Map()) {
     }
   });
   const candidates = /* @__PURE__ */ new Map();
-  traverse$e(ast, {
+  traverse$f(ast, {
     VariableDeclarator(path) {
       if (!path.node.init || !libExports.isIdentifier(path.node.id)) return;
       if (stateRefs.has(path.node.id.name)) return;
@@ -44999,6 +44999,7 @@ function jsAs(kind) {
   });
 }
 var jsMethod = jsAs("ClassMethod");
+var jsImport = jsAs("ImportDeclaration");
 function jsExpr(stringsOrTemplate, ...holes) {
   const stmts = buildAST(normalizeTemplateInput(stringsOrTemplate, holes), holes);
   if (stmts.length !== 1) {
@@ -45015,7 +45016,7 @@ function jsExpr(stringsOrTemplate, ...holes) {
   return stmt.expression;
 }
 
-const traverse$d = typeof babelTraverse.default === "function" ? babelTraverse.default : babelTraverse;
+const traverse$e = typeof babelTraverse.default === "function" ? babelTraverse.default : babelTraverse;
 function getJSXTagName(name) {
   if (libExports.isJSXIdentifier(name)) return name.name;
   if (libExports.isJSXMemberExpression(name)) {
@@ -45102,6 +45103,43 @@ function getDirectChildElements(children) {
       selectorSegment: `${tagName}:nth-of-type(${tagCount})`
     };
   });
+}
+function ensureImport(ast, source, specifier, isDefault = false) {
+  const program = ast.program;
+  const buildSpecifier = () => isDefault ? libExports.importDefaultSpecifier(libExports.identifier(specifier)) : libExports.importSpecifier(libExports.identifier(specifier), libExports.identifier(specifier));
+  if (isDefault) {
+    const alreadyHasDefault = program.body.some(
+      (node) => libExports.isImportDeclaration(node) && node.source.value === source && node.specifiers.some((s) => libExports.isImportDefaultSpecifier(s))
+    );
+    if (alreadyHasDefault) return false;
+    const insertIndex = Math.max(
+      0,
+      program.body.reduce((idx, node, i) => libExports.isImportDeclaration(node) ? i + 1 : idx, 0)
+    );
+    program.body.splice(
+      insertIndex,
+      0,
+      isDefault ? jsImport`import ${id(specifier)} from ${source};` : jsImport`import { ${id(specifier)} } from ${source};`
+    );
+    return true;
+  }
+  const declaration = program.body.find((node) => libExports.isImportDeclaration(node) && node.source.value === source);
+  if (!declaration) {
+    const insertIndex = Math.max(
+      0,
+      program.body.reduce((idx, node, i) => libExports.isImportDeclaration(node) ? i + 1 : idx, 0)
+    );
+    program.body.splice(insertIndex, 0, jsImport`import { ${id(specifier)} } from ${source};`);
+    return true;
+  }
+  const exists = declaration.specifiers.some(
+    (s) => libExports.isImportSpecifier(s) && libExports.isIdentifier(s.local) && s.local.name === specifier
+  );
+  if (!exists) {
+    declaration.specifiers.push(buildSpecifier());
+    return true;
+  }
+  return false;
 }
 function buildMemberChain(base, path) {
   return buildMemberChainFromParts(base, path ? path.split(".") : []);
@@ -45347,14 +45385,14 @@ function replaceThisPropsRootWithValueParam(expr, propName) {
         visit(e.object),
         e.property,
         e.computed,
-        e.optional
+        e.optional ?? true
       );
     }
     if (libExports.isOptionalCallExpression(e)) {
       return libExports.optionalCallExpression(
         visit(e.callee),
         e.arguments.map((a) => libExports.isExpression(a) ? visit(a) : a),
-        e.optional
+        e.optional ?? true
       );
     }
     if (libExports.isCallExpression(e)) {
@@ -45440,7 +45478,7 @@ function expressionAccessesValueProperties(expr, setupStmts, valueId = "value") 
   if (expr) body.push(libExports.expressionStatement(expr));
   const program = libExports.program([libExports.blockStatement(body)]);
   let found = false;
-  traverse$d(program, {
+  traverse$e(program, {
     noScope: true,
     MemberExpression(path) {
       if (found) return;
@@ -45484,14 +45522,14 @@ function optionalizeMemberChainsFromBindingRoot(expr, rootName) {
         visit(e.object),
         e.property,
         e.computed,
-        e.optional
+        e.optional ?? true
       );
     }
     if (libExports.isOptionalCallExpression(e)) {
       return libExports.optionalCallExpression(
         visit(e.callee),
         e.arguments.map((a) => libExports.isExpression(a) ? visit(a) : a),
-        e.optional
+        e.optional ?? true
       );
     }
     if (libExports.isCallExpression(e)) {
@@ -45617,14 +45655,14 @@ function optionalizeMemberChainsAfterComputedItemKey(expr, itemKeyName) {
         visit(e.object),
         e.property,
         e.computed,
-        e.optional
+        e.optional ?? true
       );
     }
     if (libExports.isOptionalCallExpression(e)) {
       return libExports.optionalCallExpression(
         visit(e.callee),
         e.arguments.map((a) => libExports.isExpression(a) ? visit(a) : a),
-        e.optional
+        e.optional ?? true
       );
     }
     if (libExports.isCallExpression(e)) {
@@ -45785,14 +45823,14 @@ function replacePropRefsInNode(node, propNames, wholeParamName, propDefaults) {
       r(node.object),
       node.property,
       node.computed,
-      node.optional
+      node.optional ?? true
     );
   }
   if (libExports.isOptionalCallExpression(node)) {
     return libExports.optionalCallExpression(
       r(node.callee),
       node.arguments.map((a) => libExports.isExpression(a) ? r(a) : a),
-      node.optional
+      node.optional ?? true
     );
   }
   if (libExports.isConditionalExpression(node)) {
@@ -45928,8 +45966,23 @@ function wrapEventsGetterWithCache(getter) {
   const returnStmt = body.find((s) => libExports.isReturnStatement(s) && s.argument !== null);
   if (!returnStmt?.argument) return;
   const cachedProp = libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__evts"));
-  returnStmt.argument = libExports.assignmentExpression("=", cachedProp, returnStmt.argument);
-  body.unshift(libExports.ifStatement(cachedProp, libExports.returnStatement(libExports.cloneNode(cachedProp, true))));
+  const elementProp = libExports.memberExpression(libExports.thisExpression(), libExports.identifier("GEA_ELEMENT"), true);
+  const tmpId = libExports.identifier("geaEvtsResult");
+  const objectExpr = returnStmt.argument;
+  const returnIndex = body.indexOf(returnStmt);
+  body.splice(
+    returnIndex,
+    1,
+    libExports.variableDeclaration("const", [libExports.variableDeclarator(tmpId, objectExpr)]),
+    libExports.ifStatement(
+      elementProp,
+      libExports.expressionStatement(libExports.assignmentExpression("=", cachedProp, libExports.cloneNode(tmpId, true)))
+    ),
+    libExports.returnStatement(libExports.cloneNode(tmpId, true))
+  );
+  body.unshift(
+    libExports.ifStatement(libExports.logicalExpression("&&", cachedProp, elementProp), libExports.returnStatement(libExports.cloneNode(cachedProp, true)))
+  );
 }
 function serializeKeyGuardForSubpath(test) {
   if (libExports.isBinaryExpression(test) && test.operator === "===" && libExports.isIdentifier(test.left, { name: "key" }) && libExports.isStringLiteral(test.right)) {
@@ -46293,9 +46346,7 @@ function replaceIdentifierWithClonedExpr(node, name, expr) {
 }
 function optimizeBoundValueAliasesInSequence(stmts) {
   const out = [...stmts];
-  let changed = true;
-  while (changed) {
-    changed = false;
+  while (true) {
     const idx = out.findIndex(
       (s) => libExports.isVariableDeclaration(s) && s.declarations.length === 1 && libExports.isIdentifier(s.declarations[0].id, { name: "__boundValue" })
     );
@@ -46310,7 +46361,6 @@ function optimizeBoundValueAliasesInSequence(stmts) {
       renameIdentifier(blk2, "__boundValue", aliasedName);
       out.length = 0;
       out.push(...blk2.body);
-      changed = true;
       continue;
     }
     if (!libExports.isExpression(init) || !isPureExpression(init)) break;
@@ -46321,7 +46371,6 @@ function optimizeBoundValueAliasesInSequence(stmts) {
     replaceIdentifierWithClonedExpr(blk, "__boundValue", init);
     out.length = 0;
     out.push(...blk.body);
-    changed = true;
   }
   return out;
 }
@@ -46380,7 +46429,8 @@ function stmtUsesPropRefreshCall(stmt) {
 }
 function containsPropRefreshCall(node) {
   if (libExports.isMemberExpression(node) && libExports.isIdentifier(node.property)) {
-    if (node.property.name === "__geaUpdateProps" || node.property.name.startsWith("__refresh")) return true;
+    if (node.property.name === "GEA_UPDATE_PROPS" || node.property.name.startsWith("__refresh"))
+      return true;
   }
   const keys = libExports.VISITOR_KEYS[node.type];
   if (!keys) return false;
@@ -46447,6 +46497,68 @@ function loggingCatchClause(extra = []) {
     ])
   );
 }
+function buildThisGeaMember(symExportName) {
+  return libExports.memberExpression(libExports.thisExpression(), libExports.identifier(symExportName), true);
+}
+function buildThisGeaCall(symExportName, args = []) {
+  return libExports.callExpression(buildThisGeaMember(symExportName), args);
+}
+function buildExprGeaMember(expr, symExportName) {
+  return libExports.memberExpression(expr, libExports.identifier(symExportName), true);
+}
+const GEA_COMPILER_SYMBOL_IMPORTS = [
+  "GEA_RENDERED",
+  "GEA_ELEMENT",
+  "GEA_MAPS",
+  "GEA_CONDS",
+  "GEA_RESET_ELS",
+  "GEA_OBSERVE",
+  "GEA_OBSERVE_LIST",
+  "GEA_EL",
+  "GEA_UPDATE_TEXT",
+  "GEA_REQUEST_RENDER",
+  "GEA_UPDATE_PROPS",
+  "GEA_SYNC_MAP",
+  "GEA_REGISTER_MAP",
+  "GEA_PATCH_COND",
+  "GEA_REGISTER_COND",
+  "GEA_REFRESH_LIST",
+  "GEA_RECONCILE_LIST",
+  "GEA_ENSURE_ARRAY_CONFIGS",
+  "GEA_APPLY_LIST_CHANGES",
+  "GEA_INSTANTIATE_CHILD_COMPONENTS",
+  "GEA_MOUNT_COMPILED_CHILD_COMPONENTS",
+  "GEA_SWAP_CHILD",
+  "GEA_SWAP_STATE_CHILDREN",
+  "GEA_CHILD",
+  "GEA_LIST_CONFIG_REFRESHING",
+  "GEA_DOM_KEY",
+  "GEA_DOM_ITEM",
+  "GEA_DOM_PROPS",
+  "GEA_HANDLE_ITEM_HANDLER",
+  "GEA_MAP_CONFIG_TPL",
+  "GEA_MAP_CONFIG_PREV",
+  "GEA_MAP_CONFIG_COUNT",
+  "geaCondPatchedSymbol",
+  "geaCondValueSymbol",
+  "geaObservePrevSymbol",
+  "geaPrevGuardSymbol",
+  "GEA_SETUP_LOCAL_STATE_OBSERVERS",
+  "GEA_CLONE_TEMPLATE",
+  "GEA_SETUP_REFS",
+  "GEA_ON_PROP_CHANGE",
+  "GEA_SELF_PROXY",
+  "GEA_STORE_ROOT",
+  "GEA_PROXY_RAW",
+  "GEA_PROXY_GET_TARGET",
+  "geaSanitizeAttr",
+  "geaEscapeHtml"
+];
+function ensureGeaCompilerSymbolImports(ast) {
+  for (const name of GEA_COMPILER_SYMBOL_IMPORTS) {
+    ensureImport(ast, "@geajs/core", name);
+  }
+}
 
 function getTemplateParamBinding(param) {
   if (param == null) return void 0;
@@ -46455,6 +46567,271 @@ function getTemplateParamBinding(param) {
   if (libExports.isAssignmentPattern(node)) node = node.left;
   if (libExports.isIdentifier(node) || libExports.isObjectPattern(node)) return node;
   return void 0;
+}
+
+function existsSync(filePath) {
+              const resolver = globalThis.__geaResolveFile;
+              if (!resolver) return false
+              return resolver(filePath) !== null
+            }
+            function readFileSync(filePath, encoding) {
+              const resolver = globalThis.__geaResolveFile;
+              if (!resolver) throw new Error('No file resolver available')
+              const content = resolver(filePath);
+              if (content === null) throw new Error('File not found: ' + filePath)
+              return content
+            }
+
+function resolve(...parts) {
+              return parts.filter(Boolean).join('/')
+                .replace(/\/\.\//g, '/')
+                .replace(/\/+/g, '/')
+            }
+            function dirname(p) {
+              const parts = p.split('/');
+              parts.pop();
+              return parts.join('/') || '/'
+            }
+
+const EVENT_NAMES$1 = /* @__PURE__ */ new Set([
+  "click",
+  "dblclick",
+  "mousedown",
+  "mouseup",
+  "mouseover",
+  "mouseout",
+  "mousemove",
+  "keydown",
+  "keyup",
+  "keypress",
+  "focus",
+  "blur",
+  "input",
+  "change",
+  "submit",
+  "scroll",
+  "touchstart",
+  "touchmove",
+  "touchend",
+  "tap",
+  "longTap",
+  "swipeRight",
+  "swipeUp",
+  "swipeLeft",
+  "swipeDown",
+  "dragstart",
+  "dragend",
+  "dragover",
+  "dragleave",
+  "drop"
+]);
+function toGeaEventType(attrName) {
+  if (attrName.startsWith("on") && attrName.length > 2) {
+    const rest = attrName.slice(2);
+    return rest.charAt(0).toLowerCase() + rest.slice(1);
+  }
+  return attrName;
+}
+function getPropContext(params) {
+  const context = {
+    destructuredPropNames: /* @__PURE__ */ new Set()
+  };
+  const firstParam = params?.[0];
+  if (!firstParam || libExports.isRestElement(firstParam)) return context;
+  const binding = getTemplateParamBinding(firstParam);
+  if (!binding) return context;
+  if (libExports.isIdentifier(binding)) {
+    context.propsParamName = binding.name;
+    return context;
+  }
+  context.propsParamName = "props";
+  binding.properties.forEach((prop) => {
+    if (libExports.isObjectProperty(prop) && libExports.isIdentifier(prop.key)) {
+      context.destructuredPropNames.add(prop.key.name);
+    }
+  });
+  return context;
+}
+function getRootClassSelector(node) {
+  for (const attr of node.openingElement.attributes) {
+    if (!libExports.isJSXAttribute(attr) || !libExports.isJSXIdentifier(attr.name)) continue;
+    if (attr.name.name !== "class" && attr.name.name !== "className") continue;
+    let firstClass = "";
+    if (libExports.isStringLiteral(attr.value)) {
+      firstClass = attr.value.value.trim().split(/\s+/)[0] || "";
+    } else if (libExports.isJSXExpressionContainer(attr.value) && !libExports.isJSXEmptyExpression(attr.value.expression)) {
+      const expr = attr.value.expression;
+      if (libExports.isStringLiteral(expr)) {
+        firstClass = expr.value.trim().split(/\s+/)[0] || "";
+      } else if (libExports.isTemplateLiteral(expr)) {
+        firstClass = expr.quasis[0]?.value.raw.trim().split(/\s+/)[0] || "";
+      }
+    }
+    if (firstClass) return `.${firstClass}`;
+  }
+  return null;
+}
+function resolvePropCallbackName(expr, context) {
+  if (libExports.isIdentifier(expr) && context.destructuredPropNames.has(expr.name)) {
+    return expr.name;
+  }
+  if (libExports.isMemberExpression(expr) && libExports.isIdentifier(expr.property) && libExports.isIdentifier(expr.object) && expr.object.name === (context.propsParamName || "props")) {
+    return expr.property.name;
+  }
+  if (libExports.isMemberExpression(expr) && libExports.isIdentifier(expr.property) && libExports.isMemberExpression(expr.object) && libExports.isIdentifier(expr.object.property) && expr.object.property.name === "props" && (libExports.isThisExpression(expr.object.object) || libExports.isIdentifier(expr.object.object) && expr.object.object.name === (context.propsParamName || "props"))) {
+    return expr.property.name;
+  }
+  return null;
+}
+function extractSingleCallExpression(expr) {
+  if (libExports.isCallExpression(expr)) return expr;
+  if (libExports.isArrowFunctionExpression(expr) || libExports.isFunctionExpression(expr)) {
+    if (libExports.isCallExpression(expr.body)) return expr.body;
+    if (!libExports.isBlockStatement(expr.body) || expr.body.body.length !== 1) return null;
+    const stmt = expr.body.body[0];
+    if (libExports.isExpressionStatement(stmt) && libExports.isCallExpression(stmt.expression)) return stmt.expression;
+    if (libExports.isReturnStatement(stmt) && stmt.argument && libExports.isCallExpression(stmt.argument)) return stmt.argument;
+  }
+  return null;
+}
+function getHoistableRootEvent(attrName, expr, elementPath, context, selector) {
+  if (elementPath.length !== 0 || !selector) return null;
+  if (attrName.startsWith("data-") || attrName === "class" || attrName === "className" || attrName === "style" || attrName === "id")
+    return null;
+  const eventType = toGeaEventType(attrName);
+  const directProp = resolvePropCallbackName(expr, context);
+  if (directProp) return { eventType, propName: directProp, selector };
+  const callExpr = extractSingleCallExpression(expr);
+  if (!callExpr) return null;
+  const propName = resolvePropCallbackName(callExpr.callee, context);
+  if (!propName) return null;
+  return { eventType, propName, selector };
+}
+function resolveImportPath$1(importer, source) {
+  const base = resolve(dirname(importer), source);
+  const candidates = [
+    base,
+    `${base}.js`,
+    `${base}.jsx`,
+    `${base}.ts`,
+    `${base}.tsx`,
+    resolve(base, "index.js"),
+    resolve(base, "index.jsx"),
+    resolve(base, "index.ts"),
+    resolve(base, "index.tsx")
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+function getReturnedRootJSX(ast, componentClassName) {
+  let found = null;
+  for (const stmt of ast.program.body) {
+    if (libExports.isExportDefaultDeclaration(stmt)) {
+      const decl = stmt.declaration;
+      if (libExports.isFunctionDeclaration(decl) && decl.body) {
+        const ret = decl.body.body.find(
+          (node) => libExports.isReturnStatement(node) && node.argument && libExports.isJSXElement(node.argument)
+        );
+        if (ret && libExports.isReturnStatement(ret) && ret.argument && libExports.isJSXElement(ret.argument)) {
+          return { jsx: ret.argument, context: getPropContext(decl.params) };
+        }
+      }
+      if (libExports.isIdentifier(decl)) {
+        for (const bodyStmt of ast.program.body) {
+          if (!libExports.isVariableDeclaration(bodyStmt)) continue;
+          for (const dec of bodyStmt.declarations) {
+            if (!libExports.isIdentifier(dec.id, { name: decl.name })) continue;
+            if (!dec.init || !libExports.isArrowFunctionExpression(dec.init) && !libExports.isFunctionExpression(dec.init)) continue;
+            const fn = dec.init;
+            if (libExports.isJSXElement(fn.body)) return { jsx: fn.body, context: getPropContext(fn.params) };
+            if (libExports.isBlockStatement(fn.body)) {
+              const ret = fn.body.body.find(
+                (node) => libExports.isReturnStatement(node) && node.argument && libExports.isJSXElement(node.argument)
+              );
+              if (ret && libExports.isReturnStatement(ret) && ret.argument && libExports.isJSXElement(ret.argument)) {
+                return { jsx: ret.argument, context: getPropContext(fn.params) };
+              }
+            }
+          }
+        }
+      }
+    }
+    if (componentClassName && libExports.isExportDefaultDeclaration(stmt) && libExports.isClassDeclaration(stmt.declaration) && libExports.isIdentifier(stmt.declaration.id, { name: componentClassName })) {
+      const templateMethod = stmt.declaration.body.body.find(
+        (member) => libExports.isClassMethod(member) && libExports.isIdentifier(member.key) && member.key.name === "template"
+      );
+      if (!templateMethod || !libExports.isBlockStatement(templateMethod.body)) return null;
+      const ret = templateMethod.body.body.find(
+        (node) => libExports.isReturnStatement(node) && node.argument && libExports.isJSXElement(node.argument)
+      );
+      if (ret && libExports.isReturnStatement(ret) && ret.argument && libExports.isJSXElement(ret.argument)) {
+        return {
+          jsx: ret.argument,
+          context: getPropContext(templateMethod.params)
+        };
+      }
+    }
+  }
+  for (const stmt of ast.program.body) {
+    if (!componentClassName || !libExports.isClassDeclaration(stmt) || !libExports.isIdentifier(stmt.id, { name: componentClassName }))
+      continue;
+    const templateMethod = stmt.body.body.find(
+      (member) => libExports.isClassMethod(member) && libExports.isIdentifier(member.key) && member.key.name === "template"
+    );
+    if (!templateMethod || !libExports.isBlockStatement(templateMethod.body)) continue;
+    const ret = templateMethod.body.body.find(
+      (node) => libExports.isReturnStatement(node) && node.argument && libExports.isJSXElement(node.argument)
+    );
+    if (ret && libExports.isReturnStatement(ret) && ret.argument && libExports.isJSXElement(ret.argument)) {
+      found = {
+        jsx: ret.argument,
+        context: getPropContext(templateMethod.params)
+      };
+      break;
+    }
+  }
+  return found;
+}
+const hoistableRootEventCache = /* @__PURE__ */ new Map();
+function getHoistableRootEventsForImport(importer, source) {
+  const resolved = resolveImportPath$1(importer, source);
+  if (!resolved) return [];
+  const cached = hoistableRootEventCache.get(resolved);
+  if (cached) return cached;
+  let result;
+  try {
+    const code = readFileSync(resolved, "utf8");
+    const parsed = parseSource$1(code);
+    if (!parsed) return [];
+    const root = getReturnedRootJSX(parsed.ast, parsed.componentClassName);
+    if (!root) return [];
+    const selector = getRootClassSelector(root.jsx);
+    if (!selector) return [];
+    result = root.jsx.openingElement.attributes.flatMap((attr) => {
+      if (!libExports.isJSXAttribute(attr) || !libExports.isJSXIdentifier(attr.name)) return [];
+      if (!attr.value || !libExports.isJSXExpressionContainer(attr.value) || libExports.isJSXEmptyExpression(attr.value.expression)) {
+        return [];
+      }
+      const meta = getHoistableRootEvent(
+        attr.name.name,
+        attr.value.expression,
+        [],
+        root.context,
+        selector
+      );
+      return meta ? [meta] : [];
+    });
+  } catch (err) {
+    console.warn(`[gea] Failed to analyze root events for ${resolved}:`, err instanceof Error ? err.message : err);
+    result = [];
+  }
+  hoistableRootEventCache.set(resolved, result);
+  return result;
+}
+function clearCaches$1() {
+  hoistableRootEventCache.clear();
 }
 
 function resolvePropRef(expr, propsParamName, destructuredPropNames) {
@@ -46717,10 +47094,27 @@ function detectItemIdProperty(template, itemVar) {
   }
   return void 0;
 }
+function extractKeyExpression(template) {
+  if (!template || !libExports.isJSXElement(template)) return void 0;
+  for (const attr of template.openingElement.attributes) {
+    if (!libExports.isJSXAttribute(attr) || !libExports.isJSXIdentifier(attr.name) || attr.name.name !== "key") continue;
+    if (!libExports.isJSXExpressionContainer(attr.value)) continue;
+    const keyExpr = attr.value.expression;
+    if (libExports.isJSXEmptyExpression(keyExpr)) continue;
+    return keyExpr;
+  }
+  return void 0;
+}
 function hasExplicitItemKey(template) {
   if (!template || !libExports.isJSXElement(template)) return false;
   return template.openingElement.attributes.some(
     (attr) => libExports.isJSXAttribute(attr) && libExports.isJSXIdentifier(attr.name) && attr.name.name === "key"
+  );
+}
+function hasRootUserIdAttribute(template) {
+  if (!template || !libExports.isJSXElement(template)) return false;
+  return template.openingElement.attributes.some(
+    (attr) => libExports.isJSXAttribute(attr) && libExports.isJSXIdentifier(attr.name) && attr.name.name === "id"
   );
 }
 function detectContainerSelector(node, tagName) {
@@ -46732,7 +47126,7 @@ function detectContainerSelector(node, tagName) {
   return tagName;
 }
 
-const traverse$c = babelTraverse.default || babelTraverse;
+const traverse$d = babelTraverse.default || babelTraverse;
 function getItemMemberPath(expr, itemVar) {
   const parts = [];
   let current = expr;
@@ -46766,6 +47160,7 @@ function analyzeJSXInMap(node, arrayPath, itemVar, itemBindings, relationalBindi
         childIndices
       );
     } else if (libExports.isConditionalExpression(expr)) {
+      const isClassAttr = attrName === "class" || attrName === "className";
       analyzeItemConditional(
         expr,
         attrName,
@@ -46780,7 +47175,8 @@ function analyzeJSXInMap(node, arrayPath, itemVar, itemBindings, relationalBindi
         node,
         stateRefs,
         childIndices,
-        storeVar
+        storeVar,
+        isClassAttr
       );
     } else if (libExports.isTemplateLiteral(expr)) {
       analyzeItemTemplateLiteral(
@@ -46865,9 +47261,10 @@ function analyzeItemMemberExpr(expr, attrName, arrayPath, itemVar, itemBindings,
   };
   itemBindings.push(binding);
 }
-function analyzeItemConditional(expr, attrName, arrayPath, itemVar, itemBindings, relationalBindings, conditionalBindings, elementPath, isImportedState, itemIdProperty, node, stateRefs, childIndices = [], storeVar) {
+function analyzeItemConditional(expr, attrName, arrayPath, itemVar, itemBindings, relationalBindings, conditionalBindings, elementPath, isImportedState, itemIdProperty, node, stateRefs, childIndices = [], storeVar, isFullClassExpr) {
   const relationalBinding = buildRelationalClassBinding(expr, elementPath, itemVar, itemIdProperty, stateRefs);
   if (relationalBinding) {
+    if (isFullClassExpr) relationalBinding.scopeClassIsPure = true;
     relationalBindings.push(relationalBinding);
     return;
   }
@@ -46946,7 +47343,7 @@ function collectConditionalBindings(expr, type, attributeName, conditionalBindin
   const dependencies = /* @__PURE__ */ new Map();
   const requiresRerender = conditionalExpressionRequiresRerender(expr);
   const program = libExports.program([libExports.expressionStatement(libExports.cloneNode(expr, true))]);
-  traverse$c(program, {
+  traverse$d(program, {
     noScope: true,
     MemberExpression(path) {
       const parent = path.parentPath;
@@ -46990,7 +47387,7 @@ function collectConditionalBindings(expr, type, attributeName, conditionalBindin
 function conditionalExpressionRequiresRerender(expr) {
   let needsRerender = false;
   const program = libExports.program([libExports.expressionStatement(libExports.cloneNode(expr, true))]);
-  traverse$c(program, {
+  traverse$d(program, {
     noScope: true,
     JSXElement(path) {
       needsRerender = true;
@@ -47081,7 +47478,7 @@ function extractClassName(node) {
   return void 0;
 }
 
-const traverse$b = babelTraverse.default || babelTraverse;
+const traverse$c = babelTraverse.default || babelTraverse;
 function buildComponentPropsExpression(jsxElement, imports, componentInstances, eventHandlers, stateRefs, templateSetupContext, transformExpression, transformFragment) {
   const props = [];
   const dependencies = /* @__PURE__ */ new Map();
@@ -47172,7 +47569,7 @@ function collectExpressionDependenciesInto(expr, stateRefs, dependencies, setupS
     ...setupStatements.map((statement) => libExports.cloneNode(statement, true)),
     libExports.expressionStatement(libExports.cloneNode(expr, true))
   ]);
-  traverse$b(program, {
+  traverse$c(program, {
     noScope: true,
     MemberExpression(path) {
       const parent = path.parentPath;
@@ -47323,7 +47720,7 @@ function collectReferencedIdentifiers(node) {
   const program = libExports.program([
     libExports.isStatement(node) ? libExports.cloneNode(node, true) : libExports.expressionStatement(libExports.cloneNode(node, true))
   ]);
-  traverse$b(program, {
+  traverse$c(program, {
     noScope: true,
     Identifier(path) {
       if (!path.isReferencedIdentifier()) return;
@@ -47333,7 +47730,7 @@ function collectReferencedIdentifiers(node) {
   return names;
 }
 
-const traverse$a = babelTraverse.default || babelTraverse;
+const traverse$b = babelTraverse.default || babelTraverse;
 function buildTextTemplateExpressionFromParts(textTemplate, textExpressions) {
   const templateParts = textTemplate.split(/\$\{(\d+)\}/g);
   const quasis = [];
@@ -47423,6 +47820,7 @@ function analyzeTemplate(templateMethod, stateRefs, classBody) {
       conditionalSlots: [],
       stateChildSlots: [],
       elementPathToBindingId: /* @__PURE__ */ new Map(),
+      elementPathToUserIdExpr: /* @__PURE__ */ new Map(),
       conditionalSlotScopedStoreKeys: /* @__PURE__ */ new Set(),
       conditionalSlotNodeMap: /* @__PURE__ */ new Map()
     };
@@ -47440,6 +47838,7 @@ function analyzeTemplate(templateMethod, stateRefs, classBody) {
       conditionalSlots: [],
       stateChildSlots: [],
       elementPathToBindingId: /* @__PURE__ */ new Map(),
+      elementPathToUserIdExpr: /* @__PURE__ */ new Map(),
       conditionalSlotScopedStoreKeys: /* @__PURE__ */ new Set(),
       conditionalSlotNodeMap: /* @__PURE__ */ new Map()
     };
@@ -47470,6 +47869,7 @@ function analyzeTemplate(templateMethod, stateRefs, classBody) {
   };
   const templateRoot = libExports.isJSXElement(returnStmt.argument) ? returnStmt.argument : null;
   const conditionalSlotNodeMap = /* @__PURE__ */ new Map();
+  const elementPathToUserIdExpr = /* @__PURE__ */ new Map();
   const walk = (node, elementPath = []) => {
     if (libExports.isJSXFragment(node)) {
       getDirectChildElements(node.children).forEach((child) => {
@@ -47480,6 +47880,17 @@ function analyzeTemplate(templateMethod, stateRefs, classBody) {
     const tagName = libExports.isJSXIdentifier(node.openingElement.name) ? node.openingElement.name.name : "div";
     const isComponentTag = /^[A-Z]/.test(tagName);
     if (!isComponentTag) {
+      const idAttr = node.openingElement.attributes.find(
+        (a) => libExports.isJSXAttribute(a) && libExports.isJSXIdentifier(a.name) && a.name.name === "id"
+      );
+      if (idAttr) {
+        const pathKey = elementPath.join(" > ");
+        if (libExports.isStringLiteral(idAttr.value)) {
+          elementPathToUserIdExpr.set(pathKey, libExports.stringLiteral(idAttr.value.value));
+        } else if (libExports.isJSXExpressionContainer(idAttr.value) && idAttr.value.expression && !libExports.isJSXEmptyExpression(idAttr.value.expression)) {
+          elementPathToUserIdExpr.set(pathKey, libExports.cloneNode(idAttr.value.expression, true));
+        }
+      }
       analyzeAttributes(
         node,
         tagName,
@@ -47522,7 +47933,7 @@ function analyzeTemplate(templateMethod, stateRefs, classBody) {
   };
   if (libExports.isJSXElement(returnStmt.argument)) walk(returnStmt.argument);
   else if (libExports.isJSXFragment(returnStmt.argument)) walk(returnStmt.argument);
-  collectAllStateAccesses(templateMethod, stateRefs, stateProps);
+  collectAllStateAccesses(templateMethod, stateRefs, stateProps, templateSetupContext, returnStmt.argument);
   assignBindingIds(bindings, propBindings, unresolvedMaps, arrayMaps);
   const elementPathToBindingId = /* @__PURE__ */ new Map();
   for (const b of bindings) {
@@ -47549,6 +47960,31 @@ function analyzeTemplate(templateMethod, stateRefs, classBody) {
       elementPathToBindingId.set(pathKey, am.containerBindingId);
     }
   }
+  for (const b of bindings) {
+    const pathKey = b.elementPath.join(" > ");
+    const userExpr = elementPathToUserIdExpr.get(pathKey);
+    if (userExpr) b.userIdExpr = libExports.cloneNode(userExpr, true);
+  }
+  for (const pb of propBindings) {
+    if (!pb.elementPath?.length) continue;
+    const pathKey = pb.elementPath.join(" > ");
+    const userExpr = elementPathToUserIdExpr.get(pathKey);
+    if (userExpr) pb.userIdExpr = libExports.cloneNode(userExpr, true);
+  }
+  for (const um of unresolvedMaps) {
+    if (um.containerElementPath?.length) {
+      const pathKey = um.containerElementPath.join(" > ");
+      const userExpr = elementPathToUserIdExpr.get(pathKey);
+      if (userExpr) um.containerUserIdExpr = libExports.cloneNode(userExpr, true);
+    }
+  }
+  for (const am of arrayMaps) {
+    if (am.containerElementPath?.length) {
+      const pathKey = am.containerElementPath.join(" > ");
+      const userExpr = elementPathToUserIdExpr.get(pathKey);
+      if (userExpr) am.containerUserIdExpr = libExports.cloneNode(userExpr, true);
+    }
+  }
   for (const um of unresolvedMaps) {
     if (!um.computationExpr) continue;
     if (libExports.isIdentifier(um.computationExpr)) {
@@ -47565,6 +48001,36 @@ function analyzeTemplate(templateMethod, stateRefs, classBody) {
       }
     } else {
       um.mapObjectExpr = libExports.cloneNode(um.computationExpr, true);
+    }
+    const derived = buildDerivedUnresolvedMapDescriptor(um.computationExpr, stateRefs, classBody);
+    if (derived) {
+      um.derived = derived;
+    }
+    const recomputed = collectUnresolvedComputationDependencies(
+      um.computationExpr,
+      stateRefs,
+      um.computationSetupStatements || [],
+      classBody
+    );
+    if (derived) {
+      const sourceObserveKey = buildObserveKey(derived.sourcePathParts, derived.sourceStoreVar);
+      if (!recomputed.some((dep) => dep.observeKey === sourceObserveKey)) {
+        recomputed.push({
+          observeKey: sourceObserveKey,
+          pathParts: derived.sourcePathParts,
+          storeVar: derived.sourceStoreVar
+        });
+      }
+    }
+    if (recomputed.length > 0) {
+      const merged = /* @__PURE__ */ new Map();
+      const helperMethodObserveKey = getHelperMethodObserveKey(um.computationExpr);
+      for (const dep of um.dependencies || []) {
+        if (helperMethodObserveKey && dep.observeKey === helperMethodObserveKey) continue;
+        merged.set(dep.observeKey, dep);
+      }
+      for (const dep of recomputed) merged.set(dep.observeKey, dep);
+      um.dependencies = Array.from(merged.values());
     }
   }
   const conditionalSlotScopedStoreKeys = computeConditionalSlotScopedStoreKeys(
@@ -47584,6 +48050,7 @@ function analyzeTemplate(templateMethod, stateRefs, classBody) {
     conditionalSlots,
     stateChildSlots: [],
     elementPathToBindingId,
+    elementPathToUserIdExpr,
     conditionalSlotScopedStoreKeys,
     conditionalSlotNodeMap,
     earlyReturnGuard,
@@ -47632,36 +48099,129 @@ function resolveHelperCallExpression(expr, classBody) {
   const returnStmt = helperMethod.body.body.find((stmt) => libExports.isReturnStatement(stmt) && !!stmt.argument);
   return returnStmt?.argument ? libExports.cloneNode(returnStmt.argument, true) : expr;
 }
+function collectHelperMethodDependencies$1(expr, classBody, stateRefs) {
+  if (!expr || !libExports.isCallExpression(expr) || !libExports.isMemberExpression(expr.callee) || !libExports.isThisExpression(expr.callee.object) || !libExports.isIdentifier(expr.callee.property) || !classBody) {
+    return [];
+  }
+  const helperMethodName = expr.callee.property.name;
+  const helperMethod = classBody.body.find(
+    (node) => libExports.isClassMethod(node) && libExports.isIdentifier(node.key) && node.key.name === helperMethodName
+  );
+  if (!helperMethod || !libExports.isBlockStatement(helperMethod.body)) return [];
+  const deps = /* @__PURE__ */ new Map();
+  const program = libExports.program(helperMethod.body.body.map((stmt) => libExports.cloneNode(stmt, true)));
+  traverse$b(program, {
+    noScope: true,
+    MemberExpression(path) {
+      const resolved = resolvePath(path.node, stateRefs);
+      if (!resolved?.parts?.length) return;
+      const observeKey = buildObserveKey(resolved.parts, resolved.isImportedState ? resolved.storeVar : void 0);
+      if (!deps.has(observeKey)) {
+        deps.set(observeKey, {
+          observeKey,
+          pathParts: resolved.parts,
+          storeVar: resolved.isImportedState ? resolved.storeVar : void 0
+        });
+      }
+    }
+  });
+  return Array.from(deps.values());
+}
+function collectUnresolvedComputationDependencies(expr, stateRefs, setupStatements, classBody) {
+  const helperDeps = collectHelperMethodDependencies$1(expr, classBody, stateRefs);
+  if (helperDeps.length > 0) return helperDeps;
+  const deps = collectExpressionDependencies(expr, stateRefs, setupStatements);
+  collectImportedStoreGetterDependencies(expr, setupStatements, stateRefs).forEach((dep) => {
+    if (!deps.some((existing) => existing.observeKey === dep.observeKey)) deps.push(dep);
+  });
+  return deps;
+}
+function buildDerivedUnresolvedMapDescriptor(expr, stateRefs, classBody) {
+  const normalized = resolveHelperCallExpression(expr, classBody);
+  const stages = [];
+  const walk = (node) => {
+    if (libExports.isCallExpression(node) && libExports.isMemberExpression(node.callee) && libExports.isIdentifier(node.callee.property) && !node.callee.computed) {
+      const method = node.callee.property.name;
+      if (method === "filter" || method === "slice" || method === "sort" || method === "reverse") {
+        const source2 = walk(node.callee.object);
+        if (!source2) return null;
+        const stage = { method };
+        if (method === "filter" && libExports.isArrowFunctionExpression(node.arguments[0])) {
+          const filterFn = node.arguments[0];
+          stage.itemVariable = libExports.isIdentifier(filterFn.params[0]) ? filterFn.params[0].name : "item";
+          stage.indexVariable = libExports.isIdentifier(filterFn.params[1]) ? filterFn.params[1].name : void 0;
+          const callbackBodyStatements = extractCallbackBodyStatements(filterFn);
+          if (callbackBodyStatements.length > 0) stage.callbackBodyStatements = callbackBodyStatements;
+          if (libExports.isExpression(filterFn.body)) {
+            stage.predicateExpr = libExports.cloneNode(filterFn.body, true);
+          } else if (libExports.isBlockStatement(filterFn.body)) {
+            const returnStmt = filterFn.body.body.find(
+              (stmt) => libExports.isReturnStatement(stmt) && !!stmt.argument
+            );
+            if (returnStmt?.argument) {
+              stage.predicateExpr = libExports.cloneNode(returnStmt.argument, true);
+            }
+          }
+        }
+        stages.push(stage);
+        return source2;
+      }
+    }
+    if (!libExports.isExpression(node)) return null;
+    if (!libExports.isMemberExpression(node) && !libExports.isIdentifier(node) && !libExports.isThisExpression(node) && !libExports.isCallExpression(node)) {
+      return null;
+    }
+    const resolved = resolvePath(node, stateRefs);
+    if (!resolved?.parts?.length) return null;
+    return {
+      sourcePathParts: resolved.parts,
+      sourceStoreVar: resolved.isImportedState ? resolved.storeVar : void 0,
+      sourceIsImportedState: resolved.isImportedState || false
+    };
+  };
+  const source = normalized ? walk(normalized) : null;
+  if (!source || stages.length === 0) return void 0;
+  return {
+    ...source,
+    stages
+  };
+}
+function getHelperMethodObserveKey(expr) {
+  if (!expr || !libExports.isCallExpression(expr) || !libExports.isMemberExpression(expr.callee) || !libExports.isThisExpression(expr.callee.object) || !libExports.isIdentifier(expr.callee.property)) {
+    return void 0;
+  }
+  return buildObserveKey([expr.callee.property.name]);
+}
 function analyzeAttributes(node, tagName, elementPath, bindings, propBindings, stateProps, stateRefs, propsParamName, destructuredPropNames, templateSetupContext, classBody) {
   node.openingElement.attributes.forEach((attr) => {
     if (!libExports.isJSXAttribute(attr) || !libExports.isJSXIdentifier(attr.name)) return;
     if (!attr.value || !libExports.isJSXExpressionContainer(attr.value)) return;
     const name = attr.name.name;
-    if ([
-      "click",
-      "dblclick",
-      "change",
-      "input",
-      "keydown",
-      "keyup",
-      "blur",
-      "focus",
-      "mousedown",
-      "mouseup",
-      "submit",
-      "tap",
-      "longTap",
-      "swipeRight",
-      "swipeUp",
-      "swipeLeft",
-      "swipeDown",
-      "dragstart",
-      "dragend",
-      "dragover",
-      "dragleave",
-      "drop"
-    ].includes(name))
+    if (name === "ref") return;
+    if (EVENT_NAMES$1.has(name) || EVENT_NAMES$1.has(toGeaEventType(name))) return;
+    if (name === "dangerouslySetInnerHTML") {
+      const expr2 = attr.value.expression;
+      if (templateSetupContext && !libExports.isJSXEmptyExpression(expr2)) {
+        const setupStatements = collectTemplateSetupStatements(expr2, templateSetupContext);
+        const dependencies = collectExpressionDependencies(expr2, stateRefs, setupStatements);
+        const stateDeps = dependencies.filter(
+          (d) => d.storeVar || d.pathParts.length > 0 && d.pathParts[0] !== "props"
+        );
+        if (stateDeps.length > 0) {
+          const selector = generateSelector(elementPath);
+          propBindings.push({
+            propName: "__state__",
+            selector,
+            type: "attribute",
+            attributeName: "dangerouslySetInnerHTML",
+            elementPath: [...elementPath],
+            expression: libExports.cloneNode(expr2, true),
+            setupStatements: setupStatements.length > 0 ? setupStatements : void 0
+          });
+        }
+      }
       return;
+    }
     const expr = attr.value.expression;
     const propName = resolvePropRef(expr, propsParamName, destructuredPropNames);
     if (propName) {
@@ -47911,7 +48471,7 @@ function collectNestedMapCalls(expr) {
   if (libExports.isJSXEmptyExpression(expr)) return [];
   const maps = [];
   const program = libExports.program([libExports.expressionStatement(libExports.cloneNode(expr, true))]);
-  traverse$a(program, {
+  traverse$b(program, {
     noScope: true,
     CallExpression(path) {
       if (isMapCall(path.node)) {
@@ -48011,18 +48571,12 @@ function handleArrayMap(expr, tagName, node, elementPath, index, arrayMaps, stat
       const itemTemplate2 = extractItemTemplate(arrowFn2);
       const itemIdProp = detectItemIdProperty(itemTemplate2, itemVar2);
       const computationSetupStatements = templateSetupContext ? collectTemplateSetupStatements(normalizedArrayExpr, templateSetupContext) : [];
-      const dependencies = collectExpressionDependencies(
+      const dependencies = collectUnresolvedComputationDependencies(
         normalizedArrayExpr,
         stateRefs,
-        computationSetupStatements
-      );
-      collectImportedStoreGetterDependencies(
-        normalizedArrayExpr,
         computationSetupStatements,
-        stateRefs
-      ).forEach((dep) => {
-        if (!dependencies.some((existing) => existing.observeKey === dep.observeKey)) dependencies.push(dep);
-      });
+        classBody
+      );
       collectItemTemplateStoreDependencies(itemTemplate2, itemVar2, stateRefs, dependencies);
       const relationalClassBindings = detectUnresolvedRelationalClassBindings(
         itemTemplate2,
@@ -48037,6 +48591,8 @@ function handleArrayMap(expr, tagName, node, elementPath, index, arrayMaps, stat
         itemVariable: itemVar2,
         ...indexVar2 ? { indexVariable: indexVar2 } : {},
         itemIdProperty: itemIdProp,
+        ...!itemIdProp && hasExplicitItemKey(itemTemplate2) ? { keyExpression: libExports.cloneNode(extractKeyExpression(itemTemplate2), true) } : {},
+        rootHasUserId: hasRootUserIdAttribute(itemTemplate2),
         computationExpr: libExports.cloneNode(normalizedArrayExpr, true),
         computationSetupStatements: computationSetupStatements.map((stmt) => libExports.cloneNode(stmt, true)),
         dependencies,
@@ -48149,6 +48705,7 @@ function handleArrayMap(expr, tagName, node, elementPath, index, arrayMaps, stat
     isImportedState: result.isImportedState || false,
     isKeyed,
     itemIdProperty: itemIdProperty || (isKeyed ? void 0 : "id"),
+    ...!itemIdProperty && isKeyed ? { keyExpression: libExports.cloneNode(extractKeyExpression(itemTemplate), true) } : {},
     classToggleName,
     conditionalBindings,
     ...cbBodyStmts.length > 0 ? { callbackBodyStatements: cbBodyStmts } : {}
@@ -48418,7 +48975,7 @@ function collectDependentPropNames(expr, setupStatements, propsParamName, destru
     libExports.expressionStatement(libExports.cloneNode(expr, true))
   ]);
   const getterNamesToExpand = /* @__PURE__ */ new Set();
-  traverse$a(program, {
+  traverse$b(program, {
     noScope: true,
     Identifier(path) {
       if (!path.isReferencedIdentifier()) return;
@@ -48437,7 +48994,7 @@ function collectDependentPropNames(expr, setupStatements, propsParamName, destru
       if (!libExports.isClassMethod(member) || member.kind !== "get" || !libExports.isIdentifier(member.key) || !getterNamesToExpand.has(member.key.name))
         continue;
       const getterProgram = libExports.program(member.body.body.map((s) => libExports.cloneNode(s, true)));
-      traverse$a(getterProgram, {
+      traverse$b(getterProgram, {
         noScope: true,
         Identifier(path) {
           if (!path.isReferencedIdentifier()) return;
@@ -48458,13 +49015,30 @@ function collectDependentPropNames(expr, setupStatements, propsParamName, destru
   }
   return Array.from(names);
 }
-function collectAllStateAccesses(templateMethod, stateRefs, stateProps) {
+function isInsideRefAttribute(path) {
+  let current = path;
+  while (current) {
+    if (libExports.isJSXAttribute(current.node) && libExports.isJSXIdentifier(current.node.name) && current.node.name.name === "ref")
+      return true;
+    current = current.parentPath;
+  }
+  return false;
+}
+function collectAllStateAccesses(templateMethod, stateRefs, stateProps, templateSetupContext, rootExpr) {
   const params = templateMethod.params.filter((param) => !libExports.isTSParameterProperty(param));
-  const prog = libExports.program([libExports.expressionStatement(libExports.arrowFunctionExpression(params, templateMethod.body))]);
-  traverse$a(prog, {
+  const expr = rootExpr && !libExports.isJSXEmptyExpression(rootExpr) ? libExports.cloneNode(rootExpr, true) : libExports.arrowFunctionExpression(params, templateMethod.body);
+  const setupStatements = rootExpr && templateSetupContext ? (() => {
+    const collected = collectTemplateSetupStatements(rootExpr, templateSetupContext);
+    if (collected.length > 0) return collected.map((s) => libExports.cloneNode(s, true));
+    if (templateSetupContext.earlyReturnBarrierIndex === void 0) return [];
+    return templateSetupContext.statements.slice(0, templateSetupContext.earlyReturnBarrierIndex + 1).map((s) => libExports.cloneNode(s, true));
+  })() : [];
+  const prog = libExports.program([...setupStatements, libExports.expressionStatement(expr)]);
+  traverse$b(prog, {
     noScope: true,
     Identifier(path) {
       if (!stateRefs.has(path.node.name)) return;
+      if (isInsideRefAttribute(path)) return;
       const ref = stateRefs.get(path.node.name);
       if (path.parentPath && libExports.isMemberExpression(path.parentPath.node) && path.parentPath.node.object === path.node && libExports.isIdentifier(path.parentPath.node.property) && !path.parentPath.node.computed) {
         const grandParent = path.parentPath.parentPath;
@@ -48493,6 +49067,7 @@ function collectAllStateAccesses(templateMethod, stateRefs, stateProps) {
     },
     MemberExpression(path) {
       if (!libExports.isIdentifier(path.node.property)) return;
+      if (isInsideRefAttribute(path)) return;
       const parent = path.parentPath;
       if (parent && libExports.isCallExpression(parent.node) && parent.node.callee === path.node) return;
       const resolved = resolvePath(path.node, stateRefs);
@@ -48521,7 +49096,7 @@ function collectAllStateAccesses(templateMethod, stateRefs, stateProps) {
 function collectItemTemplateStoreDependencies(itemTemplate, itemVar, stateRefs, dependencies) {
   if (!itemTemplate) return;
   const prog = libExports.program([libExports.expressionStatement(libExports.cloneNode(itemTemplate, true))]);
-  traverse$a(prog, {
+  traverse$b(prog, {
     noScope: true,
     MemberExpression(path) {
       let root = path.node;
@@ -48601,239 +49176,6 @@ function detectUnresolvedRelationalClassBindings(itemTemplate, itemVar, stateRef
     });
   }
   return results;
-}
-
-function existsSync(filePath) {
-              const resolver = globalThis.__geaResolveFile;
-              if (!resolver) return false
-              return resolver(filePath) !== null
-            }
-            function readFileSync(filePath, encoding) {
-              const resolver = globalThis.__geaResolveFile;
-              if (!resolver) throw new Error('No file resolver available')
-              const content = resolver(filePath);
-              if (content === null) throw new Error('File not found: ' + filePath)
-              return content
-            }
-
-function resolve(...parts) {
-              return parts.filter(Boolean).join('/')
-                .replace(/\/\.\//g, '/')
-                .replace(/\/+/g, '/')
-            }
-            function dirname(p) {
-              const parts = p.split('/');
-              parts.pop();
-              return parts.join('/') || '/'
-            }
-
-function toGeaEventType(attrName) {
-  if (attrName.startsWith("on") && attrName.length > 2) {
-    const rest = attrName.slice(2);
-    return rest.charAt(0).toLowerCase() + rest.slice(1);
-  }
-  return attrName;
-}
-function getPropContext(params) {
-  const context = {
-    destructuredPropNames: /* @__PURE__ */ new Set()
-  };
-  const firstParam = params?.[0];
-  if (!firstParam || libExports.isRestElement(firstParam)) return context;
-  const binding = getTemplateParamBinding(firstParam);
-  if (!binding) return context;
-  if (libExports.isIdentifier(binding)) {
-    context.propsParamName = binding.name;
-    return context;
-  }
-  context.propsParamName = "props";
-  binding.properties.forEach((prop) => {
-    if (libExports.isObjectProperty(prop) && libExports.isIdentifier(prop.key)) {
-      context.destructuredPropNames.add(prop.key.name);
-    }
-  });
-  return context;
-}
-function getRootClassSelector(node) {
-  for (const attr of node.openingElement.attributes) {
-    if (!libExports.isJSXAttribute(attr) || !libExports.isJSXIdentifier(attr.name)) continue;
-    if (attr.name.name !== "class" && attr.name.name !== "className") continue;
-    let firstClass = "";
-    if (libExports.isStringLiteral(attr.value)) {
-      firstClass = attr.value.value.trim().split(/\s+/)[0] || "";
-    } else if (libExports.isJSXExpressionContainer(attr.value) && !libExports.isJSXEmptyExpression(attr.value.expression)) {
-      const expr = attr.value.expression;
-      if (libExports.isStringLiteral(expr)) {
-        firstClass = expr.value.trim().split(/\s+/)[0] || "";
-      } else if (libExports.isTemplateLiteral(expr)) {
-        firstClass = expr.quasis[0]?.value.raw.trim().split(/\s+/)[0] || "";
-      }
-    }
-    if (firstClass) return `.${firstClass}`;
-  }
-  return null;
-}
-function resolvePropCallbackName(expr, context) {
-  if (libExports.isIdentifier(expr) && context.destructuredPropNames.has(expr.name)) {
-    return expr.name;
-  }
-  if (libExports.isMemberExpression(expr) && libExports.isIdentifier(expr.property) && libExports.isIdentifier(expr.object) && expr.object.name === (context.propsParamName || "props")) {
-    return expr.property.name;
-  }
-  if (libExports.isMemberExpression(expr) && libExports.isIdentifier(expr.property) && libExports.isMemberExpression(expr.object) && libExports.isIdentifier(expr.object.property) && expr.object.property.name === "props" && (libExports.isThisExpression(expr.object.object) || libExports.isIdentifier(expr.object.object) && expr.object.object.name === (context.propsParamName || "props"))) {
-    return expr.property.name;
-  }
-  return null;
-}
-function extractSingleCallExpression(expr) {
-  if (libExports.isCallExpression(expr)) return expr;
-  if (libExports.isArrowFunctionExpression(expr) || libExports.isFunctionExpression(expr)) {
-    if (libExports.isCallExpression(expr.body)) return expr.body;
-    if (!libExports.isBlockStatement(expr.body) || expr.body.body.length !== 1) return null;
-    const stmt = expr.body.body[0];
-    if (libExports.isExpressionStatement(stmt) && libExports.isCallExpression(stmt.expression)) return stmt.expression;
-    if (libExports.isReturnStatement(stmt) && stmt.argument && libExports.isCallExpression(stmt.argument)) return stmt.argument;
-  }
-  return null;
-}
-function getHoistableRootEvent(attrName, expr, elementPath, context, selector) {
-  if (elementPath.length !== 0 || !selector) return null;
-  if (attrName.startsWith("data-") || attrName === "class" || attrName === "className" || attrName === "style" || attrName === "id")
-    return null;
-  const eventType = toGeaEventType(attrName);
-  const directProp = resolvePropCallbackName(expr, context);
-  if (directProp) return { eventType, propName: directProp, selector };
-  const callExpr = extractSingleCallExpression(expr);
-  if (!callExpr) return null;
-  const propName = resolvePropCallbackName(callExpr.callee, context);
-  if (!propName) return null;
-  return { eventType, propName, selector };
-}
-function resolveImportPath$1(importer, source) {
-  const base = resolve(dirname(importer), source);
-  const candidates = [
-    base,
-    `${base}.js`,
-    `${base}.jsx`,
-    `${base}.ts`,
-    `${base}.tsx`,
-    resolve(base, "index.js"),
-    resolve(base, "index.jsx"),
-    resolve(base, "index.ts"),
-    resolve(base, "index.tsx")
-  ];
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) return candidate;
-  }
-  return null;
-}
-function getReturnedRootJSX(ast, componentClassName) {
-  let found = null;
-  for (const stmt of ast.program.body) {
-    if (libExports.isExportDefaultDeclaration(stmt)) {
-      const decl = stmt.declaration;
-      if (libExports.isFunctionDeclaration(decl) && decl.body) {
-        const ret = decl.body.body.find(
-          (node) => libExports.isReturnStatement(node) && node.argument && libExports.isJSXElement(node.argument)
-        );
-        if (ret && libExports.isReturnStatement(ret) && ret.argument && libExports.isJSXElement(ret.argument)) {
-          return { jsx: ret.argument, context: getPropContext(decl.params) };
-        }
-      }
-      if (libExports.isIdentifier(decl)) {
-        for (const bodyStmt of ast.program.body) {
-          if (!libExports.isVariableDeclaration(bodyStmt)) continue;
-          for (const dec of bodyStmt.declarations) {
-            if (!libExports.isIdentifier(dec.id, { name: decl.name })) continue;
-            if (!dec.init || !libExports.isArrowFunctionExpression(dec.init) && !libExports.isFunctionExpression(dec.init)) continue;
-            const fn = dec.init;
-            if (libExports.isJSXElement(fn.body)) return { jsx: fn.body, context: getPropContext(fn.params) };
-            if (libExports.isBlockStatement(fn.body)) {
-              const ret = fn.body.body.find(
-                (node) => libExports.isReturnStatement(node) && node.argument && libExports.isJSXElement(node.argument)
-              );
-              if (ret && libExports.isReturnStatement(ret) && ret.argument && libExports.isJSXElement(ret.argument)) {
-                return { jsx: ret.argument, context: getPropContext(fn.params) };
-              }
-            }
-          }
-        }
-      }
-    }
-    if (componentClassName && libExports.isExportDefaultDeclaration(stmt) && libExports.isClassDeclaration(stmt.declaration) && libExports.isIdentifier(stmt.declaration.id, { name: componentClassName })) {
-      const templateMethod = stmt.declaration.body.body.find(
-        (member) => libExports.isClassMethod(member) && libExports.isIdentifier(member.key) && member.key.name === "template"
-      );
-      if (!templateMethod || !libExports.isBlockStatement(templateMethod.body)) return null;
-      const ret = templateMethod.body.body.find(
-        (node) => libExports.isReturnStatement(node) && node.argument && libExports.isJSXElement(node.argument)
-      );
-      if (ret && libExports.isReturnStatement(ret) && ret.argument && libExports.isJSXElement(ret.argument)) {
-        return {
-          jsx: ret.argument,
-          context: getPropContext(templateMethod.params)
-        };
-      }
-    }
-  }
-  for (const stmt of ast.program.body) {
-    if (!componentClassName || !libExports.isClassDeclaration(stmt) || !libExports.isIdentifier(stmt.id, { name: componentClassName }))
-      continue;
-    const templateMethod = stmt.body.body.find(
-      (member) => libExports.isClassMethod(member) && libExports.isIdentifier(member.key) && member.key.name === "template"
-    );
-    if (!templateMethod || !libExports.isBlockStatement(templateMethod.body)) continue;
-    const ret = templateMethod.body.body.find(
-      (node) => libExports.isReturnStatement(node) && node.argument && libExports.isJSXElement(node.argument)
-    );
-    if (ret && libExports.isReturnStatement(ret) && ret.argument && libExports.isJSXElement(ret.argument)) {
-      found = {
-        jsx: ret.argument,
-        context: getPropContext(templateMethod.params)
-      };
-      break;
-    }
-  }
-  return found;
-}
-const hoistableRootEventCache = /* @__PURE__ */ new Map();
-function getHoistableRootEventsForImport(importer, source) {
-  const resolved = resolveImportPath$1(importer, source);
-  if (!resolved) return [];
-  const cached = hoistableRootEventCache.get(resolved);
-  if (cached) return cached;
-  let result;
-  try {
-    const code = readFileSync(resolved, "utf8");
-    const parsed = parseSource$1(code);
-    if (!parsed) return [];
-    const root = getReturnedRootJSX(parsed.ast, parsed.componentClassName);
-    if (!root) return [];
-    const selector = getRootClassSelector(root.jsx);
-    if (!selector) return [];
-    result = root.jsx.openingElement.attributes.flatMap((attr) => {
-      if (!libExports.isJSXAttribute(attr) || !libExports.isJSXIdentifier(attr.name)) return [];
-      if (!attr.value || !libExports.isJSXExpressionContainer(attr.value) || libExports.isJSXEmptyExpression(attr.value.expression)) {
-        return [];
-      }
-      const meta = getHoistableRootEvent(
-        attr.name.name,
-        attr.value.expression,
-        [],
-        root.context,
-        selector
-      );
-      return meta ? [meta] : [];
-    });
-  } catch (err) {
-    console.warn(`[gea] Failed to analyze root events for ${resolved}:`, err instanceof Error ? err.message : err);
-    result = [];
-  }
-  hoistableRootEventCache.set(resolved, result);
-  return result;
-}
-function clearCaches$1() {
-  hoistableRootEventCache.clear();
 }
 
 const RESERVED_HTML_TAG_NAMES = /* @__PURE__ */ new Set([
@@ -49087,10 +49429,70 @@ function extractChildInstanceRef(expr) {
   const instanceVar = memberExpr.property.name;
   return { instanceVar, guardExpr: expr.left };
 }
+function expressionContainsJSX(expr) {
+  let found = false;
+  const check = (node) => {
+    if (found) return;
+    if (libExports.isJSXElement(node) || libExports.isJSXFragment(node)) {
+      found = true;
+      return;
+    }
+    for (const key of libExports.VISITOR_KEYS[node.type] || []) {
+      const child = node[key];
+      if (Array.isArray(child)) {
+        for (const c of child) {
+          if (c && typeof c === "object" && "type" in c) check(c);
+          if (found) return;
+        }
+      } else if (child && typeof child === "object" && "type" in child) {
+        check(child);
+      }
+      if (found) return;
+    }
+  };
+  check(expr);
+  return found;
+}
+function callsJSXReturningProperty(expr, classBody) {
+  if (!classBody || !libExports.isCallExpression(expr)) return false;
+  let propName;
+  if (libExports.isMemberExpression(expr.callee) && libExports.isIdentifier(expr.callee.property) && !expr.callee.computed) {
+    propName = expr.callee.property.name;
+  }
+  if (!propName) return false;
+  for (const member of classBody.body) {
+    if (!libExports.isClassProperty(member) || !member.value) continue;
+    const scanValue = (node) => {
+      if (libExports.isObjectExpression(node)) {
+        for (const prop of node.properties) {
+          if (libExports.isObjectProperty(prop) && libExports.isIdentifier(prop.key) && prop.key.name === propName && (libExports.isArrowFunctionExpression(prop.value) || libExports.isFunctionExpression(prop.value))) {
+            return expressionContainsJSX(prop.value);
+          }
+        }
+      }
+      if (libExports.isArrayExpression(node)) {
+        return node.elements.some((el) => el && scanValue(el));
+      }
+      return false;
+    };
+    if (scanValue(member.value)) return true;
+  }
+  return false;
+}
+function isChildrenPropAccess(expr) {
+  if (libExports.isIdentifier(expr) && expr.name === "children") return true;
+  if (libExports.isMemberExpression(expr) && libExports.isIdentifier(expr.property) && expr.property.name === "children" && libExports.isIdentifier(expr.object) && expr.object.name === "props")
+    return true;
+  if (libExports.isMemberExpression(expr) && libExports.isIdentifier(expr.property) && expr.property.name === "children" && libExports.isMemberExpression(expr.object) && libExports.isThisExpression(expr.object.object) && libExports.isIdentifier(expr.object.property) && expr.object.property.name === "props")
+    return true;
+  return false;
+}
 function expressionMayBeFalsy(expr) {
   if (libExports.isLogicalExpression(expr) && expr.operator === "&&") return true;
   if (libExports.isConditionalExpression(expr)) return true;
   if (libExports.isBooleanLiteral(expr) && !expr.value) return true;
+  if (libExports.isOptionalMemberExpression(expr)) return true;
+  if (libExports.isOptionalCallExpression(expr)) return true;
   return false;
 }
 function canBeBoolean(expr) {
@@ -49125,6 +49527,14 @@ function buildAttrSkipCondition(expr, rawExpr) {
 }
 function escapeHtml$1(str) {
   return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+const URL_ATTRS$2 = /* @__PURE__ */ new Set(["href", "src", "action", "formaction", "data", "cite", "poster", "background"]);
+function wrapWithSanitizeAttr(attrName, expr) {
+  if (!URL_ATTRS$2.has(attrName)) return expr;
+  return libExports.callExpression(libExports.identifier("geaSanitizeAttr"), [
+    libExports.stringLiteral(attrName),
+    libExports.callExpression(libExports.identifier("String"), [expr])
+  ]);
 }
 function getStaticStringValue(expr) {
   if (libExports.isStringLiteral(expr)) return expr.value;
@@ -49292,13 +49702,16 @@ function replaceJSXInExpression(node, mapJSXNodes, ctx) {
     normalizeDestructuredMapCallback(fn);
     const handlerPropsInMap = [];
     const mapItemVariable = libExports.isIdentifier(fn.params[0]) ? fn.params[0].name : "item";
-    const mapItemIdProperty = detectItemIdProperty(extractItemTemplate(fn), mapItemVariable) || "id";
+    const itemTemplate = extractItemTemplate(fn);
+    const mapItemIdProperty = detectItemIdProperty(itemTemplate, mapItemVariable) || "id";
+    const mapKeyExpr = !detectItemIdProperty(itemTemplate, mapItemVariable) && hasExplicitItemKey(itemTemplate) ? extractKeyExpression(itemTemplate) : void 0;
     const mapCtx = {
       ...ctx,
       inMapCallback: true,
       handlerPropsInMap,
       mapItemIdProperty,
       mapItemVariable,
+      ...mapKeyExpr ? { mapKeyExpression: mapKeyExpr } : {},
       conditionalSlots: void 0,
       conditionalSlotCursor: void 0,
       conditionalSlotNodeMap: void 0
@@ -49511,33 +49924,64 @@ function processElement(node, parts, ctx, elementPath = []) {
   );
   let html = `<${effectiveTag}`;
   let hasBindingId = false;
+  let userIdExprForEvents;
+  let hasDynamicUserId = false;
   if (ctx.isRoot) {
-    parts.push({ type: "string", value: html + ' id="' });
-    parts.push({ type: "expression", value: libExports.memberExpression(libExports.thisExpression(), libExports.identifier("id")) });
-    html = '"';
+    const rootPathKey = "";
+    const rootUserIdExpr = ctx.elementPathToUserIdExpr?.get(rootPathKey);
+    if (rootUserIdExpr) {
+      if (libExports.isStringLiteral(rootUserIdExpr)) {
+        html += ` id="${rootUserIdExpr.value}"`;
+        userIdExprForEvents = rootUserIdExpr;
+      } else {
+        parts.push({ type: "string", value: html + ' id="' });
+        parts.push({ type: "expression", value: libExports.cloneNode(rootUserIdExpr, true) });
+        html = '"';
+        hasDynamicUserId = true;
+      }
+      parts.push({ type: "string", value: html + ' data-gea-cid="' });
+      parts.push({ type: "expression", value: libExports.memberExpression(libExports.thisExpression(), libExports.identifier("id")) });
+      html = '"';
+    } else {
+      parts.push({ type: "string", value: html + ' id="' });
+      parts.push({ type: "expression", value: libExports.memberExpression(libExports.thisExpression(), libExports.identifier("id")) });
+      html = '"';
+    }
     hasBindingId = true;
   } else {
     const rawPathKey = elementPath.join(" > ");
     const pathKey = ctx.elementPathPrefix ? ctx.elementPathPrefix + " > " + rawPathKey : rawPathKey;
     const bindingId = ctx.elementPathToBindingId?.get(pathKey) ?? (ctx.elementPathPrefix ? void 0 : ctx.elementPathToBindingId?.get(rawPathKey));
     if (bindingId !== void 0 && bindingId !== "") {
-      parts.push({ type: "string", value: html + ' id="' });
-      parts.push({
-        type: "expression",
-        value: libExports.binaryExpression(
-          "+",
-          libExports.memberExpression(libExports.thisExpression(), libExports.identifier("id")),
-          libExports.stringLiteral("-" + bindingId)
-        )
-      });
-      html = '"';
+      const userIdExpr = ctx.elementPathToUserIdExpr?.get(pathKey) ?? (ctx.elementPathPrefix ? void 0 : ctx.elementPathToUserIdExpr?.get(rawPathKey));
+      if (userIdExpr) {
+        if (libExports.isStringLiteral(userIdExpr)) {
+          html += ` id="${userIdExpr.value}"`;
+          userIdExprForEvents = userIdExpr;
+        } else {
+          parts.push({ type: "string", value: html + ' id="' });
+          parts.push({ type: "expression", value: libExports.cloneNode(userIdExpr, true) });
+          html = '"';
+        }
+      } else {
+        parts.push({ type: "string", value: html + ' id="' });
+        parts.push({
+          type: "expression",
+          value: libExports.binaryExpression(
+            "+",
+            libExports.memberExpression(libExports.thisExpression(), libExports.identifier("id")),
+            libExports.stringLiteral("-" + bindingId)
+          )
+        });
+        html = '"';
+      }
       hasBindingId = true;
     }
   }
   if (ctx.inMapCallback && elementPath.length === 0 && ctx.mapItemVariable) {
     const itemVar = ctx.mapItemVariable;
     const itemIdProp = ctx.mapItemIdProperty;
-    const itemIdExpr = itemIdProp && itemIdProp !== ITEM_IS_KEY ? libExports.logicalExpression("??", buildOptionalMemberChain(libExports.identifier(itemVar), itemIdProp), libExports.identifier(itemVar)) : libExports.callExpression(libExports.identifier("String"), [libExports.identifier(itemVar)]);
+    const itemIdExpr = ctx.mapKeyExpression ? libExports.callExpression(libExports.identifier("String"), [libExports.cloneNode(ctx.mapKeyExpression, true)]) : itemIdProp && itemIdProp !== ITEM_IS_KEY ? libExports.logicalExpression("??", buildOptionalMemberChain(libExports.identifier(itemVar), itemIdProp), libExports.identifier(itemVar)) : libExports.callExpression(libExports.identifier("String"), [libExports.identifier(itemVar)]);
     {
       parts.push({ type: "string", value: html + ' data-gea-item-id="' });
       parts.push({ type: "expression", value: itemIdExpr });
@@ -49546,6 +49990,7 @@ function processElement(node, parts, ctx, elementPath = []) {
   }
   let generatedEventSuffix;
   let generatedEventToken;
+  let dangerouslySetInnerHTMLExpr;
   node.openingElement.attributes.forEach((attr) => {
     if (libExports.isJSXSpreadAttribute(attr)) {
       const err = new Error(
@@ -49558,6 +50003,13 @@ function processElement(node, parts, ctx, elementPath = []) {
     const attrName = attr.name.name;
     if (attrName === "key") return;
     if (attrName === "id" && hasBindingId) return;
+    if (attrName === "dangerouslySetInnerHTML") {
+      const dsiValue = attr.value;
+      if (libExports.isJSXExpressionContainer(dsiValue) && !libExports.isJSXEmptyExpression(dsiValue.expression)) {
+        dangerouslySetInnerHTMLExpr = dsiValue.expression;
+      }
+      return;
+    }
     if (attrName === "ref") {
       const attrValue2 = attr.value;
       if (libExports.isJSXExpressionContainer(attrValue2) && !libExports.isJSXEmptyExpression(attrValue2.expression) && ctx.refBindings && ctx.refCounter) {
@@ -49597,14 +50049,14 @@ function processElement(node, parts, ctx, elementPath = []) {
       if (!isComp && EVENT_TYPES$1.has(eventType) && ctx.eventHandlers) {
         let selectorExpression;
         let selector;
-        if (!ctx.inMapCallback && ctx.isRoot) {
-          selectorExpression = buildEventSelectorExpression();
+        if (!ctx.inMapCallback && ctx.isRoot && !hasDynamicUserId) {
+          selectorExpression = userIdExprForEvents ? buildUserIdSelectorExpression(userIdExprForEvents) : buildEventSelectorExpression();
         } else {
           const rawPathKey2 = elementPath.join(" > ");
           const pathKey2 = ctx.elementPathPrefix ? ctx.elementPathPrefix + " > " + rawPathKey2 : rawPathKey2;
           const bindingId = ctx.elementPathToBindingId?.get(pathKey2) ?? (ctx.elementPathPrefix ? void 0 : ctx.elementPathToBindingId?.get(rawPathKey2));
-          if (!ctx.inMapCallback && bindingId !== void 0) {
-            selectorExpression = buildEventSelectorExpression(bindingId);
+          if (!ctx.inMapCallback && bindingId !== void 0 && !hasDynamicUserId) {
+            selectorExpression = userIdExprForEvents ? buildUserIdSelectorExpression(userIdExprForEvents) : buildEventSelectorExpression(bindingId);
           } else if (!ctx.inMapCallback && !ctx.inChildrenProp && !explicitIdAttr) {
             if (!generatedEventSuffix) {
               generatedEventSuffix = `ev${ctx.eventIdCounter?.value ?? 0}`;
@@ -49621,6 +50073,16 @@ function processElement(node, parts, ctx, elementPath = []) {
               html = '"';
             }
             selectorExpression = buildEventSelectorExpression(generatedEventSuffix);
+          } else if (explicitIdAttr) {
+            const idExpr = getExplicitIdValueExpression(explicitIdAttr);
+            if (!idExpr) {
+              const err = new Error(
+                `[gea] Event delegation requires id="..." or id={expr} when an id attribute is present on this element.`
+              );
+              err.__geaCompileError = true;
+              throw err;
+            }
+            selectorExpression = buildUserIdSelectorExpression(idExpr);
           } else {
             if (!generatedEventToken) {
               generatedEventToken = `ev${ctx.eventIdCounter?.value ?? 0}`;
@@ -49744,7 +50206,8 @@ function processElement(node, parts, ctx, elementPath = []) {
         parts.push({ type: "string", value: html });
         const expr = transformJSXExpression(rawExpr, ctx);
         const skipCondition = buildAttrSkipCondition(expr, rawExpr);
-        const templateExpr = propAttrName === "class" ? buildTrimmedClassValueExpression(expr) : expr;
+        const sanitizedExpr = wrapWithSanitizeAttr(propAttrName, expr);
+        const templateExpr = propAttrName === "class" ? buildTrimmedClassValueExpression(expr) : sanitizedExpr;
         if (libExports.isBooleanLiteral(skipCondition) && !skipCondition.value) {
           parts.push({ type: "string", value: ` ${propAttrName}="` });
           parts.push({ type: "expression", value: templateExpr });
@@ -49773,7 +50236,12 @@ function processElement(node, parts, ctx, elementPath = []) {
       html += ` ${propAttrName}`;
     }
   });
-  if (node.openingElement.selfClosing) {
+  if (dangerouslySetInnerHTMLExpr) {
+    html += ">";
+    parts.push({ type: "string", value: html });
+    parts.push({ type: "expression", value: dangerouslySetInnerHTMLExpr });
+    appendString(parts, `</${effectiveTag}>`);
+  } else if (node.openingElement.selfClosing) {
     if (isComp) {
       parts.push({ type: "string", value: html + `></${effectiveTag}>` });
     } else if (VOID_ELEMENTS$1.has(effectiveTag)) {
@@ -49878,7 +50346,9 @@ function processChildren(children, parts, ctx, elementPath, dcCursor, directChil
         if (expressionMayBeFalsy(rawExpr)) {
           expr = libExports.logicalExpression("||", expr, libExports.stringLiteral(""));
         }
-        parts.push({ type: "expression", value: expr });
+        const skipEscape = childCallInfo || isChildrenPropAccess(rawExpr) || expressionContainsJSX(rawExpr) || ctx.inMapCallback || callsJSXReturningProperty(rawExpr, ctx.classBody);
+        const safeExpr = skipEscape ? expr : libExports.callExpression(libExports.identifier("geaEscapeHtml"), [libExports.callExpression(libExports.identifier("String"), [expr])]);
+        parts.push({ type: "expression", value: safeExpr });
       }
     }
   });
@@ -49892,6 +50362,22 @@ function appendString(parts, value) {
   } else {
     parts.push({ type: "string", value });
   }
+}
+function buildUserIdSelectorExpression(userIdExpr) {
+  if (libExports.isStringLiteral(userIdExpr)) {
+    return libExports.stringLiteral(`#${userIdExpr.value}`);
+  }
+  return libExports.templateLiteral(
+    [libExports.templateElement({ raw: "#", cooked: "#" }, false), libExports.templateElement({ raw: "", cooked: "" }, true)],
+    [libExports.cloneNode(userIdExpr, true)]
+  );
+}
+function getExplicitIdValueExpression(attr) {
+  if (!attr || !libExports.isJSXAttribute(attr) || !libExports.isJSXIdentifier(attr.name) || attr.name.name !== "id") return void 0;
+  const v = attr.value;
+  if (libExports.isStringLiteral(v)) return libExports.stringLiteral(v.value);
+  if (libExports.isJSXExpressionContainer(v) && !libExports.isJSXEmptyExpression(v.expression)) return v.expression;
+  return void 0;
 }
 function buildEventSelectorExpression(suffix) {
   return libExports.templateLiteral(
@@ -49919,8 +50405,21 @@ function partsToTemplateLiteral(parts) {
   return libExports.templateLiteral(strings, expressions);
 }
 
-const traverse$9 = babelTraverse.default || babelTraverse;
-const EVENT_NAMES$1 = /* @__PURE__ */ new Set([
+const traverse$a = babelTraverse.default || babelTraverse;
+function rewriteItemVarInExpression(expr, fromVar, toVar, renames) {
+  const renameMap = new Map(renames || []);
+  renameMap.set(fromVar, toVar);
+  const cloned = libExports.cloneNode(expr, true);
+  traverse$a(libExports.program([libExports.expressionStatement(cloned)]), {
+    noScope: true,
+    Identifier(path) {
+      const replacement = renameMap.get(path.node.name);
+      if (replacement) path.node.name = replacement;
+    }
+  });
+  return cloned;
+}
+const EVENT_NAMES = /* @__PURE__ */ new Set([
   "click",
   "dblclick",
   "mousedown",
@@ -49969,7 +50468,7 @@ function ensureDummyTreePath(tree, path) {
 function collectItemTemplatePropTree(template, itemVar) {
   const tree = {};
   const program = libExports.program([libExports.expressionStatement(libExports.cloneNode(template, true))]);
-  traverse$9(program, {
+  traverse$a(program, {
     noScope: true,
     MemberExpression(path) {
       const chain = [];
@@ -49993,34 +50492,75 @@ function collectItemTemplatePropTree(template, itemVar) {
   });
   return tree;
 }
-function buildDummyFromTree(tree, keyPathParts) {
+function getCalleeMemberChainFromItem(callee, itemVar) {
+  const chain = [];
+  let node = callee;
+  while (libExports.isMemberExpression(node) && !node.computed && libExports.isIdentifier(node.property)) {
+    chain.unshift(node.property.name);
+    node = node.object;
+  }
+  if (!libExports.isIdentifier(node, { name: itemVar }) || chain.length === 0) return null;
+  return chain;
+}
+function collectItemCalleePropertyPaths(template, itemVar) {
+  const paths = /* @__PURE__ */ new Set();
+  const program = libExports.program([libExports.expressionStatement(libExports.cloneNode(template, true))]);
+  traverse$a(program, {
+    noScope: true,
+    CallExpression(path) {
+      const chain = getCalleeMemberChainFromItem(path.node.callee, itemVar);
+      if (chain) paths.add(chain.join("."));
+    }
+  });
+  return paths;
+}
+function buildDummyFromTree(tree, keyPathParts, calleePaths, pathPrefix = []) {
   const props = [];
   for (const [key, value] of Object.entries(tree)) {
+    const pathHere = [...pathPrefix, key];
+    const pathStr = pathHere.join(".");
     const matchesKeyPath = keyPathParts && keyPathParts.length > 0 && keyPathParts[0] === key;
     if (matchesKeyPath && keyPathParts.length === 1) {
       props.push(libExports.objectProperty(libExports.identifier(key), libExports.numericLiteral(0)));
     } else if (matchesKeyPath) {
       props.push(
-        libExports.objectProperty(libExports.identifier(key), buildDummyFromTree(value === true ? {} : value, keyPathParts.slice(1)))
+        libExports.objectProperty(
+          libExports.identifier(key),
+          buildDummyFromTree(
+            value === true ? {} : value,
+            keyPathParts.slice(1),
+            calleePaths,
+            pathHere
+          )
+        )
       );
     } else if (value === true) {
-      props.push(libExports.objectProperty(libExports.identifier(key), libExports.stringLiteral("")));
+      props.push(
+        libExports.objectProperty(
+          libExports.identifier(key),
+          calleePaths.has(pathStr) ? (
+            // Return empty string so `${item.content()}` in template init does not inject "null" / escaped markup.
+            libExports.arrowFunctionExpression([], libExports.stringLiteral(""), true)
+          ) : libExports.stringLiteral(" ")
+        )
+      );
     } else {
-      props.push(libExports.objectProperty(libExports.identifier(key), buildDummyFromTree(value, null)));
+      props.push(
+        libExports.objectProperty(libExports.identifier(key), buildDummyFromTree(value, null, calleePaths, pathHere))
+      );
     }
   }
   return libExports.objectExpression(props);
 }
 function generatePatchItemMethod(arrayMap, templatePropNames, wholeParamName, templateSetupContext) {
-  if (!arrayMap.itemTemplate) return null;
+  if (!arrayMap.itemTemplate) return { method: null, privateFields: [] };
   const arrayPath = pathPartsToString(arrayMap.arrayPathParts || normalizePathParts(arrayMap.arrayPath || ""));
   const arrayName = arrayPath.replace(/\./g, "");
   const capName = arrayName.charAt(0).toUpperCase() + arrayName.slice(1);
   const methodName = `patch${capName}Item`;
-  `__${arrayPath.replace(/\./g, "_")}_container`;
   const itemIdProperty = arrayMap.itemIdProperty;
   const itemTemplateRootIsComponent = libExports.isJSXElement(arrayMap.itemTemplate) && isComponentTag(getJSXTagName(arrayMap.itemTemplate.openingElement.name));
-  if (itemTemplateRootIsComponent) return null;
+  if (itemTemplateRootIsComponent) return { method: null, privateFields: [] };
   let { entries, requiresRerender } = collectPatchEntries(arrayMap);
   if (arrayMap.callbackBodyStatements?.length) requiresRerender = true;
   if (!requiresRerender && templateSetupContext && templateSetupContext.statements.length > 0) {
@@ -50040,7 +50580,7 @@ function generatePatchItemMethod(arrayMap, templatePropNames, wholeParamName, te
     if (setupVarNames.size > 0) {
       const freeVars = /* @__PURE__ */ new Set();
       for (const entry of entries) {
-        traverse$9(libExports.expressionStatement(libExports.cloneNode(entry.expression, true)), {
+        traverse$a(libExports.expressionStatement(libExports.cloneNode(entry.expression, true)), {
           noScope: true,
           Identifier(p) {
             if (libExports.isMemberExpression(p.parent) && p.parent.property === p.node && !p.parent.computed) return;
@@ -50056,7 +50596,7 @@ function generatePatchItemMethod(arrayMap, templatePropNames, wholeParamName, te
       }
     }
   }
-  if (requiresRerender || entries.length === 0) return null;
+  if (requiresRerender || entries.length === 0) return { method: null, privateFields: [] };
   const propNames = templatePropNames ?? /* @__PURE__ */ new Set();
   if (propNames.size > 0 || wholeParamName) {
     entries = entries.map((e) => ({
@@ -50093,21 +50633,36 @@ function generatePatchItemMethod(arrayMap, templatePropNames, wholeParamName, te
   for (const entry of patchedEntries) {
     const navExpr = entry.childPath.length > 0 ? refMap.get(entry.childPath.join("_")) || buildElementNavExpr(elVar, entry.childPath) : elVar;
     switch (entry.type) {
-      case "className":
+      case "className": {
+        const classVal = libExports.identifier("__cn");
         body.push(
-          libExports.expressionStatement(
-            libExports.assignmentExpression(
-              "=",
-              libExports.memberExpression(navExpr, libExports.identifier("className")),
+          libExports.variableDeclaration("var", [
+            libExports.variableDeclarator(
+              classVal,
               buildTrimmedClassValueExpression(libExports.cloneNode(entry.expression, true))
+            )
+          ]),
+          libExports.ifStatement(
+            libExports.binaryExpression("!==", libExports.memberExpression(navExpr, libExports.identifier("className")), classVal),
+            libExports.expressionStatement(
+              libExports.assignmentExpression(
+                "=",
+                libExports.memberExpression(libExports.cloneNode(navExpr, true), libExports.identifier("className")),
+                classVal
+              )
             )
           )
         );
         break;
+      }
       case "text":
         body.push(
           libExports.expressionStatement(
-            libExports.assignmentExpression("=", libExports.memberExpression(navExpr, libExports.identifier("textContent")), entry.expression)
+            libExports.assignmentExpression(
+              "=",
+              libExports.memberExpression(libExports.memberExpression(navExpr, libExports.identifier("firstChild")), libExports.identifier("nodeValue")),
+              entry.expression
+            )
           )
         );
         break;
@@ -50184,12 +50739,26 @@ function generatePatchItemMethod(arrayMap, templatePropNames, wholeParamName, te
                   libExports.stringLiteral(entry.attributeName)
                 ])
               ),
-              libExports.expressionStatement(
-                libExports.callExpression(libExports.memberExpression(navExpr, libExports.identifier("setAttribute")), [
-                  libExports.stringLiteral(entry.attributeName),
-                  libExports.callExpression(libExports.identifier("String"), [attrVal])
-                ])
-              )
+              libExports.blockStatement([
+                libExports.variableDeclaration("const", [
+                  libExports.variableDeclarator(libExports.identifier("__newAttr"), libExports.callExpression(libExports.identifier("String"), [attrVal]))
+                ]),
+                libExports.ifStatement(
+                  libExports.binaryExpression(
+                    "!==",
+                    libExports.callExpression(libExports.memberExpression(libExports.cloneNode(navExpr, true), libExports.identifier("getAttribute")), [
+                      libExports.stringLiteral(entry.attributeName)
+                    ]),
+                    libExports.identifier("__newAttr")
+                  ),
+                  libExports.expressionStatement(
+                    libExports.callExpression(libExports.memberExpression(libExports.cloneNode(navExpr, true), libExports.identifier("setAttribute")), [
+                      libExports.stringLiteral(entry.attributeName),
+                      libExports.identifier("__newAttr")
+                    ])
+                  )
+                )
+              ])
             )
           );
         }
@@ -50197,28 +50766,64 @@ function generatePatchItemMethod(arrayMap, templatePropNames, wholeParamName, te
       }
     }
   }
-  const itemIdExpr = itemIdProperty && itemIdProperty !== ITEM_IS_KEY ? libExports.logicalExpression("??", buildOptionalMemberChain(libExports.identifier("item"), itemIdProperty), libExports.identifier("item")) : libExports.callExpression(libExports.identifier("String"), [libExports.identifier("item")]);
+  const keyRenames = arrayMap.indexVariable ? /* @__PURE__ */ new Map([[arrayMap.indexVariable, "__idx"]]) : void 0;
+  const rawItemIdExpr = arrayMap.keyExpression ? libExports.cloneNode(rewriteItemVarInExpression(arrayMap.keyExpression, arrayMap.itemVariable, "item", keyRenames), true) : itemIdProperty && itemIdProperty !== ITEM_IS_KEY ? libExports.logicalExpression("??", buildOptionalMemberChain(libExports.identifier("item"), itemIdProperty), libExports.identifier("item")) : libExports.identifier("item");
+  const itemIdExpr = libExports.callExpression(libExports.identifier("String"), [rawItemIdExpr]);
+  body.push(libExports.expressionStatement(libExports.assignmentExpression("=", buildExprGeaMember(elVar, "GEA_DOM_KEY"), itemIdExpr)));
+  const rowElsProp = `__rowEls_${arrayMap.containerBindingId ?? "list"}`;
+  const privateElsRef = libExports.memberExpression(libExports.thisExpression(), libExports.privateName(libExports.identifier(rowElsProp)));
   body.push(
     libExports.expressionStatement(
-      libExports.callExpression(libExports.memberExpression(elVar, libExports.identifier("setAttribute")), [
-        libExports.stringLiteral("data-gea-item-id"),
-        itemIdExpr
-      ])
+      libExports.assignmentExpression(
+        "=",
+        libExports.memberExpression(
+          libExports.logicalExpression(
+            "||",
+            libExports.cloneNode(privateElsRef),
+            libExports.assignmentExpression("=", libExports.cloneNode(privateElsRef), libExports.objectExpression([]))
+          ),
+          libExports.cloneNode(itemIdExpr, true),
+          true
+        ),
+        elVar
+      )
     )
   );
+  const patchPrivateFields = [rowElsProp];
   body.push(
-    libExports.expressionStatement(
-      libExports.assignmentExpression("=", libExports.memberExpression(elVar, libExports.identifier("__geaItem")), libExports.identifier("item"))
-    )
+    libExports.expressionStatement(libExports.assignmentExpression("=", buildExprGeaMember(elVar, "GEA_DOM_ITEM"), libExports.identifier("item")))
   );
   const params = [libExports.identifier("row"), libExports.identifier("item"), libExports.identifier("__prevItem")];
   if (arrayMap.indexVariable) params.push(libExports.identifier("__idx"));
-  return libExports.classMethod("method", libExports.identifier(methodName), params, libExports.blockStatement(body));
+  return {
+    method: libExports.classMethod("method", libExports.identifier(methodName), params, libExports.blockStatement(body)),
+    privateFields: patchPrivateFields
+  };
+}
+function textPatchHasItemMethodCall(expr, itemVar) {
+  const calleeIsItemMethod = (callee) => libExports.isMemberExpression(callee) && !callee.computed && libExports.isIdentifier(callee.object, { name: itemVar });
+  const visit = (e) => {
+    let found = false;
+    traverse$a(libExports.program([libExports.expressionStatement(libExports.cloneNode(e, true))]), {
+      noScope: true,
+      CallExpression(p) {
+        if (calleeIsItemMethod(p.node.callee)) {
+          found = true;
+          p.stop();
+        }
+      }
+    });
+    return found;
+  };
+  if (libExports.isTemplateLiteral(expr)) {
+    return expr.expressions.some((ex) => visit(ex));
+  }
+  return visit(expr);
 }
 function collectPatchEntries(arrayMap) {
   const cloned = libExports.cloneNode(arrayMap.itemTemplate, true);
   const tempFile = libExports.file(libExports.program([libExports.expressionStatement(cloned)]));
-  traverse$9(tempFile, {
+  traverse$a(tempFile, {
     Identifier(path) {
       if (path.node.name === arrayMap.itemVariable) path.node.name = "item";
       else if (arrayMap.indexVariable && path.node.name === arrayMap.indexVariable) path.node.name = "__idx";
@@ -50226,7 +50831,7 @@ function collectPatchEntries(arrayMap) {
   });
   const modified = tempFile.program.body[0].expression;
   const entries = [];
-  const requiresRerender = templateRequiresRerender(tempFile);
+  let requiresRerender = templateRequiresRerender(tempFile);
   if (libExports.isJSXElement(modified)) {
     const rootTagName = getJSXTagName(modified.openingElement.name);
     const rootIsComponent = isComponentTag(rootTagName);
@@ -50235,6 +50840,14 @@ function collectPatchEntries(arrayMap) {
   for (const ent of entries) {
     ent.expression = optionalizeMemberChainsAfterComputedItemKey(ent.expression, "item");
   }
+  if (!requiresRerender) {
+    for (const ent of entries) {
+      if (ent.type === "text" && textPatchHasItemMethodCall(ent.expression, "item")) {
+        requiresRerender = true;
+        break;
+      }
+    }
+  }
   return { entries, requiresRerender };
 }
 function walkJSXForPatch(node, path, entries, rootIsComponent = false) {
@@ -50242,7 +50855,7 @@ function walkJSXForPatch(node, path, entries, rootIsComponent = false) {
   for (const attr of node.openingElement.attributes) {
     if (!libExports.isJSXAttribute(attr) || !libExports.isJSXIdentifier(attr.name)) continue;
     const name = attr.name.name;
-    if (name === "key" || EVENT_NAMES$1.has(name)) continue;
+    if (name === "key" || EVENT_NAMES.has(name)) continue;
     if (!libExports.isJSXExpressionContainer(attr.value) || libExports.isJSXEmptyExpression(attr.value.expression)) continue;
     if (name === "class" || name === "className") {
       entries.push({
@@ -50330,7 +50943,7 @@ function hoistStoreReads(entries, storeVar) {
   function replaceStoreReads(expr) {
     const cloned = libExports.cloneNode(expr, true);
     const program = libExports.program([libExports.expressionStatement(cloned)]);
-    traverse$9(program, {
+    traverse$a(program, {
       noScope: true,
       MemberExpression(path) {
         if (!libExports.isIdentifier(path.node.object, { name: storeVar })) return;
@@ -50354,7 +50967,7 @@ function hoistStoreReads(entries, storeVar) {
   return { hoists: Array.from(hoistMap.values()), patchedEntries };
 }
 function generateCreateItemMethod(arrayMap, templatePropNames, wholeParamName, templateSetupContext) {
-  if (!arrayMap.itemTemplate) return null;
+  if (!arrayMap.itemTemplate) return { method: null, needsRawStoreCache: false, privateFields: [] };
   const arrayPath = pathPartsToString(arrayMap.arrayPathParts || normalizePathParts(arrayMap.arrayPath || ""));
   const arrayName = arrayPath.replace(/\./g, "");
   const capName = arrayName.charAt(0).toUpperCase() + arrayName.slice(1);
@@ -50385,7 +50998,7 @@ function generateCreateItemMethod(arrayMap, templatePropNames, wholeParamName, t
     if (setupVarNames.size > 0) {
       const freeVars = /* @__PURE__ */ new Set();
       for (const entry of entries) {
-        traverse$9(libExports.expressionStatement(libExports.cloneNode(entry.expression, true)), {
+        traverse$a(libExports.expressionStatement(libExports.cloneNode(entry.expression, true)), {
           noScope: true,
           Identifier(p) {
             if (libExports.isMemberExpression(p.parent) && p.parent.property === p.node && !p.parent.computed) return;
@@ -50434,11 +51047,11 @@ function generateCreateItemMethod(arrayMap, templatePropNames, wholeParamName, t
       for (const attr of cloned.openingElement.attributes) {
         if (!libExports.isJSXAttribute(attr) || !libExports.isJSXIdentifier(attr.name)) continue;
         const propName = attr.name.name;
-        if (propName === "key" || EVENT_NAMES$1.has(propName)) continue;
+        if (propName === "key" || EVENT_NAMES.has(propName)) continue;
         if (!libExports.isJSXExpressionContainer(attr.value) || libExports.isJSXEmptyExpression(attr.value.expression)) continue;
         const exprClone = libExports.cloneNode(attr.value.expression, true);
         const tempProg = libExports.file(libExports.program([libExports.expressionStatement(exprClone)]));
-        traverse$9(tempProg, {
+        traverse$a(tempProg, {
           Identifier(path) {
             if (path.node.name === arrayMap.itemVariable) path.node.name = "item";
             else if (arrayMap.indexVariable && path.node.name === arrayMap.indexVariable) path.node.name = "__idx";
@@ -50466,7 +51079,7 @@ function generateCreateItemMethod(arrayMap, templatePropNames, wholeParamName, t
           }
           const propsRefsFreeVars = /* @__PURE__ */ new Set();
           for (const prop of propsProperties) {
-            traverse$9(libExports.expressionStatement(libExports.cloneNode(prop.value, true)), {
+            traverse$a(libExports.expressionStatement(libExports.cloneNode(prop.value, true)), {
               noScope: true,
               Identifier(p) {
                 if (libExports.isMemberExpression(p.parent) && p.parent.property === p.node && !p.parent.computed) return;
@@ -50500,7 +51113,7 @@ function generateCreateItemMethod(arrayMap, templatePropNames, wholeParamName, t
           libExports.expressionStatement(
             libExports.assignmentExpression(
               "=",
-              libExports.memberExpression(libExports.identifier("el"), libExports.identifier("__geaProps")),
+              buildExprGeaMember(libExports.identifier("el"), "GEA_DOM_PROPS"),
               libExports.objectExpression(propsProperties)
             )
           )
@@ -50508,21 +51121,65 @@ function generateCreateItemMethod(arrayMap, templatePropNames, wholeParamName, t
       }
     }
     rerenderBody.push(libExports.returnStatement(libExports.identifier("el")));
-    return appendToBody(createMethod, ...rerenderBody);
+    return { method: appendToBody(createMethod, ...rerenderBody), needsRawStoreCache: false, privateFields: [] };
   }
-  if (entries.length === 0) return null;
+  if (entries.length === 0) return { method: null, needsRawStoreCache: false, privateFields: [] };
   const { hoists, patchedEntries } = hoistStoreReads(entries, arrayMap.storeVar);
+  const useRawStoreCache = hoists.length > 0 && !!arrayMap.storeVar;
+  if (useRawStoreCache) {
+    for (const hoist of hoists) {
+      if (libExports.isMemberExpression(hoist.expression) && libExports.isIdentifier(hoist.expression.object) && hoist.expression.object.name === arrayMap.storeVar) {
+        hoist.expression.object = libExports.identifier("__rs");
+      }
+    }
+  }
   const propTree = collectItemTemplatePropTree(arrayMap.itemTemplate, arrayMap.itemVariable);
   const containerRef = libExports.memberExpression(libExports.thisExpression(), libExports.identifier(containerProp));
+  const dcFieldSuffix = arrayMap.containerBindingId ?? arrayPath.replace(/\./g, "_");
+  const dcPrivateName = `__dc_${dcFieldSuffix}`;
+  const privateDcField = libExports.memberExpression(libExports.thisExpression(), libExports.privateName(libExports.identifier(dcPrivateName)));
   const cVar = libExports.identifier("__c");
   const elVar = libExports.identifier("el");
+  const privateFields = [dcPrivateName];
   const body = [];
-  body.push(libExports.variableDeclaration("var", [libExports.variableDeclarator(cVar, containerRef)]));
-  const isPrimitiveKey = !itemIdProperty || itemIdProperty === ITEM_IS_KEY;
+  if (useRawStoreCache) {
+    const privateRsField = libExports.memberExpression(libExports.thisExpression(), libExports.privateName(libExports.identifier("__rs")));
+    body.push(
+      libExports.variableDeclaration("var", [
+        libExports.variableDeclarator(
+          libExports.identifier("__rs"),
+          libExports.logicalExpression(
+            "||",
+            libExports.cloneNode(privateRsField),
+            libExports.assignmentExpression(
+              "=",
+              libExports.cloneNode(privateRsField),
+              buildExprGeaMember(libExports.identifier(arrayMap.storeVar), "GEA_PROXY_RAW")
+            )
+          )
+        )
+      ])
+    );
+  }
+  body.push(
+    libExports.variableDeclaration("var", [
+      libExports.variableDeclarator(
+        cVar,
+        libExports.logicalExpression(
+          "||",
+          libExports.cloneNode(privateDcField),
+          libExports.assignmentExpression("=", libExports.cloneNode(privateDcField), containerRef)
+        )
+      )
+    ])
+  );
+  const isPrimitiveKey = (itemIdProperty === ITEM_IS_KEY || !itemIdProperty) && !arrayMap.keyExpression && Object.keys(propTree).length === 0;
+  const calleePaths = collectItemCalleePropertyPaths(arrayMap.itemTemplate, arrayMap.itemVariable);
   const dummyItem = isPrimitiveKey ? libExports.stringLiteral("__dummy__") : (() => {
     if (itemIdProperty) ensureDummyTreePath(propTree, itemIdProperty);
-    return buildDummyFromTree(propTree, itemIdProperty ? normalizePathParts(itemIdProperty) : null);
+    return buildDummyFromTree(propTree, itemIdProperty ? normalizePathParts(itemIdProperty) : null, calleePaths);
   })();
+  const hasRootClassNamePatch = patchedEntries.some((e) => e.type === "className" && e.childPath.length === 0);
   const tplInit = [
     libExports.variableDeclaration("var", [
       libExports.variableDeclarator(
@@ -50545,29 +51202,59 @@ function generateCreateItemMethod(arrayMap, templatePropNames, wholeParamName, t
     libExports.expressionStatement(
       libExports.assignmentExpression(
         "=",
-        libExports.memberExpression(cVar, libExports.identifier("__geaTpl")),
+        buildExprGeaMember(cVar, "GEA_MAP_CONFIG_TPL"),
         libExports.memberExpression(
           libExports.memberExpression(libExports.identifier("__tw"), libExports.identifier("content")),
           libExports.identifier("firstElementChild")
         )
       )
+    ),
+    libExports.expressionStatement(
+      libExports.optionalCallExpression(
+        libExports.optionalMemberExpression(
+          buildExprGeaMember(cVar, "GEA_MAP_CONFIG_TPL"),
+          libExports.identifier("removeAttribute"),
+          false,
+          true
+        ),
+        [libExports.stringLiteral("data-gea-item-id")],
+        false
+      )
     )
   ];
+  if (hasRootClassNamePatch) {
+    tplInit.push(
+      libExports.ifStatement(
+        libExports.logicalExpression(
+          "&&",
+          buildExprGeaMember(cVar, "GEA_MAP_CONFIG_TPL"),
+          libExports.memberExpression(buildExprGeaMember(cVar, "GEA_MAP_CONFIG_TPL"), libExports.identifier("className"))
+        ),
+        libExports.expressionStatement(
+          libExports.assignmentExpression(
+            "=",
+            libExports.memberExpression(buildExprGeaMember(cVar, "GEA_MAP_CONFIG_TPL"), libExports.identifier("className")),
+            libExports.stringLiteral("")
+          )
+        )
+      )
+    );
+  }
   body.push(
     libExports.ifStatement(
-      libExports.unaryExpression("!", libExports.memberExpression(cVar, libExports.identifier("__geaTpl"))),
+      libExports.unaryExpression("!", buildExprGeaMember(cVar, "GEA_MAP_CONFIG_TPL")),
       libExports.blockStatement([libExports.tryStatement(libExports.blockStatement(tplInit), loggingCatchClause())])
     )
   );
   body.push(
     libExports.ifStatement(
-      libExports.memberExpression(cVar, libExports.identifier("__geaTpl")),
+      buildExprGeaMember(cVar, "GEA_MAP_CONFIG_TPL"),
       libExports.blockStatement([
         libExports.variableDeclaration("var", [
           libExports.variableDeclarator(
             elVar,
             libExports.callExpression(
-              libExports.memberExpression(libExports.memberExpression(cVar, libExports.identifier("__geaTpl")), libExports.identifier("cloneNode")),
+              libExports.memberExpression(buildExprGeaMember(cVar, "GEA_MAP_CONFIG_TPL"), libExports.identifier("cloneNode")),
               [libExports.booleanLiteral(true)]
             )
           )
@@ -50622,21 +51309,42 @@ function generateCreateItemMethod(arrayMap, templatePropNames, wholeParamName, t
   for (const entry of patchedEntries) {
     const navExpr = entry.childPath.length > 0 ? refMap.get(entry.childPath.join("_")) || buildElementNavExpr(elVar, entry.childPath) : elVar;
     switch (entry.type) {
-      case "className":
+      case "className": {
+        const classExpr = libExports.cloneNode(entry.expression, true);
+        if (libExports.isConditionalExpression(classExpr) && libExports.isStringLiteral(classExpr.alternate) && classExpr.alternate.value === "") {
+          body.push(
+            libExports.ifStatement(
+              classExpr.test,
+              libExports.expressionStatement(
+                libExports.assignmentExpression(
+                  "=",
+                  libExports.memberExpression(navExpr, libExports.identifier("className")),
+                  buildTrimmedClassValueExpression(classExpr.consequent)
+                )
+              )
+            )
+          );
+        } else {
+          body.push(
+            libExports.expressionStatement(
+              libExports.assignmentExpression(
+                "=",
+                libExports.memberExpression(navExpr, libExports.identifier("className")),
+                buildTrimmedClassValueExpression(classExpr)
+              )
+            )
+          );
+        }
+        break;
+      }
+      case "text":
         body.push(
           libExports.expressionStatement(
             libExports.assignmentExpression(
               "=",
-              libExports.memberExpression(navExpr, libExports.identifier("className")),
-              buildTrimmedClassValueExpression(libExports.cloneNode(entry.expression, true))
+              libExports.memberExpression(libExports.memberExpression(navExpr, libExports.identifier("firstChild")), libExports.identifier("nodeValue")),
+              entry.expression
             )
-          )
-        );
-        break;
-      case "text":
-        body.push(
-          libExports.expressionStatement(
-            libExports.assignmentExpression("=", libExports.memberExpression(navExpr, libExports.identifier("textContent")), entry.expression)
           )
         );
         break;
@@ -50713,12 +51421,26 @@ function generateCreateItemMethod(arrayMap, templatePropNames, wholeParamName, t
                   libExports.stringLiteral(entry.attributeName)
                 ])
               ),
-              libExports.expressionStatement(
-                libExports.callExpression(libExports.memberExpression(navExpr, libExports.identifier("setAttribute")), [
-                  libExports.stringLiteral(entry.attributeName),
-                  libExports.callExpression(libExports.identifier("String"), [attrVal])
-                ])
-              )
+              libExports.blockStatement([
+                libExports.variableDeclaration("const", [
+                  libExports.variableDeclarator(libExports.identifier("__newAttr"), libExports.callExpression(libExports.identifier("String"), [attrVal]))
+                ]),
+                libExports.ifStatement(
+                  libExports.binaryExpression(
+                    "!==",
+                    libExports.callExpression(libExports.memberExpression(libExports.cloneNode(navExpr, true), libExports.identifier("getAttribute")), [
+                      libExports.stringLiteral(entry.attributeName)
+                    ]),
+                    libExports.identifier("__newAttr")
+                  ),
+                  libExports.expressionStatement(
+                    libExports.callExpression(libExports.memberExpression(libExports.cloneNode(navExpr, true), libExports.identifier("setAttribute")), [
+                      libExports.stringLiteral(entry.attributeName),
+                      libExports.identifier("__newAttr")
+                    ])
+                  )
+                )
+              ])
             )
           );
         }
@@ -50726,19 +51448,17 @@ function generateCreateItemMethod(arrayMap, templatePropNames, wholeParamName, t
       }
     }
   }
-  const itemIdExpr = itemIdProperty && itemIdProperty !== ITEM_IS_KEY ? libExports.logicalExpression("??", buildOptionalMemberChain(libExports.identifier("item"), itemIdProperty), libExports.identifier("item")) : libExports.callExpression(libExports.identifier("String"), [libExports.identifier("item")]);
+  const createKeyRenames = arrayMap.indexVariable ? /* @__PURE__ */ new Map([[arrayMap.indexVariable, "__idx"]]) : void 0;
+  const rawPatchItemIdExpr = arrayMap.keyExpression ? libExports.cloneNode(
+    rewriteItemVarInExpression(arrayMap.keyExpression, arrayMap.itemVariable, "item", createKeyRenames),
+    true
+  ) : itemIdProperty && itemIdProperty !== ITEM_IS_KEY ? libExports.logicalExpression("??", buildOptionalMemberChain(libExports.identifier("item"), itemIdProperty), libExports.identifier("item")) : libExports.identifier("item");
+  const patchItemIdExpr = libExports.callExpression(libExports.identifier("String"), [rawPatchItemIdExpr]);
   body.push(
-    libExports.expressionStatement(
-      libExports.callExpression(libExports.memberExpression(elVar, libExports.identifier("setAttribute")), [
-        libExports.stringLiteral("data-gea-item-id"),
-        itemIdExpr
-      ])
-    )
+    libExports.expressionStatement(libExports.assignmentExpression("=", buildExprGeaMember(elVar, "GEA_DOM_KEY"), patchItemIdExpr))
   );
   body.push(
-    libExports.expressionStatement(
-      libExports.assignmentExpression("=", libExports.memberExpression(elVar, libExports.identifier("__geaItem")), libExports.identifier("item"))
-    )
+    libExports.expressionStatement(libExports.assignmentExpression("=", buildExprGeaMember(elVar, "GEA_DOM_ITEM"), libExports.identifier("item")))
   );
   if (itemTemplateRootIsComponent && libExports.isJSXElement(arrayMap.itemTemplate)) {
     const propsProperties = [];
@@ -50746,11 +51466,11 @@ function generateCreateItemMethod(arrayMap, templatePropNames, wholeParamName, t
     for (const attr of cloned.openingElement.attributes) {
       if (!libExports.isJSXAttribute(attr) || !libExports.isJSXIdentifier(attr.name)) continue;
       const name = attr.name.name;
-      if (name === "key" || EVENT_NAMES$1.has(name)) continue;
+      if (name === "key" || EVENT_NAMES.has(name)) continue;
       if (!libExports.isJSXExpressionContainer(attr.value) || libExports.isJSXEmptyExpression(attr.value.expression)) continue;
       const exprClone = libExports.cloneNode(attr.value.expression, true);
       const tempProg = libExports.file(libExports.program([libExports.expressionStatement(exprClone)]));
-      traverse$9(tempProg, {
+      traverse$a(tempProg, {
         Identifier(path) {
           if (path.node.name === arrayMap.itemVariable) path.node.name = "item";
           else if (arrayMap.indexVariable && path.node.name === arrayMap.indexVariable) path.node.name = "__idx";
@@ -50769,11 +51489,7 @@ function generateCreateItemMethod(arrayMap, templatePropNames, wholeParamName, t
     if (propsProperties.length > 0) {
       body.push(
         libExports.expressionStatement(
-          libExports.assignmentExpression(
-            "=",
-            libExports.memberExpression(elVar, libExports.identifier("__geaProps")),
-            libExports.objectExpression(propsProperties)
-          )
+          libExports.assignmentExpression("=", buildExprGeaMember(elVar, "GEA_DOM_PROPS"), libExports.objectExpression(propsProperties))
         )
       );
     }
@@ -50781,11 +51497,15 @@ function generateCreateItemMethod(arrayMap, templatePropNames, wholeParamName, t
   body.push(libExports.returnStatement(elVar));
   const createParams = [libExports.identifier("item")];
   if (arrayMap.indexVariable) createParams.push(libExports.identifier("__idx"));
-  return libExports.classMethod("method", libExports.identifier(methodName), createParams, libExports.blockStatement(body));
+  return {
+    method: libExports.classMethod("method", libExports.identifier(methodName), createParams, libExports.blockStatement(body)),
+    needsRawStoreCache: useRawStoreCache,
+    privateFields
+  };
 }
 function templateRequiresRerender(file) {
   let requiresRerender = false;
-  traverse$9(file, {
+  traverse$a(file, {
     noScope: true,
     ConditionalExpression(path) {
       if (branchContainsJSX(path.node.consequent) || branchContainsJSX(path.node.alternate)) {
@@ -50805,7 +51525,7 @@ function templateRequiresRerender(file) {
 function branchContainsJSX(expr) {
   let containsJSX = false;
   const program = libExports.program([libExports.expressionStatement(libExports.cloneNode(expr, true))]);
-  traverse$9(program, {
+  traverse$a(program, {
     noScope: true,
     JSXElement(path) {
       containsJSX = true;
@@ -50819,38 +51539,6 @@ function branchContainsJSX(expr) {
   return containsJSX;
 }
 
-const EVENT_NAMES = /* @__PURE__ */ new Set([
-  "click",
-  "dblclick",
-  "mousedown",
-  "mouseup",
-  "mouseover",
-  "mouseout",
-  "mousemove",
-  "keydown",
-  "keyup",
-  "keypress",
-  "focus",
-  "blur",
-  "input",
-  "change",
-  "submit",
-  "scroll",
-  "touchstart",
-  "touchmove",
-  "touchend",
-  "tap",
-  "longTap",
-  "swipeRight",
-  "swipeUp",
-  "swipeLeft",
-  "swipeDown",
-  "dragstart",
-  "dragend",
-  "dragover",
-  "dragleave",
-  "drop"
-]);
 const EVENT_TYPES = /* @__PURE__ */ new Set([
   "click",
   "dblclick",
@@ -50927,7 +51615,7 @@ function buildEventIdExpr(suffix) {
     libExports.stringLiteral("-" + suffix)
   );
 }
-function jsxToStaticHtml(node, refCounter, elementPath = [], isRoot = true) {
+function jsxToStaticHtml(node, refCounter, elementPath = [], _isRoot = true) {
   const tagName = getJSXTagName(node.openingElement.name);
   const isComp = Boolean(tagName && isComponentTag(tagName));
   if (isComp) return null;
@@ -51010,7 +51698,8 @@ function collectClonePatchEntries(node, path, entries, rootIsComponent = false) 
   for (const attr of node.openingElement.attributes) {
     if (!libExports.isJSXAttribute(attr) || !libExports.isJSXIdentifier(attr.name)) continue;
     const name = attr.name.name;
-    if (name === "key" || EVENT_NAMES.has(name)) continue;
+    if (name === "key" || name === "id" || name === "ref" || EVENT_NAMES$1.has(name) || EVENT_NAMES$1.has(toGeaEventType(name)))
+      continue;
     if (!libExports.isJSXExpressionContainer(attr.value) || libExports.isJSXEmptyExpression(attr.value.expression)) continue;
     if (name === "class" || name === "className") {
       entries.push({
@@ -51083,6 +51772,21 @@ function collectClonePatchEntries(node, path, entries, rootIsComponent = false) 
     collectClonePatchEntries(dc.node, [...path, idx], entries, isCompChild);
   });
 }
+function rewritePropsForClone(expr, propContext) {
+  const paramName = propContext.propsParamName;
+  if (!paramName) return expr;
+  if (libExports.isMemberExpression(expr) && libExports.isIdentifier(expr.object) && expr.object.name === paramName) {
+    return libExports.memberExpression(
+      libExports.memberExpression(libExports.thisExpression(), libExports.identifier("props")),
+      expr.property,
+      expr.computed
+    );
+  }
+  if (libExports.isIdentifier(expr) && expr.name === paramName) {
+    return libExports.memberExpression(libExports.thisExpression(), libExports.identifier("props"));
+  }
+  return expr;
+}
 function collectIdentityPatchesForElement(node, elementPath, childPath, ctx, patches) {
   const tagName = getJSXTagName(node.openingElement.name);
   const isComp = Boolean(tagName && isComponentTag(tagName));
@@ -51093,15 +51797,48 @@ function collectIdentityPatchesForElement(node, elementPath, childPath, ctx, pat
     (attr) => libExports.isJSXAttribute(attr) && libExports.isJSXIdentifier(attr.name) && attr.name.name === "id"
   );
   let hasBindingId = false;
+  const resolveUserIdExpr = () => {
+    const rawPathKey = elementPath.join(" > ");
+    const pathKey = ctx.elementPathPrefix ? ctx.elementPathPrefix + " > " + rawPathKey : rawPathKey;
+    return ctx.elementPathToUserIdExpr?.get(pathKey) ?? (ctx.elementPathPrefix ? void 0 : ctx.elementPathToUserIdExpr?.get(rawPathKey));
+  };
   if (ctx.isRoot) {
-    patches.push({ kind: "id", childPath: [...childPath], expr: buildEventIdExpr() });
+    const userIdExpr = resolveUserIdExpr();
+    if (userIdExpr) {
+      if (!libExports.isStringLiteral(userIdExpr)) {
+        patches.push({
+          kind: "id",
+          childPath: [...childPath],
+          expr: rewritePropsForClone(libExports.cloneNode(userIdExpr, true), propContext)
+        });
+      }
+      patches.push({
+        kind: "attr",
+        childPath: [...childPath],
+        expr: libExports.memberExpression(libExports.thisExpression(), libExports.identifier("id")),
+        attrName: "data-gea-cid"
+      });
+    } else {
+      patches.push({ kind: "id", childPath: [...childPath], expr: buildEventIdExpr() });
+    }
     hasBindingId = true;
   } else {
     const rawPathKey = elementPath.join(" > ");
     const pathKey = ctx.elementPathPrefix ? ctx.elementPathPrefix + " > " + rawPathKey : rawPathKey;
     const bindingId = ctx.elementPathToBindingId.get(pathKey) ?? (ctx.elementPathPrefix ? void 0 : ctx.elementPathToBindingId.get(rawPathKey));
     if (bindingId !== void 0 && bindingId !== "") {
-      patches.push({ kind: "id", childPath: [...childPath], expr: buildEventIdExpr(bindingId) });
+      const userIdExpr = resolveUserIdExpr();
+      if (userIdExpr) {
+        if (!libExports.isStringLiteral(userIdExpr)) {
+          patches.push({
+            kind: "id",
+            childPath: [...childPath],
+            expr: rewritePropsForClone(libExports.cloneNode(userIdExpr, true), propContext)
+          });
+        }
+      } else {
+        patches.push({ kind: "id", childPath: [...childPath], expr: buildEventIdExpr(bindingId) });
+      }
       hasBindingId = true;
     }
   }
@@ -51130,22 +51867,44 @@ function collectIdentityPatchesForElement(node, elementPath, childPath, ctx, pat
         let selectorExpression;
         let selector;
         if (ctx.isRoot) {
-          selectorExpression = libExports.templateLiteral(
-            [libExports.templateElement({ raw: "#", cooked: "#" }, false), libExports.templateElement({ raw: "", cooked: "" }, true)],
-            [libExports.memberExpression(libExports.thisExpression(), libExports.identifier("id"))]
-          );
+          const userIdExpr = resolveUserIdExpr();
+          if (userIdExpr) {
+            selectorExpression = libExports.isStringLiteral(userIdExpr) ? libExports.stringLiteral(`#${userIdExpr.value}`) : libExports.templateLiteral(
+              [
+                libExports.templateElement({ raw: "#", cooked: "#" }, false),
+                libExports.templateElement({ raw: "", cooked: "" }, true)
+              ],
+              [libExports.cloneNode(userIdExpr, true)]
+            );
+          } else {
+            selectorExpression = libExports.templateLiteral(
+              [libExports.templateElement({ raw: "#", cooked: "#" }, false), libExports.templateElement({ raw: "", cooked: "" }, true)],
+              [libExports.memberExpression(libExports.thisExpression(), libExports.identifier("id"))]
+            );
+          }
         } else {
           const rawPathKey2 = elementPath.join(" > ");
           const pathKey2 = ctx.elementPathPrefix ? ctx.elementPathPrefix + " > " + rawPathKey2 : rawPathKey2;
           const bindingId = ctx.elementPathToBindingId.get(pathKey2) ?? (ctx.elementPathPrefix ? void 0 : ctx.elementPathToBindingId.get(rawPathKey2));
           if (bindingId !== void 0 && bindingId !== "") {
-            selectorExpression = libExports.templateLiteral(
-              [
-                libExports.templateElement({ raw: "#", cooked: "#" }, false),
-                libExports.templateElement({ raw: `-${bindingId}`, cooked: `-${bindingId}` }, true)
-              ],
-              [libExports.memberExpression(libExports.thisExpression(), libExports.identifier("id"))]
-            );
+            const userIdExpr2 = resolveUserIdExpr();
+            if (userIdExpr2) {
+              selectorExpression = libExports.isStringLiteral(userIdExpr2) ? libExports.stringLiteral(`#${userIdExpr2.value}`) : libExports.templateLiteral(
+                [
+                  libExports.templateElement({ raw: "#", cooked: "#" }, false),
+                  libExports.templateElement({ raw: "", cooked: "" }, true)
+                ],
+                [libExports.cloneNode(userIdExpr2, true)]
+              );
+            } else {
+              selectorExpression = libExports.templateLiteral(
+                [
+                  libExports.templateElement({ raw: "#", cooked: "#" }, false),
+                  libExports.templateElement({ raw: `-${bindingId}`, cooked: `-${bindingId}` }, true)
+                ],
+                [libExports.memberExpression(libExports.thisExpression(), libExports.identifier("id"))]
+              );
+            }
           } else if (!explicitIdAttr) {
             if (!generatedEventSuffix) {
               generatedEventSuffix = `ev${ctx.eventIdCounter.value ?? 0}`;
@@ -51162,6 +51921,41 @@ function collectIdentityPatchesForElement(node, elementPath, childPath, ctx, pat
                 libExports.templateElement({ raw: `-${generatedEventSuffix}`, cooked: `-${generatedEventSuffix}` }, true)
               ],
               [libExports.memberExpression(libExports.thisExpression(), libExports.identifier("id"))]
+            );
+          } else if (explicitIdAttr && libExports.isJSXAttribute(explicitIdAttr)) {
+            const idVal = explicitIdAttr.value;
+            let userExpr;
+            if (libExports.isStringLiteral(idVal)) {
+              userExpr = libExports.stringLiteral(idVal.value);
+            } else if (libExports.isJSXExpressionContainer(idVal) && !libExports.isJSXEmptyExpression(idVal.expression)) {
+              userExpr = idVal.expression;
+            }
+            if (!userExpr) {
+              const err = new Error(
+                `[gea] Event delegation requires id="..." or id={expr} when an id attribute is present on this element.`
+              );
+              err.__geaCompileError = true;
+              throw err;
+            }
+            if (!libExports.isStringLiteral(userExpr)) {
+              patches.push({
+                kind: "id",
+                childPath: [...childPath],
+                expr: rewritePropsForClone(libExports.cloneNode(userExpr, true), propContext)
+              });
+            }
+            selectorExpression = libExports.isStringLiteral(userExpr) ? libExports.stringLiteral(`#${userExpr.value}`) : libExports.templateLiteral(
+              [
+                libExports.templateElement({ raw: "#", cooked: "#" }, false),
+                libExports.templateElement({ raw: "", cooked: "" }, true)
+              ],
+              [
+                replacePropRefsInExpression(
+                  libExports.cloneNode(userExpr, true),
+                  propContext.destructuredPropNames,
+                  propContext.propsParamName
+                )
+              ]
             );
           } else {
             if (!generatedEventToken) {
@@ -51212,6 +52006,7 @@ function generateCloneMembers(root, analysis, templateParams, sourceFile, import
     [],
     {
       elementPathToBindingId: analysis.elementPathToBindingId,
+      elementPathToUserIdExpr: analysis.elementPathToUserIdExpr,
       templateParams,
       sourceFile,
       imports,
@@ -51260,7 +52055,7 @@ function generateCloneMembers(root, analysis, templateParams, sourceFile, import
     true
   );
   const cloneMethodBody = buildCloneTemplateBody(identityPatches, contentPatches, cloneCtx);
-  const cloneMethod = libExports.classMethod("method", libExports.identifier("__cloneTemplate"), [], libExports.blockStatement(cloneMethodBody));
+  const cloneMethod = libExports.classMethod("method", libExports.identifier("GEA_CLONE_TEMPLATE"), [], libExports.blockStatement(cloneMethodBody), true);
   return [staticField, cloneMethod];
 }
 function buildCloneTemplateBody(identityPatches, contentPatches, cloneCtx) {
@@ -51316,6 +52111,15 @@ function buildCloneTemplateBody(identityPatches, contentPatches, cloneCtx) {
     if (patch.kind === "id") {
       stmts.push(
         libExports.expressionStatement(libExports.assignmentExpression("=", libExports.memberExpression(nav, libExports.identifier("id")), patch.expr))
+      );
+    } else if (patch.kind === "attr") {
+      stmts.push(
+        libExports.expressionStatement(
+          libExports.callExpression(libExports.memberExpression(nav, libExports.identifier("setAttribute")), [
+            libExports.stringLiteral(patch.attrName),
+            patch.expr
+          ])
+        )
       );
     } else {
       stmts.push(
@@ -51448,6 +52252,7 @@ function buildCloneTemplateBody(identityPatches, contentPatches, cloneCtx) {
   return stmts;
 }
 
+const generate$2 = typeof babelGenerator.default === "function" ? babelGenerator.default : babelGenerator;
 function getTemplateParamContext(classBody) {
   const templateMethod = classBody.body.find(
     (m) => libExports.isClassMethod(m) && libExports.isIdentifier(m.key) && m.key.name === "template"
@@ -51471,35 +52276,26 @@ function getTemplateParamContext(classBody) {
 function getMapContextKey(ctx) {
   const store = ctx.storeVar || "store";
   const path = ctx.arrayPathParts.join("_");
-  return `${store}_${path}_${ctx.itemIdProperty}`;
+  const keyPart = ctx.keyExpression ? `expr:${generate$2(ctx.keyExpression).code}` : ctx.itemIdProperty;
+  return `${store}_${path}_${keyPart}`;
 }
 function ensureMapItemHelper(classBody, ctx, helperName) {
   if (classBody.body.some((m) => libExports.isClassMethod(m) && libExports.isIdentifier(m.key) && m.key.name === helperName)) return;
-  const itemsExpr = (() => {
-    const [first] = ctx.arrayPathParts;
-    const unresolvedMatch = first?.match(/^__unresolved_(\d+)$/);
-    if (unresolvedMatch) {
-      const mapIdx = Number(unresolvedMatch[1]);
-      return libExports.callExpression(
-        libExports.memberExpression(
-          libExports.memberExpression(
-            libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__geaMaps")),
-            libExports.numericLiteral(mapIdx),
-            true
-          ),
-          libExports.identifier("getItems")
-        ),
-        []
-      );
-    }
-    const base = ctx.isImportedState ? libExports.identifier(ctx.storeVar || "store") : libExports.thisExpression();
-    if (ctx.arrayPathParts.length === 0) return base;
-    const [, ...rest] = ctx.arrayPathParts;
-    const isIndex = /^\d+$/.test(first);
-    const optionalFirst = ctx.isImportedState ? libExports.memberExpression(base, isIndex ? libExports.numericLiteral(Number(first)) : libExports.identifier(first), isIndex) : libExports.optionalMemberExpression(base, isIndex ? libExports.numericLiteral(Number(first)) : libExports.identifier(first), isIndex, true);
-    return rest.length > 0 ? buildMemberChainFromParts(optionalFirst, rest) : optionalFirst;
-  })();
-  const findPredicate = ctx.itemIdProperty && ctx.itemIdProperty !== ITEM_IS_KEY ? libExports.arrowFunctionExpression(
+  const itemsExpr = buildArrayItemsExpr(ctx);
+  const findPredicate = ctx.keyExpression ? libExports.arrowFunctionExpression(
+    [libExports.identifier("__candidate")],
+    libExports.binaryExpression(
+      "===",
+      libExports.callExpression(libExports.identifier("String"), [
+        rewriteItemVarInExpression(
+          libExports.cloneNode(ctx.keyExpression, true),
+          ctx.itemVariable,
+          "__candidate"
+        )
+      ]),
+      libExports.identifier("__itemId")
+    )
+  ) : ctx.itemIdProperty && ctx.itemIdProperty !== ITEM_IS_KEY ? libExports.arrowFunctionExpression(
     [libExports.identifier("__candidate")],
     libExports.binaryExpression(
       "===",
@@ -51527,16 +52323,35 @@ function ensureMapItemHelper(classBody, ctx, helperName) {
       libExports.identifier("__itemId")
     )
   );
-  const method = jsMethod`${id(helperName)}(e) {
-    const __el = e.target.closest('[data-gea-item-id]');
-    if (!__el) return null;
-    if (__el.__geaItem) return __el.__geaItem;
-    const __itemId = __el.getAttribute('data-gea-item-id');
-    if (__itemId == null) return null;
-    const __items = ${itemsExpr};
-    const __arr = Array.isArray(__items) ? __items : Array.isArray(__items?.__getTarget) ? __items.__getTarget : [];
-    return __arr.find(${findPredicate}) || __itemId;
-  }`;
+  const method = jsMethod`${id(helperName)}(e) {}`;
+  if (!ctx.keyExpression && ctx.itemIdProperty && ctx.itemIdProperty !== ITEM_IS_KEY) {
+    method.body.body.push(
+      ...buildGeaItemDomWalk(),
+      ...jsBlockBody`
+        if (!__el) return null;
+        if (__el[GEA_DOM_ITEM]) return __el[GEA_DOM_ITEM];
+        const __itemId = __el[GEA_DOM_KEY] ?? (__el.getAttribute && __el.getAttribute('data-gea-item-id'));
+        if (__itemId == null) return null;
+        const __items = ${itemsExpr};
+        const __arr = Array.isArray(__items) ? __items : Array.isArray(__items?.[GEA_PROXY_GET_TARGET]) ? __items[GEA_PROXY_GET_TARGET] : [];
+        const __found = __arr.find(${findPredicate});
+        return __found != null ? __found : { ${ctx.itemIdProperty}: __itemId };
+      `
+    );
+  } else {
+    method.body.body.push(
+      ...buildGeaItemDomWalk(),
+      ...jsBlockBody`
+        if (!__el) return null;
+        if (__el[GEA_DOM_ITEM]) return __el[GEA_DOM_ITEM];
+        const __itemId = __el[GEA_DOM_KEY] ?? (__el.getAttribute && __el.getAttribute('data-gea-item-id'));
+        if (__itemId == null) return null;
+        const __items = ${itemsExpr};
+        const __arr = Array.isArray(__items) ? __items : Array.isArray(__items?.[GEA_PROXY_GET_TARGET]) ? __items[GEA_PROXY_GET_TARGET] : [];
+        return __arr.find(${findPredicate}) || __itemId;
+      `
+    );
+  }
   classBody.body.unshift(method);
 }
 function getLocalFunctionInSetup(name, setupStatements) {
@@ -51548,12 +52363,17 @@ function getLocalFunctionInSetup(name, setupStatements) {
   }
   return null;
 }
-function appendCompiledEventMethods(classBody, handlers, setupStatements = []) {
+function appendCompiledEventMethods(classBody, handlers, setupStatements = [], fileAst) {
   if (handlers.length === 0) return false;
   const paramContext = getTemplateParamContext(classBody);
   const mapHandlers = handlers.filter(
     (h) => Boolean(h.mapContext)
   );
+  if (mapHandlers.length > 0 && fileAst) {
+    ensureImport(fileAst, "@geajs/core", "GEA_MAPS");
+    ensureImport(fileAst, "@geajs/core", "GEA_DOM_KEY");
+    ensureImport(fileAst, "@geajs/core", "GEA_DOM_ITEM");
+  }
   const seenContexts = /* @__PURE__ */ new Set();
   for (const h of mapHandlers) {
     const key = getMapContextKey(h.mapContext);
@@ -51568,6 +52388,13 @@ function appendCompiledEventMethods(classBody, handlers, setupStatements = []) {
 function isDirectThisMethodRef(handler) {
   return !!handler.handlerExpression && libExports.isMemberExpression(handler.handlerExpression) && libExports.isThisExpression(handler.handlerExpression.object) && libExports.isIdentifier(handler.handlerExpression.property) && !handler.delegatedPropName && !handler.mapContext;
 }
+function wrapEventsGetterHandlerRef(methodProperty) {
+  const callee = libExports.memberExpression(libExports.thisExpression(), methodProperty);
+  return libExports.arrowFunctionExpression(
+    [libExports.identifier("e"), libExports.identifier("targetComponent")],
+    libExports.callExpression(callee, [libExports.identifier("e"), libExports.identifier("targetComponent")])
+  );
+}
 function appendEventsGetterHandlers(classBody, handlers, paramContext, setupStatements) {
   const getter = ensureEventsGetter(classBody);
   const eventsObject = getEventsObject(getter);
@@ -51576,7 +52403,7 @@ function appendEventsGetterHandlers(classBody, handlers, paramContext, setupStat
     let handlerRef;
     if (isDirectThisMethodRef(handler)) {
       const prop = handler.handlerExpression.property;
-      handlerRef = libExports.memberExpression(libExports.thisExpression(), libExports.cloneNode(prop));
+      handlerRef = wrapEventsGetterHandlerRef(libExports.cloneNode(prop));
     } else {
       let methodName = handler.methodName || `__event_${handler.eventType}_${index}`;
       let uniqueIndex = 1;
@@ -51587,9 +52414,13 @@ function appendEventsGetterHandlers(classBody, handlers, paramContext, setupStat
       if (!findClassMethod(classBody, methodName)) {
         classBody.body.push(buildSelectorHandlerMethod(handler, methodName, paramContext, setupStatements));
       }
-      handlerRef = libExports.memberExpression(libExports.thisExpression(), libExports.identifier(methodName));
+      handlerRef = wrapEventsGetterHandlerRef(libExports.identifier(methodName));
     }
-    const selectorExpr = handler.selectorExpression || (handler.selector ? libExports.stringLiteral(handler.selector) : libExports.stringLiteral(`.__missing_selector_${index}`));
+    const selectorExpr = handler.selectorExpression ? replacePropRefsInExpression(
+      libExports.cloneNode(handler.selectorExpression, true),
+      paramContext.propNames,
+      paramContext.propsObjectName
+    ) : handler.selector ? libExports.stringLiteral(handler.selector) : libExports.stringLiteral(`.__missing_selector_${index}`);
     let eventTypeProp = eventsObject.properties.find(
       (prop) => libExports.isObjectProperty(prop) && !prop.computed && libExports.isIdentifier(prop.key) && prop.key.name === handler.eventType && libExports.isObjectExpression(prop.value)
     );
@@ -51717,7 +52548,7 @@ function replacePropsObjectRefsInNode(node, propsObjectName) {
       replacePropsObjectRefsInNode(node.object, propsObjectName),
       node.property,
       node.computed,
-      node.optional
+      node.optional ?? true
     );
   }
   if (libExports.isOptionalCallExpression(node)) {
@@ -51726,7 +52557,7 @@ function replacePropsObjectRefsInNode(node, propsObjectName) {
       node.arguments.map(
         (a) => libExports.isExpression(a) ? replacePropsObjectRefsInNode(a, propsObjectName) : a
       ),
-      node.optional
+      node.optional ?? true
     );
   }
   if (libExports.isConditionalExpression(node)) {
@@ -51815,6 +52646,36 @@ function referencesIdentifier(nodes, name) {
   }
   return nodes.some(walk);
 }
+function buildArrayItemsExpr(ctx, opts = {}) {
+  const [first] = ctx.arrayPathParts;
+  const unresolvedMatch = first?.match(/^__unresolved_(\d+)$/);
+  if (unresolvedMatch) {
+    const mapIdx = Number(unresolvedMatch[1]);
+    return libExports.callExpression(
+      libExports.memberExpression(
+        libExports.memberExpression(
+          libExports.memberExpression(libExports.thisExpression(), libExports.identifier("GEA_MAPS"), true),
+          libExports.numericLiteral(mapIdx),
+          true
+        ),
+        libExports.identifier("getItems")
+      ),
+      []
+    );
+  }
+  const base = ctx.isImportedState ? opts.raw ? buildExprGeaMember(libExports.identifier(ctx.storeVar || "store"), "GEA_PROXY_RAW") : libExports.identifier(ctx.storeVar || "store") : libExports.thisExpression();
+  if (ctx.arrayPathParts.length === 0) return base;
+  const [, ...rest] = ctx.arrayPathParts;
+  const isIndex = /^\d+$/.test(first);
+  const firstAccess = ctx.isImportedState ? libExports.memberExpression(base, isIndex ? libExports.numericLiteral(Number(first)) : libExports.identifier(first), isIndex) : libExports.optionalMemberExpression(base, isIndex ? libExports.numericLiteral(Number(first)) : libExports.identifier(first), isIndex, true);
+  return rest.length > 0 ? buildMemberChainFromParts(firstAccess, rest) : firstAccess;
+}
+function buildGeaItemDomWalk() {
+  return jsBlockBody`
+    var __el = e.target;
+    while (__el && __el[GEA_DOM_KEY] == null && (!__el.getAttribute || !__el.getAttribute('data-gea-item-id'))) __el = __el.parentElement;
+  `;
+}
 function buildMapEventBody(handler, paramContext) {
   const ctx = handler.mapContext;
   const itemVar = ctx.itemVariable || "item";
@@ -51823,15 +52684,29 @@ function buildMapEventBody(handler, paramContext) {
     extractHandlerBody(handler.handlerExpression, paramContext.propNames),
     paramContext
   );
+  const needsItem = referencesIdentifier(handlerBody, itemVar);
+  const needsIndex = !!(ctx.indexVariable && referencesIdentifier(handlerBody, ctx.indexVariable));
+  if (needsIndex && !needsItem) {
+    const rawArrayExpr = buildArrayItemsExpr(ctx, { raw: true });
+    const preamble2 = [
+      ...buildGeaItemDomWalk(),
+      ...jsBlockBody`
+        if (!__el || !__el[GEA_DOM_ITEM]) return;
+        const ${id(ctx.indexVariable)} = ${rawArrayExpr}.indexOf(__el[GEA_DOM_ITEM]);
+      `
+    ];
+    return [...preamble2, ...handlerBody];
+  }
   const preamble = jsBlockBody`
     const ${id(itemVar)} = this.${id(helperName)}(e);
     if (!${id(itemVar)}) { return; }
   `;
-  if (ctx.indexVariable && referencesIdentifier(handlerBody, ctx.indexVariable)) {
+  if (needsIndex) {
+    const rawArrayExpr = buildArrayItemsExpr(ctx, { raw: true });
     preamble.push(
+      ...buildGeaItemDomWalk(),
       ...jsBlockBody`
-        const __el = e.target.closest('[data-gea-item-id]');
-        const ${id(ctx.indexVariable)} = __el ? Array.prototype.indexOf.call(__el.parentNode.children, __el) : -1;
+        const ${id(ctx.indexVariable)} = __el ? ${rawArrayExpr}.indexOf(__el[GEA_DOM_ITEM]) : -1;
       `
     );
   }
@@ -51874,7 +52749,7 @@ function findClassMethod(classBody, name) {
 function childHasNoProps(child) {
   return libExports.isObjectExpression(child.propsExpression) && child.propsExpression.properties.length === 0;
 }
-const traverse$8 = babelTraverse.default || babelTraverse;
+const traverse$9 = babelTraverse.default || babelTraverse;
 function getDirectPropMappings(child, templatePropNames) {
   if (!child.propsExpression || !libExports.isObjectExpression(child.propsExpression)) return null;
   const mappings = [];
@@ -51888,16 +52763,17 @@ function getDirectPropMappings(child, templatePropNames) {
   }
   return mappings.length > 0 ? mappings : null;
 }
-function injectChildComponents(ast, componentInstances, directForwardingChildren) {
+function injectChildComponents(ast, componentInstances, directForwardingChildren, className) {
   if (componentInstances.size === 0) return;
   const childComponents = Array.from(componentInstances.values()).flat();
   const constructionOrder = [...childComponents].sort((a, b) => (b.dfsIndex ?? 0) - (a.dfsIndex ?? 0));
   const instanceStatements = buildInstanceStatements(constructionOrder, directForwardingChildren);
   const lazyChildren = constructionOrder.filter((child) => child.lazy);
   let injected = false;
-  traverse$8(ast, {
+  traverse$9(ast, {
     ClassDeclaration(path) {
       if (!libExports.isIdentifier(path.node.superClass)) return;
+      if (className && (!libExports.isIdentifier(path.node.id) || path.node.id.name !== className)) return;
       const existingCtor = path.node.body.body.find(
         (m) => libExports.isClassMethod(m) && libExports.isIdentifier(m.key) && m.key.name === "constructor"
       );
@@ -51950,10 +52826,7 @@ function injectChildComponents(ast, componentInstances, directForwardingChildren
                 libExports.assignmentExpression(
                   "=",
                   libExports.memberExpression(libExports.thisExpression(), libExports.identifier(backingField)),
-                  libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__child")), [
-                    libExports.identifier(child.tagName),
-                    propsArg
-                  ])
+                  libExports.callExpression(buildThisGeaMember("GEA_CHILD"), [libExports.identifier(child.tagName), propsArg])
                 )
               )
             ),
@@ -51973,14 +52846,19 @@ function injectChildComponents(ast, componentInstances, directForwardingChildren
     }
   });
 }
-function injectComponentRegistrations(ast, componentInstances) {
-  traverse$8(ast, {
+function injectComponentRegistrations(ast, componentInstances, className) {
+  traverse$9(ast, {
     ClassMethod(path) {
       if (!libExports.isIdentifier(path.node.key) || path.node.key.name !== "template") return;
+      if (className) {
+        const ownerClass = path.findParent((p) => libExports.isClassDeclaration(p.node));
+        if (ownerClass && libExports.isIdentifier(ownerClass.node.id) && ownerClass.node.id.name !== className) return;
+      }
       const registrations = Array.from(componentInstances.keys()).map(
         (tagName) => libExports.expressionStatement(
           libExports.callExpression(libExports.memberExpression(libExports.identifier("Component"), libExports.identifier("_register")), [
-            libExports.identifier(tagName)
+            libExports.identifier(tagName),
+            libExports.stringLiteral(pascalToKebabCase(tagName))
           ])
         )
       );
@@ -52021,10 +52899,7 @@ function buildInstanceStatements(instances, directForwardingChildren) {
         libExports.assignmentExpression(
           "=",
           libExports.memberExpression(libExports.thisExpression(), libExports.identifier(child.instanceVar)),
-          libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__child")), [
-            libExports.identifier(child.tagName),
-            propsArg
-          ])
+          libExports.callExpression(buildThisGeaMember("GEA_CHILD"), [libExports.identifier(child.tagName), propsArg])
         )
       )
     );
@@ -52103,7 +52978,7 @@ function buildPropsBuilderMethod(child) {
   return appendToBody(jsMethod`${id(getPropsBuilderMethodName(child))}() {}`, ...prunedSetup, returnStmt);
 }
 
-const traverse$7 = babelTraverse.default || babelTraverse;
+const traverse$8 = babelTraverse.default || babelTraverse;
 function buildPathPartsEquals$1(expr, parts) {
   return parts.reduce(
     (acc, part, index) => libExports.logicalExpression(
@@ -52148,16 +53023,13 @@ function buildValueExpression(textExpr, stateRefs) {
     return rewriteStateRefs(libExports.cloneNode(textExpr.expression, true), stateRefs);
   }
   if (textExpr.isImportedState && textExpr.storeVar) {
-    return buildMemberChainFromParts(
-      libExports.memberExpression(libExports.identifier(textExpr.storeVar), libExports.identifier("__store")),
-      textExpr.pathParts
-    );
+    return buildMemberChainFromParts(libExports.identifier(textExpr.storeVar), textExpr.pathParts);
   }
   return buildMemberChainFromParts(libExports.thisExpression(), textExpr.pathParts);
 }
 function rewriteStateRefs(expr, stateRefs) {
   const prog = libExports.program([libExports.expressionStatement(expr)]);
-  traverse$7(prog, {
+  traverse$8(prog, {
     noScope: true,
     Identifier(path) {
       if (path.parentPath && libExports.isMemberExpression(path.parentPath.node) && path.parentPath.node.property === path.node && !path.parentPath.node.computed)
@@ -52171,25 +53043,28 @@ function rewriteStateRefs(expr, stateRefs) {
       } else if (ref.kind === "local") {
         path.replaceWith(libExports.thisExpression());
       } else if ((ref.kind === "imported-destructured" || ref.kind === "store-alias") && ref.storeVar && ref.propName) {
-        path.replaceWith(
-          libExports.memberExpression(
-            libExports.memberExpression(libExports.identifier(ref.storeVar), libExports.identifier("__store")),
-            libExports.identifier(ref.propName)
-          )
-        );
+        path.replaceWith(libExports.memberExpression(libExports.identifier(ref.storeVar), libExports.identifier(ref.propName)));
         path.skip();
       } else if (ref.kind === "local-destructured" && ref.propName) {
         path.replaceWith(libExports.memberExpression(libExports.thisExpression(), libExports.identifier(ref.propName)));
         path.skip();
-      } else {
-        path.replaceWith(libExports.memberExpression(libExports.identifier(path.node.name), libExports.identifier("__store")));
+      } else if (ref.kind === "imported") {
         path.skip();
+      } else {
+        throw new Error(`rewriteStateRefs: unhandled state ref kind ${ref.kind}`);
       }
     }
   });
   return prog.body[0].expression;
 }
-function buildElementLookup(binding) {
+function buildElementLookup(binding, stateRefs) {
+  if (binding.userIdExpr) {
+    let idExpr2 = libExports.cloneNode(binding.userIdExpr, true);
+    if (stateRefs && !libExports.isStringLiteral(idExpr2)) {
+      idExpr2 = rewriteStateRefs(idExpr2, stateRefs);
+    }
+    return libExports.callExpression(libExports.memberExpression(libExports.identifier("document"), libExports.identifier("getElementById")), [idExpr2]);
+  }
   if (binding.bindingId === void 0) {
     return libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("$")), [
       libExports.stringLiteral(binding.selector)
@@ -52206,7 +53081,7 @@ function buildElementLookup(binding) {
   return libExports.callExpression(libExports.memberExpression(libExports.identifier("document"), libExports.identifier("getElementById")), [idExpr]);
 }
 function buildSimpleUpdate(binding, param, stateRefs) {
-  const el = buildElementLookup(binding);
+  const el = buildElementLookup(binding, stateRefs);
   const target = buildTargetProp(binding);
   const valueExpr = binding.textTemplate ? buildTextTemplateExpression(binding, stateRefs) || param : param;
   if (binding.type === "class") {
@@ -52216,11 +53091,11 @@ function buildSimpleUpdate(binding, param, stateRefs) {
   }
   if (binding.textNodeIndex !== void 0 && binding.type === "text") {
     const idx = libExports.numericLiteral(binding.textNodeIndex);
-    return js`if (${el}) { const __tn = ${jsExpr`${el}.childNodes[${idx}]`}; if (__tn && __tn.nodeValue !== ${valueExpr}) __tn.nodeValue = ${valueExpr}; }`;
+    return js`if (${el}) { let __tn = ${jsExpr`${el}.childNodes[${idx}]`}; if (!__tn || __tn.nodeType !== 3) { __tn = document.createTextNode(${valueExpr}); ${jsExpr`${el}.insertBefore(__tn, ${el}.childNodes[${idx}] || null)`}; } else if (__tn.nodeValue !== ${valueExpr}) { __tn.nodeValue = ${valueExpr}; } }`;
   }
-  if (target === "textContent" && binding.bindingId && binding.bindingId !== "") {
+  if (target === "textContent" && binding.bindingId && binding.bindingId !== "" && !binding.userIdExpr) {
     const suffix = libExports.stringLiteral(binding.bindingId);
-    return js`${jsExpr`this.__updateText(${suffix}, ${valueExpr})`};`;
+    return libExports.expressionStatement(libExports.callExpression(buildThisGeaMember("GEA_UPDATE_TEXT"), [suffix, valueExpr]));
   }
   return js`if (${el}) { ${jsExpr`${el}.${id(target)}`} = ${valueExpr}; }`;
 }
@@ -52354,7 +53229,8 @@ function mergeObserveHandlers(bindings, stateRefs) {
   return byPath;
 }
 
-const traverse$6 = babelTraverse.default || babelTraverse;
+const URL_ATTRS$1 = /* @__PURE__ */ new Set(["href", "src", "action", "formaction", "data", "cite", "poster", "background"]);
+const traverse$7 = babelTraverse.default || babelTraverse;
 function getArrayPathParts(arrayMap) {
   return arrayMap.arrayPathParts || normalizePathParts(arrayMap.arrayPath || "");
 }
@@ -52465,12 +53341,32 @@ function buildPropPatcherFunction(binding, propName) {
           libExports.callExpression(libExports.identifier("String"), [libExports.identifier("__attrValue")])
         )
       )
-    ) : libExports.expressionStatement(
-      libExports.callExpression(libExports.memberExpression(target, libExports.identifier("setAttribute")), [
-        libExports.stringLiteral(attrName),
-        libExports.callExpression(libExports.identifier("String"), [libExports.identifier("__attrValue")])
-      ])
-    );
+    ) : libExports.blockStatement([
+      libExports.variableDeclaration("const", [
+        libExports.variableDeclarator(
+          libExports.identifier("__newAttr"),
+          URL_ATTRS$1.has(attrName) ? libExports.callExpression(libExports.identifier("geaSanitizeAttr"), [
+            libExports.stringLiteral(attrName),
+            libExports.callExpression(libExports.identifier("String"), [libExports.identifier("__attrValue")])
+          ]) : libExports.callExpression(libExports.identifier("String"), [libExports.identifier("__attrValue")])
+        )
+      ]),
+      libExports.ifStatement(
+        libExports.binaryExpression(
+          "!==",
+          libExports.callExpression(libExports.memberExpression(libExports.cloneNode(target, true), libExports.identifier("getAttribute")), [
+            libExports.stringLiteral(attrName)
+          ]),
+          libExports.identifier("__newAttr")
+        ),
+        libExports.expressionStatement(
+          libExports.callExpression(libExports.memberExpression(libExports.cloneNode(target, true), libExports.identifier("setAttribute")), [
+            libExports.stringLiteral(attrName),
+            libExports.identifier("__newAttr")
+          ])
+        )
+      )
+    ]);
     return libExports.arrowFunctionExpression(
       [row, value],
       libExports.blockStatement([
@@ -52521,7 +53417,7 @@ function buildPropPatcherFunction(binding, propName) {
 function collectItemExpressionKeys(expr) {
   const keys = /* @__PURE__ */ new Set();
   const program = libExports.program([libExports.expressionStatement(libExports.cloneNode(expr, true))]);
-  traverse$6(program, {
+  traverse$7(program, {
     noScope: true,
     MemberExpression(path) {
       if (!libExports.isIdentifier(path.node.object, { name: "item" })) return;
@@ -52536,7 +53432,17 @@ function buildPatchEntryPropPatcher(entry) {
   const value = libExports.identifier("value");
   const item = libExports.identifier("item");
   const target = libExports.identifier("__target");
-  const targetExpr = entry.childPath.length > 0 ? libExports.memberExpression(row, libExports.identifier(childPathRefName(entry.childPath))) : row;
+  const targetExpr = entry.childPath.length > 0 ? libExports.logicalExpression(
+    "||",
+    libExports.memberExpression(row, libExports.identifier(childPathRefName(entry.childPath))),
+    libExports.parenthesizedExpression(
+      libExports.assignmentExpression(
+        "=",
+        libExports.memberExpression(libExports.cloneNode(row, true), libExports.identifier(childPathRefName(entry.childPath))),
+        buildElementNavExpr(libExports.cloneNode(row, true), entry.childPath)
+      )
+    )
+  ) : row;
   if (entry.type === "className") {
     const isRoot2 = entry.childPath.length === 0;
     const stmts2 = [];
@@ -52602,12 +53508,29 @@ function buildPatchEntryPropPatcher(entry) {
           libExports.callExpression(libExports.identifier("String"), [libExports.identifier("__attrValue")])
         )
       )
-    ) : libExports.expressionStatement(
-      libExports.callExpression(libExports.memberExpression(target, libExports.identifier("setAttribute")), [
-        libExports.stringLiteral(attrName),
-        libExports.callExpression(libExports.identifier("String"), [libExports.identifier("__attrValue")])
-      ])
-    );
+    ) : libExports.blockStatement([
+      libExports.variableDeclaration("const", [
+        libExports.variableDeclarator(
+          libExports.identifier("__newAttr"),
+          libExports.callExpression(libExports.identifier("String"), [libExports.identifier("__attrValue")])
+        )
+      ]),
+      libExports.ifStatement(
+        libExports.binaryExpression(
+          "!==",
+          libExports.callExpression(libExports.memberExpression(libExports.cloneNode(target, true), libExports.identifier("getAttribute")), [
+            libExports.stringLiteral(attrName)
+          ]),
+          libExports.identifier("__newAttr")
+        ),
+        libExports.expressionStatement(
+          libExports.callExpression(libExports.memberExpression(libExports.cloneNode(target, true), libExports.identifier("setAttribute")), [
+            libExports.stringLiteral(attrName),
+            libExports.identifier("__newAttr")
+          ])
+        )
+      )
+    ]);
     return libExports.arrowFunctionExpression(
       [row, value, item],
       libExports.blockStatement([
@@ -52796,7 +53719,9 @@ function generateEnsureArrayConfigsMethod(arrayMaps) {
       ])
     );
   });
-  return appendToBody(jsMethod`${id("__ensureArrayConfigs")}() {}`, ...body);
+  const method = libExports.classMethod("method", libExports.identifier("GEA_ENSURE_ARRAY_CONFIGS"), [], libExports.blockStatement([]), true);
+  method.body.body.push(...body);
+  return method;
 }
 function generateArrayRelationalObserver(path, arrayMap, bindings, methodName) {
   const arrayPath = pathPartsToString(getArrayPathParts(arrayMap));
@@ -52804,9 +53729,11 @@ function generateArrayRelationalObserver(path, arrayMap, bindings, methodName) {
   const containerRef = libExports.memberExpression(libExports.thisExpression(), libExports.identifier(containerName));
   const previousValue = libExports.identifier("__previousValue");
   const previousRowName = `__prev_${pathPartsToString(path).replace(/\./g, "_")}_row`;
-  const previousRowProp = libExports.memberExpression(libExports.thisExpression(), libExports.identifier(previousRowName));
+  const previousRowProp = libExports.memberExpression(libExports.thisExpression(), libExports.privateName(libExports.identifier(previousRowName)));
+  const rowElsProp = `__rowEls_${arrayMap.containerBindingId ?? "list"}`;
+  const elsRef = libExports.memberExpression(libExports.thisExpression(), libExports.privateName(libExports.identifier(rowElsProp)));
   const body = [
-    lazyInit$1(containerName, arrayMap.containerSelector, arrayMap.containerBindingId),
+    lazyInit$1(containerName, arrayMap.containerSelector, arrayMap.containerBindingId, arrayMap.containerUserIdExpr),
     libExports.variableDeclaration("var", [
       libExports.variableDeclarator(
         previousValue,
@@ -52831,7 +53758,7 @@ function generateArrayRelationalObserver(path, arrayMap, bindings, methodName) {
             libExports.unaryExpression("!", libExports.memberExpression(libExports.identifier("__previousRow"), libExports.identifier("isConnected")))
           ),
           libExports.blockStatement(
-            buildFindIndexLookup(containerRef, previousValue, "__previousRow", arrayMap.containerBindingId)
+            buildElsLookup(elsRef, containerRef, previousValue, "__previousRow", arrayMap.containerBindingId)
           )
         ),
         libExports.ifStatement(
@@ -52844,7 +53771,7 @@ function generateArrayRelationalObserver(path, arrayMap, bindings, methodName) {
     libExports.ifStatement(
       libExports.binaryExpression("!=", libExports.identifier("value"), libExports.nullLiteral()),
       libExports.blockStatement([
-        ...buildFindIndexLookup(containerRef, libExports.identifier("value"), "__nextRow", arrayMap.containerBindingId),
+        ...buildElsLookup(elsRef, containerRef, libExports.identifier("value"), "__nextRow", arrayMap.containerBindingId),
         libExports.ifStatement(
           libExports.identifier("__nextRow"),
           libExports.blockStatement(buildRelationalClassStatements(libExports.identifier("__nextRow"), bindings, true, "new"))
@@ -52859,19 +53786,22 @@ function generateArrayRelationalObserver(path, arrayMap, bindings, methodName) {
       )
     )
   ];
-  return appendToBody(jsMethod`${id(methodName)}(value, change) {}`, ...body);
+  return {
+    method: appendToBody(jsMethod`${id(methodName)}(value, change) {}`, ...body),
+    privateFields: [previousRowName, rowElsProp]
+  };
 }
 function generateArrayConditionalPatchObserver(arrayMap, bindings, methodName) {
   const arrayPath = pathPartsToString(getArrayPathParts(arrayMap));
   const containerName = `__${arrayPath.replace(/\./g, "_")}_container`;
   const containerRef = libExports.memberExpression(libExports.thisExpression(), libExports.identifier(containerName));
   const proxiedArr = arrayMap.isImportedState ? buildMemberChain(
-    libExports.memberExpression(libExports.identifier(arrayMap.storeVar || "store"), libExports.identifier("__store")),
+    buildExprGeaMember(libExports.identifier(arrayMap.storeVar || "store"), "GEA_STORE_ROOT"),
     arrayPath
   ) : buildMemberChain(libExports.thisExpression(), arrayPath);
   const rawArrExpr = libExports.logicalExpression(
     "||",
-    libExports.memberExpression(libExports.cloneNode(proxiedArr, true), libExports.identifier("__getTarget")),
+    buildExprGeaMember(libExports.cloneNode(proxiedArr, true), "GEA_PROXY_GET_TARGET"),
     libExports.cloneNode(proxiedArr, true)
   );
   const loopBody = [
@@ -52896,7 +53826,7 @@ function generateArrayConditionalPatchObserver(arrayMap, bindings, methodName) {
   return appendToBody(
     jsMethod`${id(methodName)}(value, change) {}`,
     libExports.blockStatement([
-      lazyInit$1(containerName, arrayMap.containerSelector, arrayMap.containerBindingId),
+      lazyInit$1(containerName, arrayMap.containerSelector, arrayMap.containerBindingId, arrayMap.containerUserIdExpr),
       libExports.ifStatement(libExports.unaryExpression("!", containerRef), libExports.returnStatement()),
       libExports.variableDeclaration("const", [
         libExports.variableDeclarator(
@@ -52924,18 +53854,18 @@ function generateArrayConditionalRerenderObserver(arrayMap, methodName) {
   const containerRef = libExports.memberExpression(libExports.thisExpression(), libExports.identifier(containerName));
   const configRef = libExports.memberExpression(libExports.thisExpression(), libExports.identifier(getArrayConfigPropName(arrayMap)));
   const proxiedArr = arrayMap.isImportedState ? buildMemberChain(
-    libExports.memberExpression(libExports.identifier(arrayMap.storeVar || "store"), libExports.identifier("__store")),
+    buildExprGeaMember(libExports.identifier(arrayMap.storeVar || "store"), "GEA_STORE_ROOT"),
     arrayPath
   ) : buildMemberChain(libExports.thisExpression(), arrayPath);
   const rawArrExpr = libExports.logicalExpression(
     "||",
-    libExports.memberExpression(libExports.cloneNode(proxiedArr, true), libExports.identifier("__getTarget")),
+    buildExprGeaMember(libExports.cloneNode(proxiedArr, true), "GEA_PROXY_GET_TARGET"),
     libExports.cloneNode(proxiedArr, true)
   );
   return appendToBody(
     jsMethod`${id(methodName)}(value, change) {}`,
     libExports.blockStatement([
-      lazyInit$1(containerName, arrayMap.containerSelector, arrayMap.containerBindingId),
+      lazyInit$1(containerName, arrayMap.containerSelector, arrayMap.containerBindingId, arrayMap.containerUserIdExpr),
       libExports.ifStatement(libExports.unaryExpression("!", containerRef), libExports.returnStatement()),
       libExports.variableDeclaration("const", [
         libExports.variableDeclarator(
@@ -53007,9 +53937,7 @@ function generateArrayConditionalRerenderObserver(arrayMap, methodName) {
       libExports.ifStatement(
         libExports.unaryExpression("!", libExports.identifier("__skipArrayConditionalRerender")),
         libExports.blockStatement([
-          libExports.expressionStatement(
-            libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__ensureArrayConfigs")), [])
-          ),
+          libExports.expressionStatement(buildThisGeaCall("GEA_ENSURE_ARRAY_CONFIGS")),
           libExports.variableDeclaration("const", [
             libExports.variableDeclarator(
               libExports.identifier("__arr"),
@@ -53021,7 +53949,7 @@ function generateArrayConditionalRerenderObserver(arrayMap, methodName) {
             )
           ]),
           libExports.expressionStatement(
-            libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__applyListChanges")), [
+            buildThisGeaCall("GEA_APPLY_LIST_CHANGES", [
               containerRef,
               libExports.identifier("__arr"),
               libExports.nullLiteral(),
@@ -53061,7 +53989,10 @@ function buildConditionalPatchStatement(binding, target, itemVariable) {
     if (__attrValue == null || __attrValue === false) {
       ${jsExpr`${target}.removeAttribute(${binding.attributeName || "class"})`};
     } else {
-      ${jsExpr`${target}.setAttribute(${binding.attributeName || "class"}, String(__attrValue))`};
+      const __newAttr = String(__attrValue);
+      if (${jsExpr`${target}.getAttribute(${binding.attributeName || "class"})`} !== __newAttr) {
+        ${jsExpr`${target}.setAttribute(${binding.attributeName || "class"}, __newAttr)`};
+      }
     }
   `
   );
@@ -53069,7 +54000,7 @@ function buildConditionalPatchStatement(binding, target, itemVariable) {
 function renameItemVariable(expr, itemVariable) {
   const cloned = libExports.cloneNode(expr, true);
   const program = libExports.program([libExports.expressionStatement(cloned)]);
-  traverse$6(program, {
+  traverse$7(program, {
     noScope: true,
     Identifier(path) {
       if (path.node.name === itemVariable) path.node.name = "item";
@@ -53082,8 +54013,15 @@ function buildRelationalClassStatements(rowExpr, bindings, isMatch, phase) {
     const enabled = binding.classWhenMatch ? isMatch : !isMatch;
     if (binding.selector === ":scope") {
       const expr = libExports.cloneNode(rowExpr, true);
+      if (binding.scopeClassIsPure) {
+        return jsBlockBody`
+          ${expr}.className = ${enabled ? binding.classToggleName : ""};
+        `;
+      }
+      const cnVar = `__cn_${phase}_${index}`;
       return jsBlockBody`
-        if (${expr}.className === '' || ${expr}.className === ${binding.classToggleName}) {
+        var ${id(cnVar)} = ${expr}.className;
+        if (${id(cnVar)} === '' || ${id(cnVar)} === ${binding.classToggleName}) {
           ${expr}.className = ${enabled ? binding.classToggleName : ""};
         } else {
           ${expr}.classList.toggle(${binding.classToggleName}, ${enabled});
@@ -53100,12 +54038,92 @@ function buildRelationalClassStatements(rowExpr, bindings, isMatch, phase) {
     `;
   });
 }
-function buildFindIndexLookup(containerRef, idExpr, rowVar, containerBindingId) {
+function buildElsLookup(elsRef, containerRef, idExpr, rowVar, containerBindingId) {
+  const elsFallback = buildQueryByItemId(libExports.cloneNode(containerRef), libExports.cloneNode(idExpr, true), containerBindingId);
+  const ctrLocal = libExports.identifier("__ctr");
+  const qsFallback = libExports.callExpression(
+    libExports.arrowFunctionExpression(
+      [],
+      libExports.blockStatement([
+        libExports.variableDeclaration("const", [libExports.variableDeclarator(ctrLocal, libExports.cloneNode(containerRef))]),
+        libExports.forStatement(
+          libExports.variableDeclaration("let", [libExports.variableDeclarator(libExports.identifier("__i"), libExports.numericLiteral(0))]),
+          libExports.binaryExpression(
+            "<",
+            libExports.identifier("__i"),
+            libExports.memberExpression(libExports.memberExpression(ctrLocal, libExports.identifier("children")), libExports.identifier("length"))
+          ),
+          libExports.updateExpression("++", libExports.identifier("__i")),
+          libExports.blockStatement([
+            libExports.variableDeclaration("const", [
+              libExports.variableDeclarator(
+                libExports.identifier("__ch"),
+                libExports.memberExpression(
+                  libExports.memberExpression(libExports.cloneNode(ctrLocal), libExports.identifier("children")),
+                  libExports.identifier("__i"),
+                  true
+                )
+              )
+            ]),
+            libExports.ifStatement(
+              libExports.logicalExpression(
+                "||",
+                libExports.binaryExpression(
+                  "==",
+                  buildExprGeaMember(libExports.identifier("__ch"), "GEA_DOM_KEY"),
+                  libExports.cloneNode(idExpr, true)
+                ),
+                libExports.logicalExpression(
+                  "&&",
+                  libExports.binaryExpression("==", buildExprGeaMember(libExports.identifier("__ch"), "GEA_DOM_KEY"), libExports.nullLiteral()),
+                  libExports.binaryExpression(
+                    "==",
+                    libExports.optionalCallExpression(
+                      libExports.optionalMemberExpression(libExports.identifier("__ch"), libExports.identifier("getAttribute"), false, true),
+                      [libExports.stringLiteral("data-gea-item-id")],
+                      false
+                    ),
+                    libExports.cloneNode(idExpr, true)
+                  )
+                )
+              ),
+              libExports.returnStatement(libExports.identifier("__ch"))
+            )
+          ])
+        ),
+        libExports.returnStatement(libExports.nullLiteral())
+      ])
+    ),
+    []
+  );
+  const cachedVar = libExports.identifier("__cached");
   return [
     libExports.variableDeclaration("var", [
       libExports.variableDeclarator(
+        cachedVar,
+        libExports.logicalExpression(
+          "&&",
+          libExports.cloneNode(elsRef),
+          libExports.memberExpression(libExports.cloneNode(elsRef), libExports.cloneNode(idExpr, true), true)
+        )
+      )
+    ]),
+    libExports.variableDeclaration("var", [
+      libExports.variableDeclarator(
         libExports.identifier(rowVar),
-        buildQueryByItemId(libExports.cloneNode(containerRef), libExports.cloneNode(idExpr, true))
+        libExports.logicalExpression(
+          "||",
+          libExports.logicalExpression(
+            "||",
+            libExports.logicalExpression(
+              "&&",
+              libExports.logicalExpression("&&", cachedVar, libExports.memberExpression(cachedVar, libExports.identifier("isConnected"))),
+              cachedVar
+            ),
+            elsFallback
+          ),
+          qsFallback
+        )
       )
     ])
   ];
@@ -53117,30 +54135,24 @@ function generateArrayHandlers(arrayMap, methodName) {
   const containerName = `__${arrayPath.replace(/\./g, "_")}_container`;
   const containerRef = libExports.memberExpression(libExports.thisExpression(), libExports.identifier(containerName));
   const configRef = libExports.memberExpression(libExports.thisExpression(), libExports.identifier(getArrayConfigPropName(arrayMap)));
+  const rowElsProp = `__rowEls_${arrayMap.containerBindingId ?? "list"}`;
+  const elsRef = libExports.memberExpression(libExports.thisExpression(), libExports.privateName(libExports.identifier(rowElsProp)));
+  const clearElsStmt = libExports.expressionStatement(libExports.assignmentExpression("=", libExports.cloneNode(elsRef), libExports.nullLiteral()));
   const body = [
-    lazyInit$1(containerName, arrayMap.containerSelector, arrayMap.containerBindingId),
+    lazyInit$1(containerName, arrayMap.containerSelector, arrayMap.containerBindingId, arrayMap.containerUserIdExpr),
     libExports.ifStatement(libExports.unaryExpression("!", containerRef), libExports.returnStatement()),
     libExports.ifStatement(
       libExports.logicalExpression(
         "&&",
-        libExports.logicalExpression(
-          "&&",
-          libExports.callExpression(libExports.memberExpression(libExports.identifier("Array"), libExports.identifier("isArray")), [
-            libExports.identifier(paramName)
-          ]),
-          libExports.binaryExpression(
-            "===",
-            libExports.memberExpression(libExports.identifier(paramName), libExports.identifier("length")),
-            libExports.numericLiteral(0)
-          )
-        ),
+        libExports.callExpression(libExports.memberExpression(libExports.identifier("Array"), libExports.identifier("isArray")), [libExports.identifier(paramName)]),
         libExports.binaryExpression(
-          ">",
-          libExports.memberExpression(libExports.memberExpression(containerRef, libExports.identifier("children")), libExports.identifier("length")),
+          "===",
+          libExports.memberExpression(libExports.identifier(paramName), libExports.identifier("length")),
           libExports.numericLiteral(0)
         )
       ),
       libExports.blockStatement([
+        clearElsStmt,
         libExports.expressionStatement(
           libExports.assignmentExpression(
             "=",
@@ -53151,11 +54163,9 @@ function generateArrayHandlers(arrayMap, methodName) {
         libExports.returnStatement()
       ])
     ),
+    libExports.expressionStatement(buildThisGeaCall("GEA_ENSURE_ARRAY_CONFIGS")),
     libExports.expressionStatement(
-      libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__ensureArrayConfigs")), [])
-    ),
-    libExports.expressionStatement(
-      libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__applyListChanges")), [
+      buildThisGeaCall("GEA_APPLY_LIST_CHANGES", [
         containerRef,
         libExports.identifier(paramName),
         libExports.identifier("change"),
@@ -53164,9 +54174,17 @@ function generateArrayHandlers(arrayMap, methodName) {
     )
   ];
   const method = appendToBody(jsMethod`${id(methodName)}(${id(paramName)}, change) {}`, ...body);
-  return [method];
+  return { methods: [method], privateFields: [rowElsProp] };
 }
-function lazyInit$1(name, selector, bindingId) {
+function lazyInit$1(name, selector, bindingId, userIdExpr) {
+  if (userIdExpr) {
+    const idArg = libExports.isStringLiteral(userIdExpr) ? userIdExpr : libExports.cloneNode(userIdExpr, true);
+    return js`
+      if (!this.${id(name)}) {
+        this.${id(name)} = document.getElementById(${idArg});
+      }
+    `;
+  }
   if (bindingId) {
     return js`
       if (!this.${id(name)}) {
@@ -53180,8 +54198,19 @@ function lazyInit$1(name, selector, bindingId) {
     }
   `;
 }
-function buildQueryByItemId(containerExpr, idExpr, _containerBindingId) {
-  return jsExpr`${containerExpr}.querySelector('[data-gea-item-id="' + String(${idExpr}) + '"]')`;
+function buildQueryByItemId(_containerExpr, idExpr, containerBindingId) {
+  const bind = containerBindingId ?? "list";
+  return libExports.callExpression(libExports.memberExpression(libExports.identifier("document"), libExports.identifier("getElementById")), [
+    libExports.binaryExpression(
+      "+",
+      libExports.binaryExpression(
+        "+",
+        libExports.memberExpression(libExports.thisExpression(), libExports.identifier("id")),
+        libExports.stringLiteral("-" + bind + "-gk-")
+      ),
+      libExports.cloneNode(idExpr, true)
+    )
+  ]);
 }
 function buildPathPartsEquals(expr, parts) {
   return parts.reduce(
@@ -53216,6 +54245,7 @@ function buildChildAccessExpr(base, path) {
   return expr;
 }
 
+const traverse$6 = babelTraverse.default || babelTraverse;
 function buildHandlerRegistrationStatements(handlerProps, itemVariable, propNames, wholeParamName) {
   if (handlerProps.length === 0) return [];
   const stmts = [
@@ -53345,7 +54375,13 @@ function unwrapComparisonOperands(node) {
 function generateRenderItemMethod(arrayMap, imports, eventHandlers, eventIdCounter, classBody, templateSetupContext) {
   const renderEventHandlers = [];
   if (!arrayMap.itemTemplate)
-    return { method: null, handlers: renderEventHandlers, handlerPropsInMap: [], needsUnwrapHelper: false };
+    return {
+      method: null,
+      handlers: renderEventHandlers,
+      handlerPropsInMap: [],
+      needsUnwrapHelper: false,
+      needsRawStoreCache: false
+    };
   const arrayPath = pathPartsToString(arrayMap.arrayPathParts || normalizePathParts(arrayMap.arrayPath || ""));
   const modified = libExports.cloneNode(arrayMap.itemTemplate, true);
   const handlerPropsInMap = [];
@@ -53357,7 +54393,8 @@ function generateRenderItemMethod(arrayMap, imports, eventHandlers, eventIdCount
     handlerPropsInMap,
     mapItemIdProperty: arrayMap.itemIdProperty || "id",
     mapItemVariable: arrayMap.itemVariable,
-    mapContainerBindingId: arrayMap.containerBindingId
+    mapContainerBindingId: arrayMap.containerBindingId,
+    ...arrayMap.keyExpression ? { mapKeyExpression: arrayMap.keyExpression } : {}
   };
   if (libExports.isJSXFragment(modified)) {
     const err = new Error(
@@ -53391,6 +54428,23 @@ function generateRenderItemMethod(arrayMap, imports, eventHandlers, eventIdCount
       itemKey
     )
   );
+  let needsRawStoreCache = false;
+  if (arrayMap.storeVar) {
+    wrapped.expressions = wrapped.expressions.map((expr) => {
+      const program = libExports.program([libExports.expressionStatement(libExports.cloneNode(expr, true))]);
+      traverse$6(program, {
+        noScope: true,
+        MemberExpression(path) {
+          if (!libExports.isIdentifier(path.node.object, { name: arrayMap.storeVar })) return;
+          if (!libExports.isIdentifier(path.node.property)) return;
+          if (path.node.computed) return;
+          needsRawStoreCache = true;
+          path.node.object = libExports.identifier("__rs");
+        }
+      });
+      return program.body[0].expression;
+    });
+  }
   const handlerRegStmts = buildHandlerRegistrationStatements(
     handlerPropsInMap,
     arrayMap.itemVariable,
@@ -53431,13 +54485,62 @@ function generateRenderItemMethod(arrayMap, imports, eventHandlers, eventIdCount
     return false;
   }
   const needsUnwrapHelper = [...rewrittenCallbackBody, returnStmt].some((stmt) => containsVCall(stmt));
-  const method = appendToBody(baseMethod, ...rewrittenSetup, ...rewrittenCallbackBody, ...handlerRegStmts, returnStmt);
+  const privateRsField = libExports.memberExpression(libExports.thisExpression(), libExports.privateName(libExports.identifier("__rs")));
+  const rawStoreCacheStmts = [];
+  if (needsRawStoreCache && arrayMap.storeVar) {
+    rawStoreCacheStmts.push(
+      libExports.variableDeclaration("const", [
+        libExports.variableDeclarator(
+          libExports.identifier("__rs"),
+          libExports.logicalExpression(
+            "||",
+            libExports.cloneNode(privateRsField),
+            libExports.assignmentExpression(
+              "=",
+              libExports.cloneNode(privateRsField),
+              buildExprGeaMember(libExports.identifier(arrayMap.storeVar), "GEA_PROXY_RAW")
+            )
+          )
+        )
+      ])
+    );
+  }
+  const method = appendToBody(
+    baseMethod,
+    ...rawStoreCacheStmts,
+    ...rewrittenSetup,
+    ...rewrittenCallbackBody,
+    ...handlerRegStmts,
+    returnStmt
+  );
   if (handlerPropsInMap.length > 0 && classBody) {
-    const handleItemHandler = jsMethod`__handleItemHandler(itemId, e) {
-    const fn = this.__itemHandlers_?.[itemId];
-    if (fn) fn(e);
-  }`;
-    if (!classBody.body.some((m) => libExports.isClassMethod(m) && libExports.isIdentifier(m.key) && m.key.name === "__handleItemHandler")) {
+    const handleItemHandlerBody = libExports.blockStatement([
+      libExports.variableDeclaration("const", [
+        libExports.variableDeclarator(
+          libExports.identifier("fn"),
+          libExports.optionalMemberExpression(
+            libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__itemHandlers_")),
+            libExports.identifier("itemId"),
+            true,
+            true
+          )
+        )
+      ]),
+      libExports.ifStatement(
+        libExports.identifier("fn"),
+        libExports.expressionStatement(libExports.callExpression(libExports.identifier("fn"), [libExports.identifier("e")]))
+      )
+    ]);
+    const handleItemHandler = libExports.classMethod(
+      "method",
+      libExports.identifier("GEA_HANDLE_ITEM_HANDLER"),
+      [libExports.identifier("itemId"), libExports.identifier("e")],
+      handleItemHandlerBody,
+      true
+    );
+    if (!classBody.body.some(
+      (m) => libExports.isClassMethod(m) && m.computed === true && libExports.isIdentifier(m.key) && m.key.name === "GEA_HANDLE_ITEM_HANDLER"
+    )) {
       classBody.body.unshift(handleItemHandler);
     }
   }
@@ -53445,14 +54548,16 @@ function generateRenderItemMethod(arrayMap, imports, eventHandlers, eventIdCount
     h.mapContext = {
       arrayPathParts: arrayMap.arrayPathParts || normalizePathParts(arrayMap.arrayPath || ""),
       itemIdProperty: arrayMap.itemIdProperty || "id",
+      ...arrayMap.keyExpression ? { keyExpression: libExports.cloneNode(arrayMap.keyExpression, true) } : {},
       itemVariable: arrayMap.itemVariable,
       indexVariable: arrayMap.indexVariable,
       isImportedState: arrayMap.isImportedState || false,
-      storeVar: arrayMap.storeVar
+      storeVar: arrayMap.storeVar,
+      containerBindingId: arrayMap.containerBindingId ?? "list"
     };
   });
   if (eventHandlers) renderEventHandlers.forEach((h) => eventHandlers.push(h));
-  return { method, handlers: renderEventHandlers, handlerPropsInMap, needsUnwrapHelper };
+  return { method, handlers: renderEventHandlers, handlerPropsInMap, needsUnwrapHelper, needsRawStoreCache };
 }
 
 const traverse$5 = babelTraverse.default || babelTraverse;
@@ -53469,7 +54574,16 @@ function getArrayCapName(arrayPropName) {
   return arrayPropName.charAt(0).toUpperCase() + arrayPropName.slice(1);
 }
 function getComponentArrayItemsName(arrayPropName) {
-  return `_${arrayPropName}Items`;
+  const safe = arrayPropName.replace(/[^a-zA-Z0-9_$]/g, "_");
+  return `_gea_${safe}_items`;
+}
+function buildComponentArrayItemsSymbolDecl(arrayPropName, itemsBinding) {
+  return libExports.variableDeclaration("const", [
+    libExports.variableDeclarator(
+      libExports.identifier(itemsBinding),
+      libExports.callExpression(libExports.identifier("geaListItemsSymbol"), [libExports.stringLiteral(arrayPropName)])
+    )
+  ]);
 }
 function getComponentArrayRefreshMethodName(arrayPropName) {
   return `__refresh${getArrayCapName(arrayPropName)}Items`;
@@ -53537,6 +54651,7 @@ function generateComponentArrayResult(um, arrayPropName, imports, propNames, _cl
     finalPropsExpr = cloned;
   }
   const itemsName = getComponentArrayItemsName(arrayPropName);
+  const symbolConstDecl = buildComponentArrayItemsSymbolDecl(arrayPropName, itemsName);
   let arrAccessExpr;
   let arrSetupStatements = [];
   if (storeArrayAccess) {
@@ -53579,7 +54694,7 @@ function generateComponentArrayResult(um, arrayPropName, imports, propNames, _cl
       if (!libExports.isVariableDeclaration(stmt)) continue;
       for (const decl of stmt.declarations) {
         if (libExports.isIdentifier(decl.init) && storeVarNames.has(decl.init.name)) {
-          decl.init = libExports.memberExpression(libExports.identifier(decl.init.name), libExports.identifier("__raw"));
+          decl.init = buildExprGeaMember(libExports.identifier(decl.init.name), "GEA_PROXY_RAW");
         }
       }
     }
@@ -53593,7 +54708,7 @@ function generateComponentArrayResult(um, arrayPropName, imports, propNames, _cl
   const keyExpr = itemIdProp && itemIdProp !== ITEM_IS_KEY ? libExports.callExpression(libExports.identifier("String"), [libExports.memberExpression(libExports.identifier("opt"), libExports.identifier(itemIdProp))]) : itemIdProp === ITEM_IS_KEY ? libExports.callExpression(libExports.identifier("String"), [libExports.identifier("opt")]) : libExports.binaryExpression("+", libExports.stringLiteral("__idx_"), libExports.identifier("__k"));
   const mapParams = [libExports.identifier("opt")];
   if (indexVar || !itemIdProp) mapParams.push(libExports.identifier("__k"));
-  const childCall = libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__child")), [
+  const childCall = libExports.callExpression(buildThisGeaMember("GEA_CHILD"), [
     libExports.identifier(comp.componentTag),
     libExports.cloneNode(itemPropsCall, true),
     libExports.cloneNode(keyExpr, true)
@@ -53603,13 +54718,15 @@ function generateComponentArrayResult(um, arrayPropName, imports, propNames, _cl
   const parenthesized = libExports.parenthesizedExpression ? libExports.parenthesizedExpression(nullishCoalesce) : nullishCoalesce;
   const mapCallExpr = libExports.callExpression(libExports.memberExpression(parenthesized, libExports.identifier("map")), [mapCallback]);
   const constructorInit = libExports.expressionStatement(
-    libExports.assignmentExpression("=", libExports.memberExpression(libExports.thisExpression(), libExports.identifier(itemsName)), mapCallExpr)
+    libExports.assignmentExpression("=", libExports.memberExpression(libExports.thisExpression(), libExports.identifier(itemsName), true), mapCallExpr)
   );
   return {
     itemPropsMethod,
     constructorInit,
+    symbolConstDecl,
     componentTag: comp.componentTag,
     containerBindingId: um.containerBindingId,
+    containerUserIdExpr: um.containerUserIdExpr,
     itemIdProperty: itemIdProp,
     arrAccessExpr,
     arrSetupStatements
@@ -53617,6 +54734,7 @@ function generateComponentArrayResult(um, arrayPropName, imports, propNames, _cl
 }
 
 const generate$1 = "default" in babelGenerator ? babelGenerator.default : babelGenerator;
+const URL_ATTRS = /* @__PURE__ */ new Set(["href", "src", "action", "formaction", "data", "cite", "poster", "background"]);
 const traverse$4 = babelTraverse.default || babelTraverse;
 const BOOLEAN_HTML_ATTRS = /* @__PURE__ */ new Set([
   "disabled",
@@ -53639,7 +54757,7 @@ const BOOLEAN_HTML_ATTRS = /* @__PURE__ */ new Set([
 function generateCreatedHooks(stores, hasArrayConfigs, observeListConfigs = []) {
   const body = [];
   if (hasArrayConfigs) {
-    body.push(js`this.__ensureArrayConfigs();`);
+    body.push(libExports.expressionStatement(buildThisGeaCall("GEA_ENSURE_ARRAY_CONFIGS")));
   }
   const observeListPathKeys = /* @__PURE__ */ new Set();
   for (const config of observeListConfigs) {
@@ -53652,7 +54770,14 @@ function generateCreatedHooks(stores, hasArrayConfigs, observeListConfigs = []) 
       const listKey = `${store.storeVar}:${pathKey}`;
       if (observeListPathKeys.has(listKey)) continue;
       if (!byPath.has(pathKey)) byPath.set(pathKey, []);
-      byPath.get(pathKey).push({ methodName: handler.methodName, isVia: handler.isVia, rereadExpr: handler.rereadExpr });
+      byPath.get(pathKey).push({
+        pathParts: handler.pathParts,
+        methodName: handler.methodName,
+        isVia: handler.isVia,
+        rereadExpr: handler.rereadExpr,
+        dynamicKeyExpr: handler.dynamicKeyExpr,
+        passValue: handler.passValue
+      });
     }
     const storeVarExpr = libExports.identifier(store.storeVar);
     for (const [pathKey, handlers] of byPath) {
@@ -53661,7 +54786,7 @@ function generateCreatedHooks(stores, hasArrayConfigs, observeListConfigs = []) 
       if (handlers.length === 1 && !handlers[0].isVia) {
         body.push(
           libExports.expressionStatement(
-            libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__observe")), [
+            libExports.callExpression(thisGea("GEA_OBSERVE"), [
               storeVarExpr,
               pathArray,
               libExports.memberExpression(libExports.thisExpression(), libExports.identifier(handlers[0].methodName))
@@ -53672,16 +54797,97 @@ function generateCreatedHooks(stores, hasArrayConfigs, observeListConfigs = []) 
         const vParam = libExports.identifier("__v");
         const cParam = libExports.identifier("__c");
         const callStmts = [];
-        for (const h of handlers) {
+        const seenCallKeys = /* @__PURE__ */ new Set();
+        for (let hi = 0; hi < handlers.length; hi++) {
+          const h = handlers[hi];
+          const callKey = [
+            h.methodName,
+            h.isVia ? "via" : "direct",
+            h.passValue === false ? "novalue" : "value",
+            serializeAstNode(h.dynamicKeyExpr),
+            h.passValue === false ? "" : serializeAstNode(h.rereadExpr)
+          ].join("|");
+          if (seenCallKeys.has(callKey)) continue;
+          seenCallKeys.add(callKey);
           if (h.isVia && h.rereadExpr) {
-            callStmts.push(
-              libExports.expressionStatement(
-                libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier(h.methodName)), [
-                  libExports.cloneNode(h.rereadExpr, true),
-                  libExports.nullLiteral()
-                ])
-              )
+            const callStmt = libExports.expressionStatement(
+              libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier(h.methodName)), [
+                h.passValue === false ? libExports.identifier("undefined") : libExports.cloneNode(h.rereadExpr, true),
+                libExports.nullLiteral()
+              ])
             );
+            if (h.dynamicKeyExpr) {
+              const keyId = libExports.identifier(`geaDynKey${hi}`);
+              const changeId = libExports.identifier(`geaDynChange${hi}`);
+              const partsId = libExports.identifier(`geaDynParts${hi}`);
+              const prevRootId = libExports.identifier(`geaDynPrevRoot${hi}`);
+              const prefixChecks = h.pathParts.map(
+                (part, idx) => libExports.binaryExpression(
+                  "===",
+                  libExports.memberExpression(partsId, libExports.numericLiteral(idx), true),
+                  libExports.stringLiteral(part)
+                )
+              );
+              const prevEntryExpr = libExports.conditionalExpression(
+                libExports.binaryExpression("==", prevRootId, libExports.nullLiteral()),
+                libExports.identifier("undefined"),
+                libExports.memberExpression(prevRootId, keyId, true)
+              );
+              const nextEntryExpr = libExports.conditionalExpression(
+                libExports.binaryExpression("==", vParam, libExports.nullLiteral()),
+                libExports.identifier("undefined"),
+                libExports.memberExpression(vParam, keyId, true)
+              );
+              const sameRootAffectsKey = libExports.logicalExpression(
+                "&&",
+                libExports.binaryExpression(
+                  "===",
+                  libExports.memberExpression(partsId, libExports.identifier("length")),
+                  libExports.numericLiteral(h.pathParts.length)
+                ),
+                libExports.binaryExpression("!==", prevEntryExpr, nextEntryExpr)
+              );
+              const matchingNestedKey = libExports.binaryExpression(
+                "===",
+                libExports.memberExpression(partsId, libExports.numericLiteral(h.pathParts.length), true),
+                keyId
+              );
+              const sameRootOrMatchingKey = libExports.logicalExpression("||", sameRootAffectsKey, matchingNestedKey);
+              const relevantChangeExpr = prefixChecks.concat([sameRootOrMatchingKey]).reduce((left, right) => libExports.logicalExpression("&&", left, right));
+              const someCall = libExports.callExpression(libExports.memberExpression(cParam, libExports.identifier("some")), [
+                libExports.arrowFunctionExpression(
+                  [changeId],
+                  libExports.blockStatement([
+                    libExports.variableDeclaration("const", [
+                      libExports.variableDeclarator(partsId, libExports.memberExpression(changeId, libExports.identifier("pathParts"))),
+                      libExports.variableDeclarator(prevRootId, libExports.memberExpression(changeId, libExports.identifier("previousValue")))
+                    ]),
+                    libExports.returnStatement(
+                      libExports.logicalExpression(
+                        "&&",
+                        libExports.callExpression(libExports.memberExpression(libExports.identifier("Array"), libExports.identifier("isArray")), [partsId]),
+                        relevantChangeExpr
+                      )
+                    )
+                  ])
+                )
+              ]);
+              callStmts.push(
+                libExports.blockStatement([
+                  libExports.variableDeclaration("const", [libExports.variableDeclarator(keyId, libExports.cloneNode(h.dynamicKeyExpr, true))]),
+                  libExports.ifStatement(
+                    libExports.logicalExpression(
+                      "&&",
+                      libExports.callExpression(libExports.memberExpression(libExports.identifier("Array"), libExports.identifier("isArray")), [cParam]),
+                      someCall
+                    ),
+                    libExports.blockStatement([callStmt])
+                  )
+                ])
+              );
+            } else {
+              callStmts.push(callStmt);
+            }
           } else {
             callStmts.push(
               libExports.expressionStatement(
@@ -53692,7 +54898,7 @@ function generateCreatedHooks(stores, hasArrayConfigs, observeListConfigs = []) 
         }
         body.push(
           libExports.expressionStatement(
-            libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__observe")), [
+            libExports.callExpression(thisGea("GEA_OBSERVE"), [
               storeVarExpr,
               pathArray,
               libExports.arrowFunctionExpression([vParam, cParam], libExports.blockStatement(callStmts))
@@ -53706,15 +54912,15 @@ function generateCreatedHooks(stores, hasArrayConfigs, observeListConfigs = []) 
       const itemsName = getComponentArrayItemsName(config.arrayPropName);
       const itemPropsMethodName = `__itemProps_${config.arrayPropName}`;
       const configProps = [
-        libExports.objectProperty(libExports.identifier("items"), libExports.memberExpression(libExports.thisExpression(), libExports.identifier(itemsName))),
-        libExports.objectProperty(libExports.identifier("itemsKey"), libExports.stringLiteral(itemsName)),
+        libExports.objectProperty(libExports.identifier("items"), libExports.memberExpression(libExports.thisExpression(), libExports.identifier(itemsName), true)),
+        libExports.objectProperty(libExports.identifier("itemsKey"), libExports.identifier(itemsName)),
         libExports.objectProperty(
           libExports.identifier("container"),
           libExports.arrowFunctionExpression(
             [],
-            config.containerBindingId ? libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__el")), [
-              libExports.stringLiteral(config.containerBindingId)
-            ]) : jsExpr`this.$(":scope")`
+            config.containerUserIdExpr ? libExports.callExpression(libExports.memberExpression(libExports.identifier("document"), libExports.identifier("getElementById")), [
+              libExports.cloneNode(config.containerUserIdExpr, true)
+            ]) : config.containerBindingId ? libExports.callExpression(thisGea("GEA_EL"), [libExports.stringLiteral(config.containerBindingId)]) : jsExpr`this.$(":scope")`
           )
         ),
         libExports.objectProperty(libExports.identifier("Ctor"), libExports.identifier(config.componentTag)),
@@ -53768,11 +54974,7 @@ function generateCreatedHooks(stores, hasArrayConfigs, observeListConfigs = []) 
       }
       body.push(
         libExports.expressionStatement(
-          libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__observeList")), [
-            storeVarExpr,
-            pathArray,
-            libExports.objectExpression(configProps)
-          ])
+          libExports.callExpression(thisGea("GEA_OBSERVE_LIST"), [storeVarExpr, pathArray, libExports.objectExpression(configProps)])
         )
       );
     }
@@ -53781,17 +54983,72 @@ function generateCreatedHooks(stores, hasArrayConfigs, observeListConfigs = []) 
   method.body.body.push(...body);
   return method;
 }
+function canInlineDynamicObserverKey(expr) {
+  let safe = true;
+  const program = libExports.program([libExports.expressionStatement(libExports.cloneNode(expr, true))]);
+  traverse$4(program, {
+    noScope: true,
+    Identifier(path) {
+      if (!path.isReferencedIdentifier()) return;
+      safe = false;
+      path.stop();
+    }
+  });
+  return safe;
+}
+function classMethodUsesParam(method, index) {
+  const param = method.params[index];
+  if (!libExports.isIdentifier(param) || !libExports.isBlockStatement(method.body)) return true;
+  let used = false;
+  const program = libExports.program(method.body.body.map((stmt) => libExports.cloneNode(stmt, true)));
+  traverse$4(program, {
+    noScope: true,
+    Identifier(path) {
+      if (!path.isReferencedIdentifier()) return;
+      if (path.node.name !== param.name) return;
+      used = true;
+      path.stop();
+    }
+  });
+  return used;
+}
+function serializeAstNode(node) {
+  return node ? JSON.stringify(node) : "";
+}
+const thisGea = buildThisGeaMember;
+function insertStmtBeforeClass(classPath, stmt) {
+  const parent = classPath.parentPath;
+  if (parent.isExportDefaultDeclaration()) {
+    parent.insertBefore(stmt);
+  } else {
+    classPath.insertBefore(stmt);
+  }
+}
+function expressionReferencesIdentifier(expr, name) {
+  let found = false;
+  const program = libExports.program([libExports.expressionStatement(libExports.cloneNode(expr, true))]);
+  traverse$4(program, {
+    noScope: true,
+    Identifier(path) {
+      if (!path.isReferencedIdentifier()) return;
+      if (path.node.name !== name) return;
+      found = true;
+      path.stop();
+    }
+  });
+  return found;
+}
 function generateLocalStateObserverSetup(observeHandlers, hasArrayConfigs) {
-  const localStore = libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__store"));
+  const localStore = buildThisGeaMember("GEA_STORE_ROOT");
   const body = [];
   if (hasArrayConfigs) {
-    body.push(js`this.__ensureArrayConfigs();`);
+    body.push(libExports.expressionStatement(buildThisGeaCall("GEA_ENSURE_ARRAY_CONFIGS")));
   }
   body.push(js`if (!${localStore}) { return; }`);
   for (const observeHandler of observeHandlers) {
     body.push(
       libExports.expressionStatement(
-        libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__observe")), [
+        libExports.callExpression(thisGea("GEA_OBSERVE"), [
           libExports.thisExpression(),
           libExports.arrayExpression(observeHandler.pathParts.map((part) => libExports.stringLiteral(part))),
           libExports.memberExpression(libExports.thisExpression(), libExports.identifier(observeHandler.methodName))
@@ -53799,22 +55056,27 @@ function generateLocalStateObserverSetup(observeHandlers, hasArrayConfigs) {
       )
     );
   }
-  const method = jsMethod`${id("__setupLocalStateObservers")}() {}`;
+  const method = libExports.classMethod(
+    "method",
+    libExports.identifier("GEA_SETUP_LOCAL_STATE_OBSERVERS"),
+    [],
+    libExports.blockStatement([]),
+    true
+  );
   method.body.body.push(...body);
   return method;
 }
 function wrapPatchWithElGuard(updateStmt) {
   if (libExports.isIfStatement(updateStmt) && !updateStmt.alternate) {
-    return libExports.ifStatement(
-      libExports.logicalExpression("&&", libExports.identifier("__el"), updateStmt.test),
-      updateStmt.consequent
-    );
+    return libExports.ifStatement(libExports.logicalExpression("&&", libExports.identifier("__el"), updateStmt.test), updateStmt.consequent);
   }
   return libExports.ifStatement(libExports.identifier("__el"), updateStmt);
 }
 function applyStaticReactivity(ast, originalAST, className, sourceFile, imports, stateRefs, storeImports, compiledChildren = [], eventIdCounter = { value: 0 }, preTransformAnalysis) {
   let applied = false;
   let needsModuleLevelUnwrapHelper = false;
+  let needsClassLevelRawStoreField = false;
+  const classLevelPrivateFields = /* @__PURE__ */ new Set();
   const astToTraverse = preTransformAnalysis?.has(className) ? ast : originalAST;
   const getAnalysis = (clsName, origPath) => {
     const cached = preTransformAnalysis?.get(clsName);
@@ -53828,11 +55090,22 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
       const analysis = getAnalysis(className, origPath);
       if (!analysis) return;
       const hasCompiledChildStoreDeps = compiledChildren.some((child) => child.dependencies.some((dep) => dep.storeVar));
-      if (analysis.bindings.length === 0 && analysis.propBindings.length === 0 && analysis.arrayMaps.length === 0 && analysis.stateProps.size === 0 && analysis.unresolvedMaps.length === 0 && !hasCompiledChildStoreDeps)
+      if (analysis.bindings.length === 0 && analysis.propBindings.length === 0 && analysis.arrayMaps.length === 0 && analysis.stateProps.size === 0 && analysis.unresolvedMaps.length === 0 && !hasCompiledChildStoreDeps && analysis.earlyReturnGuard === void 0)
         return;
       traverse$4(ast, {
         ClassDeclaration(classPath) {
           if (!libExports.isIdentifier(classPath.node.id) || classPath.node.id.name !== className) return;
+          ensureGeaCompilerSymbolImports(ast);
+          let originalClassBody;
+          traverse$4(originalAST, {
+            noScope: true,
+            ClassDeclaration(origClass) {
+              if (libExports.isIdentifier(origClass.node.id) && origClass.node.id.name === className) {
+                originalClassBody = origClass.node.body;
+                origClass.stop();
+              }
+            }
+          });
           const templateMethod = classPath.node.body.body.find(
             (n) => libExports.isClassMethod(n) && libExports.isIdentifier(n.key) && n.key.name === "template"
           );
@@ -53909,46 +55182,79 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
           };
           const patchStatementsByBinding = /* @__PURE__ */ new Map();
           for (const pb of analysis.propBindings) {
-            const elExpr = pb.bindingId !== void 0 ? buildCachedGetElementById(
+            const elExpr = pb.userIdExpr ? buildCachedGetElementById(libExports.cloneNode(pb.userIdExpr, true)) : pb.bindingId !== void 0 ? buildCachedGetElementById(
               libExports.binaryExpression(
                 "+",
                 libExports.memberExpression(libExports.thisExpression(), libExports.identifier("id")),
                 libExports.stringLiteral("-" + pb.bindingId)
               )
-            ) : pb.selector === ":scope" ? libExports.memberExpression(libExports.thisExpression(), libExports.identifier("element_")) : libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("$")), [
+            ) : pb.selector === ":scope" ? thisGea("GEA_ELEMENT") : libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("$")), [
               libExports.stringLiteral(pb.selector)
             ]);
             const valueExpr = pb.expression && pb.setupStatements ? libExports.identifier("__boundValue") : libExports.identifier("value");
             let updateStmt;
             if (pb.type === "text" && pb.textNodeIndex !== void 0) {
+              const tnIdx = libExports.numericLiteral(pb.textNodeIndex);
               const tnAccess = libExports.memberExpression(
                 libExports.memberExpression(libExports.identifier("__el"), libExports.identifier("childNodes")),
-                libExports.numericLiteral(pb.textNodeIndex),
+                libExports.cloneNode(tnIdx, true),
                 true
               );
-              updateStmt = libExports.blockStatement([
-                libExports.variableDeclaration("const", [libExports.variableDeclarator(libExports.identifier("__tn"), tnAccess)]),
-                libExports.ifStatement(
-                  libExports.logicalExpression(
-                    "&&",
+              const notTextNode = libExports.logicalExpression(
+                "||",
+                libExports.unaryExpression("!", libExports.identifier("__tn")),
+                libExports.binaryExpression(
+                  "!==",
+                  libExports.memberExpression(libExports.identifier("__tn"), libExports.identifier("nodeType")),
+                  libExports.numericLiteral(3)
+                )
+              );
+              const insertNewTextNode = libExports.blockStatement([
+                libExports.expressionStatement(
+                  libExports.assignmentExpression(
+                    "=",
                     libExports.identifier("__tn"),
-                    libExports.binaryExpression(
-                      "!==",
-                      libExports.memberExpression(libExports.identifier("__tn"), libExports.identifier("nodeValue")),
-                      valueExpr
-                    )
-                  ),
-                  libExports.expressionStatement(
-                    libExports.assignmentExpression(
-                      "=",
-                      libExports.memberExpression(libExports.identifier("__tn"), libExports.identifier("nodeValue")),
+                    libExports.callExpression(libExports.memberExpression(libExports.identifier("document"), libExports.identifier("createTextNode")), [
                       libExports.cloneNode(valueExpr, true)
-                    )
+                    ])
                   )
+                ),
+                libExports.expressionStatement(
+                  libExports.callExpression(libExports.memberExpression(libExports.identifier("__el"), libExports.identifier("insertBefore")), [
+                    libExports.identifier("__tn"),
+                    libExports.logicalExpression(
+                      "||",
+                      libExports.memberExpression(
+                        libExports.memberExpression(libExports.identifier("__el"), libExports.identifier("childNodes")),
+                        libExports.cloneNode(tnIdx, true),
+                        true
+                      ),
+                      libExports.nullLiteral()
+                    )
+                  ])
                 )
               ]);
+              const updateExisting = libExports.ifStatement(
+                libExports.binaryExpression(
+                  "!==",
+                  libExports.memberExpression(libExports.identifier("__tn"), libExports.identifier("nodeValue")),
+                  libExports.cloneNode(valueExpr, true)
+                ),
+                libExports.expressionStatement(
+                  libExports.assignmentExpression(
+                    "=",
+                    libExports.memberExpression(libExports.identifier("__tn"), libExports.identifier("nodeValue")),
+                    libExports.cloneNode(valueExpr, true)
+                  )
+                )
+              );
+              updateStmt = libExports.blockStatement([
+                libExports.variableDeclaration("let", [libExports.variableDeclarator(libExports.identifier("__tn"), tnAccess)]),
+                libExports.ifStatement(notTextNode, insertNewTextNode, updateExisting)
+              ]);
             } else if (pb.type === "text") {
-              const targetProp = pb.propName === "children" ? "innerHTML" : "textContent";
+              const isHtmlProducing = pb.propName === "children" || pb.expression && originalClassBody && expressionCallsJSXReturningClassProp(pb.expression, originalClassBody);
+              const targetProp = isHtmlProducing ? "innerHTML" : "textContent";
               const assignStmt = libExports.expressionStatement(
                 libExports.assignmentExpression(
                   "=",
@@ -53956,25 +55262,20 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                   libExports.cloneNode(valueExpr, true)
                 )
               );
-              const consequent = pb.propName === "children" ? libExports.blockStatement([
+              const consequent = isHtmlProducing ? libExports.blockStatement([
                 assignStmt,
                 // After replacing innerHTML for children, re-initialize child
                 // components that were created from the new HTML string.
-                libExports.expressionStatement(
-                  libExports.callExpression(
-                    libExports.memberExpression(libExports.thisExpression(), libExports.identifier("instantiateChildComponents_")),
-                    []
-                  )
-                ),
+                libExports.expressionStatement(libExports.callExpression(buildThisGeaMember("GEA_INSTANTIATE_CHILD_COMPONENTS"), [])),
                 // Reconnect compiled children from the parent component whose
                 // DOM elements were replaced by the innerHTML update.
                 libExports.ifStatement(
                   libExports.memberExpression(libExports.thisExpression(), libExports.identifier("parentComponent")),
                   libExports.expressionStatement(
                     libExports.callExpression(
-                      libExports.memberExpression(
+                      buildExprGeaMember(
                         libExports.memberExpression(libExports.thisExpression(), libExports.identifier("parentComponent")),
-                        libExports.identifier("mountCompiledChildComponents_")
+                        "GEA_MOUNT_COMPILED_CHILD_COMPONENTS"
                       ),
                       []
                     )
@@ -54075,6 +55376,41 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
             } else if (pb.type === "attribute" && pb.attributeName) {
               const attrName = pb.attributeName;
               if (attrName === "style") {
+                const cssTextExpr = libExports.conditionalExpression(
+                  libExports.binaryExpression("===", libExports.unaryExpression("typeof", valueExpr), libExports.stringLiteral("object")),
+                  libExports.callExpression(
+                    libExports.memberExpression(
+                      libExports.callExpression(
+                        libExports.memberExpression(
+                          libExports.callExpression(libExports.memberExpression(libExports.identifier("Object"), libExports.identifier("entries")), [
+                            valueExpr
+                          ]),
+                          libExports.identifier("map")
+                        ),
+                        [
+                          libExports.arrowFunctionExpression(
+                            [libExports.arrayPattern([libExports.identifier("k"), libExports.identifier("v")])],
+                            libExports.binaryExpression(
+                              "+",
+                              libExports.binaryExpression(
+                                "+",
+                                libExports.callExpression(libExports.memberExpression(libExports.identifier("k"), libExports.identifier("replace")), [
+                                  libExports.regExpLiteral("[A-Z]", "g"),
+                                  libExports.stringLiteral("-$&")
+                                ]),
+                                libExports.stringLiteral(": ")
+                              ),
+                              libExports.identifier("v")
+                            )
+                          )
+                        ]
+                      ),
+                      libExports.identifier("join")
+                    ),
+                    [libExports.stringLiteral("; ")]
+                  ),
+                  libExports.callExpression(libExports.identifier("String"), [valueExpr])
+                );
                 updateStmt = libExports.ifStatement(
                   libExports.logicalExpression(
                     "||",
@@ -54086,51 +55422,53 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                       libExports.stringLiteral("style")
                     ])
                   ),
-                  libExports.expressionStatement(
-                    libExports.assignmentExpression(
-                      "=",
-                      libExports.memberExpression(
-                        libExports.memberExpression(libExports.identifier("__el"), libExports.identifier("style")),
-                        libExports.identifier("cssText")
-                      ),
-                      libExports.conditionalExpression(
-                        libExports.binaryExpression("===", libExports.unaryExpression("typeof", valueExpr), libExports.stringLiteral("object")),
-                        libExports.callExpression(
-                          libExports.memberExpression(
-                            libExports.callExpression(
-                              libExports.memberExpression(
-                                libExports.callExpression(libExports.memberExpression(libExports.identifier("Object"), libExports.identifier("entries")), [
-                                  valueExpr
-                                ]),
-                                libExports.identifier("map")
-                              ),
-                              [
-                                libExports.arrowFunctionExpression(
-                                  [libExports.arrayPattern([libExports.identifier("k"), libExports.identifier("v")])],
-                                  libExports.binaryExpression(
-                                    "+",
-                                    libExports.binaryExpression(
-                                      "+",
-                                      libExports.callExpression(libExports.memberExpression(libExports.identifier("k"), libExports.identifier("replace")), [
-                                        libExports.regExpLiteral("[A-Z]", "g"),
-                                        libExports.stringLiteral("-$&")
-                                      ]),
-                                      libExports.stringLiteral(": ")
-                                    ),
-                                    libExports.identifier("v")
-                                  )
-                                )
-                              ]
-                            ),
-                            libExports.identifier("join")
-                          ),
-                          [libExports.stringLiteral("; ")]
+                  libExports.blockStatement([
+                    libExports.variableDeclaration("const", [libExports.variableDeclarator(libExports.identifier("__newCss"), cssTextExpr)]),
+                    libExports.ifStatement(
+                      libExports.binaryExpression(
+                        "!==",
+                        libExports.memberExpression(
+                          libExports.memberExpression(libExports.identifier("__el"), libExports.identifier("style")),
+                          libExports.identifier("cssText")
                         ),
-                        libExports.callExpression(libExports.identifier("String"), [valueExpr])
+                        libExports.identifier("__newCss")
+                      ),
+                      libExports.expressionStatement(
+                        libExports.assignmentExpression(
+                          "=",
+                          libExports.memberExpression(
+                            libExports.memberExpression(libExports.identifier("__el"), libExports.identifier("style")),
+                            libExports.identifier("cssText")
+                          ),
+                          libExports.identifier("__newCss")
+                        )
+                      )
+                    )
+                  ])
+                );
+              } else if (attrName === "dangerouslySetInnerHTML") {
+                updateStmt = libExports.blockStatement([
+                  libExports.variableDeclaration("const", [
+                    libExports.variableDeclarator(
+                      libExports.identifier("__newHtml"),
+                      libExports.callExpression(libExports.identifier("String"), [valueExpr])
+                    )
+                  ]),
+                  libExports.ifStatement(
+                    libExports.binaryExpression(
+                      "!==",
+                      libExports.memberExpression(libExports.identifier("__el"), libExports.identifier("innerHTML")),
+                      libExports.identifier("__newHtml")
+                    ),
+                    libExports.expressionStatement(
+                      libExports.assignmentExpression(
+                        "=",
+                        libExports.memberExpression(libExports.identifier("__el"), libExports.identifier("innerHTML")),
+                        libExports.identifier("__newHtml")
                       )
                     )
                   )
-                );
+                ]);
               } else {
                 const isBooleanAttr = BOOLEAN_HTML_ATTRS.has(attrName);
                 const removeCondition = isBooleanAttr ? libExports.unaryExpression("!", valueExpr) : libExports.logicalExpression(
@@ -54138,6 +55476,10 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                   libExports.binaryExpression("===", valueExpr, libExports.nullLiteral()),
                   libExports.binaryExpression("===", valueExpr, libExports.identifier("undefined"))
                 );
+                const newAttrValueExpr = isBooleanAttr ? libExports.stringLiteral("") : URL_ATTRS.has(attrName) ? libExports.callExpression(libExports.identifier("geaSanitizeAttr"), [
+                  libExports.stringLiteral(attrName),
+                  libExports.callExpression(libExports.identifier("String"), [valueExpr])
+                ]) : libExports.callExpression(libExports.identifier("String"), [valueExpr]);
                 updateStmt = libExports.ifStatement(
                   removeCondition,
                   libExports.expressionStatement(
@@ -54145,12 +55487,24 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                       libExports.stringLiteral(attrName)
                     ])
                   ),
-                  libExports.expressionStatement(
-                    libExports.callExpression(libExports.memberExpression(libExports.identifier("__el"), libExports.identifier("setAttribute")), [
-                      libExports.stringLiteral(attrName),
-                      isBooleanAttr ? libExports.stringLiteral("") : libExports.callExpression(libExports.identifier("String"), [valueExpr])
-                    ])
-                  )
+                  libExports.blockStatement([
+                    libExports.variableDeclaration("const", [libExports.variableDeclarator(libExports.identifier("__newAttr"), newAttrValueExpr)]),
+                    libExports.ifStatement(
+                      libExports.binaryExpression(
+                        "!==",
+                        libExports.callExpression(libExports.memberExpression(libExports.identifier("__el"), libExports.identifier("getAttribute")), [
+                          libExports.stringLiteral(attrName)
+                        ]),
+                        libExports.identifier("__newAttr")
+                      ),
+                      libExports.expressionStatement(
+                        libExports.callExpression(libExports.memberExpression(libExports.identifier("__el"), libExports.identifier("setAttribute")), [
+                          libExports.stringLiteral(attrName),
+                          libExports.identifier("__newAttr")
+                        ])
+                      )
+                    )
+                  ])
                 );
               }
             } else {
@@ -54328,8 +55682,28 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
               const parsed = JSON.parse(entry.observeKey);
               const storeVarName = parsed.storeVar || void 0;
               const methodNameStr = getObserveMethodName(propPath, storeVarName);
-              const prevProp = `__geaPrev_guard_${methodNameStr}`;
-              const rerenderMethod = jsMethod`${id(methodNameStr)}(__v, __c) { if (!__v === !this.${id(prevProp)}) return; this.${id(prevProp)} = __v; this.__geaRequestRender(); }`;
+              const prevGuardMem = libExports.memberExpression(
+                libExports.thisExpression(),
+                libExports.callExpression(libExports.identifier("geaPrevGuardSymbol"), [libExports.stringLiteral(methodNameStr)]),
+                true
+              );
+              const rerenderMethod = libExports.classMethod(
+                "method",
+                libExports.identifier(methodNameStr),
+                [libExports.identifier("__v"), libExports.identifier("__c")],
+                libExports.blockStatement([
+                  libExports.ifStatement(
+                    libExports.binaryExpression(
+                      "===",
+                      libExports.unaryExpression("!", libExports.identifier("__v")),
+                      libExports.unaryExpression("!", prevGuardMem)
+                    ),
+                    libExports.returnStatement()
+                  ),
+                  libExports.expressionStatement(libExports.assignmentExpression("=", prevGuardMem, libExports.identifier("__v"))),
+                  libExports.expressionStatement(buildThisGeaCall("GEA_REQUEST_RENDER"))
+                ])
+              );
               mergeObserveMethod(entry.observeKey, rerenderMethod);
               if (!stateProps.has(entry.observeKey)) {
                 stateProps.set(entry.observeKey, entry.pathParts);
@@ -54394,9 +55768,11 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                     usesTargetComponent: true
                   }));
                   if (delegatedEvents.length > 0) {
-                    appendCompiledEventMethods(classPath.node.body, delegatedEvents);
+                    appendCompiledEventMethods(classPath.node.body, delegatedEvents, [], ast);
                   }
                 }
+                ensureImport(ast, "@geajs/core", "geaListItemsSymbol");
+                insertStmtBeforeClass(classPath, arrayResult.symbolConstDecl);
                 inlineIntoConstructor(classPath.node.body, [
                   ...arrayResult.arrSetupStatements.map((s) => libExports.cloneNode(s, true)),
                   arrayResult.constructorInit
@@ -54408,6 +55784,7 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                     arrayPropName,
                     componentTag: arrayResult.componentTag,
                     containerBindingId: arrayResult.containerBindingId,
+                    containerUserIdExpr: arrayResult.containerUserIdExpr,
                     itemIdProperty: arrayResult.itemIdProperty
                   });
                 } else {
@@ -54416,9 +55793,9 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                   const itemsName = getComponentArrayItemsName(arrayPropName);
                   const itemPropsMethodNameRef = `__itemProps_${arrayPropName}`;
                   const containerSuffix = arrayResult.containerBindingId;
-                  const containerExpr = containerSuffix ? libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__el")), [
-                    libExports.stringLiteral(containerSuffix)
-                  ]) : jsExpr`this.$(":scope")`;
+                  const containerExpr = arrayResult.containerUserIdExpr ? libExports.callExpression(libExports.memberExpression(libExports.identifier("document"), libExports.identifier("getElementById")), [
+                    libExports.cloneNode(arrayResult.containerUserIdExpr, true)
+                  ]) : containerSuffix ? libExports.callExpression(thisGea("GEA_EL"), [libExports.stringLiteral(containerSuffix)]) : jsExpr`this.$(":scope")`;
                   const itemIdProp = arrayResult.itemIdProperty;
                   const keyFn = itemIdProp && itemIdProp !== ITEM_IS_KEY ? libExports.arrowFunctionExpression(
                     [libExports.identifier("opt")],
@@ -54446,8 +55823,8 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                       libExports.variableDeclaration("const", [
                         libExports.variableDeclarator(
                           libExports.identifier("__new"),
-                          libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__reconcileList")), [
-                            libExports.memberExpression(libExports.thisExpression(), libExports.identifier(itemsName)),
+                          libExports.callExpression(thisGea("GEA_RECONCILE_LIST"), [
+                            libExports.memberExpression(libExports.thisExpression(), libExports.identifier(itemsName), true),
                             libExports.identifier("__arr"),
                             libExports.cloneNode(containerExpr, true),
                             libExports.identifier(arrayResult.componentTag),
@@ -54466,7 +55843,7 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                         libExports.assignmentExpression(
                           "=",
                           libExports.memberExpression(
-                            libExports.memberExpression(libExports.thisExpression(), libExports.identifier(itemsName)),
+                            libExports.memberExpression(libExports.thisExpression(), libExports.identifier(itemsName), true),
                             libExports.identifier("length")
                           ),
                           libExports.numericLiteral(0)
@@ -54475,7 +55852,7 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                       libExports.expressionStatement(
                         libExports.callExpression(
                           libExports.memberExpression(
-                            libExports.memberExpression(libExports.thisExpression(), libExports.identifier(itemsName)),
+                            libExports.memberExpression(libExports.thisExpression(), libExports.identifier(itemsName), true),
                             libExports.identifier("push")
                           ),
                           [libExports.spreadElement(libExports.identifier("__new"))]
@@ -54568,11 +55945,12 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
               itemTemplate: um.itemTemplate,
               isImportedState: false,
               itemIdProperty: um.itemIdProperty,
+              ...um.keyExpression ? { keyExpression: um.keyExpression } : {},
               ...um.callbackBodyStatements?.length ? { callbackBodyStatements: um.callbackBodyStatements } : {}
             };
             unresolvedBindings.push({ info: um, binding: syntheticBinding });
             const prevEventLen = unresolvedEventHandlers.length;
-            const { method, handlerPropsInMap, needsUnwrapHelper } = generateRenderItemMethod(
+            const { method, handlerPropsInMap, needsUnwrapHelper, needsRawStoreCache } = generateRenderItemMethod(
               syntheticBinding,
               imports,
               unresolvedEventHandlers,
@@ -54581,11 +55959,13 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
               tmplSetupCtx
             );
             if (needsUnwrapHelper) needsModuleLevelUnwrapHelper = true;
+            if (needsRawStoreCache) needsClassLevelRawStoreField = true;
             const newHandlers = unresolvedEventHandlers.slice(prevEventLen);
             const tokenMatch = newHandlers[0]?.selector?.match(/data-gea-event="([^"]+)"/);
             mapItemAttrInfos.push({
               itemVariable: um.itemVariable,
               itemIdProperty: um.itemIdProperty,
+              ...um.keyExpression ? { keyExpression: um.keyExpression } : {},
               containerBindingId: um.containerBindingId,
               eventToken: tokenMatch ? tokenMatch[1] : void 0
             });
@@ -54593,20 +55973,23 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
               classPath.node.body.body.push(method);
               applied = true;
             }
-            const createMethod = generateCreateItemMethod(
+            const createResult = generateCreateItemMethod(
               syntheticBinding,
               getTemplatePropNames(classPath.node.body),
               getTemplateParamIdentifier(classPath.node.body),
               tmplSetupCtx
             );
-            if (createMethod) classPath.node.body.body.push(createMethod);
-            const patchMethod = generatePatchItemMethod(
+            if (createResult.method) classPath.node.body.body.push(createResult.method);
+            if (createResult.needsRawStoreCache) needsClassLevelRawStoreField = true;
+            for (const f of createResult.privateFields) classLevelPrivateFields.add(f);
+            const patchResult = generatePatchItemMethod(
               syntheticBinding,
               getTemplatePropNames(classPath.node.body),
               getTemplateParamIdentifier(classPath.node.body),
               tmplSetupCtx
             );
-            if (patchMethod) classPath.node.body.body.push(patchMethod);
+            if (patchResult.method) classPath.node.body.body.push(patchResult.method);
+            for (const f of patchResult.privateFields) classLevelPrivateFields.add(f);
             if (handlerPropsInMap.length > 0 && um.computationExpr) {
               if (arrayPropName) {
                 const propNames = getTemplatePropNames(classPath.node.body);
@@ -54656,18 +56039,12 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                   libExports.identifier(getObserveMethodName(dep.pathParts, dep.storeVar)),
                   [libExports.identifier("value"), libExports.identifier("change")],
                   libExports.blockStatement([
-                    libExports.expressionStatement(
-                      libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__geaSyncMap")), [
-                        libExports.numericLiteral(mapIdx)
-                      ])
-                    )
+                    libExports.expressionStatement(libExports.callExpression(thisGea("GEA_SYNC_MAP"), [libExports.numericLiteral(mapIdx)]))
                   ])
                 )
               );
               if (!stateProps.has(dep.observeKey)) stateProps.set(dep.observeKey, dep.pathParts);
             }
-            const propDeps = deps.filter((dep) => !dep.storeVar && dep.pathParts[0] === "props");
-            if (propDeps.length === 0) return;
             const usedPropNames = /* @__PURE__ */ new Set();
             const scanNodes = [
               ...(info.computationSetupStatements || []).map((s) => libExports.cloneNode(s, true))
@@ -54675,6 +56052,11 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
             if (info.computationExpr) {
               scanNodes.push(libExports.expressionStatement(libExports.cloneNode(info.computationExpr, true)));
             }
+            const addPropNameFromMember = (path) => {
+              if (templateWholeParam && libExports.isIdentifier(path.node.object, { name: templateWholeParam }) && libExports.isIdentifier(path.node.property) && !path.node.computed) {
+                usedPropNames.add(path.node.property.name);
+              }
+            };
             if (scanNodes.length > 0) {
               const prog = libExports.program(scanNodes);
               traverse$4(prog, {
@@ -54682,13 +56064,25 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                 Identifier(path) {
                   if (templatePropNames.has(path.node.name)) usedPropNames.add(path.node.name);
                 },
-                MemberExpression(path) {
-                  if (templateWholeParam && libExports.isIdentifier(path.node.object, { name: templateWholeParam }) && libExports.isIdentifier(path.node.property) && !path.node.computed) {
-                    usedPropNames.add(path.node.property.name);
-                  }
-                }
+                MemberExpression: addPropNameFromMember
               });
             }
+            if (info.itemTemplate) {
+              const skipVars = /* @__PURE__ */ new Set([info.itemVariable, ...info.indexVariable ? [info.indexVariable] : []]);
+              const templateProg = libExports.program([
+                libExports.expressionStatement(libExports.cloneNode(info.itemTemplate, true))
+              ]);
+              traverse$4(templateProg, {
+                noScope: true,
+                Identifier(path) {
+                  if (!skipVars.has(path.node.name) && templatePropNames.has(path.node.name)) {
+                    usedPropNames.add(path.node.name);
+                  }
+                },
+                MemberExpression: addPropNameFromMember
+              });
+            }
+            if (usedPropNames.size === 0) return;
             unresolvedMapPropRefreshDeps.push({
               mapIdx: getMapIndex(binding.arrayPathParts),
               propNames: Array.from(usedPropNames)
@@ -54704,13 +56098,13 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
           );
           if (elRefFieldNames.length > 0) {
             const hasReset = classPath.node.body.body.some(
-              (m) => libExports.isClassMethod(m) && libExports.isIdentifier(m.key) && m.key.name === "__resetEls"
+              (m) => libExports.isClassMethod(m) && m.computed === true && libExports.isIdentifier(m.key) && m.key.name === "GEA_RESET_ELS"
             );
             if (!hasReset) {
               classPath.node.body.body.push(
                 libExports.classMethod(
                   "method",
-                  libExports.identifier("__resetEls"),
+                  libExports.identifier("GEA_RESET_ELS"),
                   [],
                   libExports.blockStatement(
                     elRefFieldNames.map(
@@ -54722,7 +56116,10 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                         )
                       )
                     )
-                  )
+                  ),
+                  false,
+                  false,
+                  true
                 )
               );
               applied = true;
@@ -54766,9 +56163,12 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
               stateProps.set(observeKey, parts);
             }
           }
-          const hasOnPropChange = classPath.node.body.body.some(
-            (member) => libExports.isClassMethod(member) && libExports.isIdentifier(member.key) && member.key.name === "__onPropChange"
-          );
+          const hasOnPropChange = classPath.node.body.body.some((member) => {
+            if (!libExports.isClassMethod(member) || !libExports.isIdentifier(member.key)) return false;
+            if (member.computed && member.key.name === "GEA_ON_PROP_CHANGE") return true;
+            if (!member.computed && member.key.name === "__onPropChange") return true;
+            return false;
+          });
           const childObserveGroups = /* @__PURE__ */ new Map();
           compiledChildren.forEach((child) => {
             if (childHasNoProps(child)) return;
@@ -54809,25 +56209,58 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
           for (const member of classPath.node.body.body) {
             if (!libExports.isClassMethod(member) || member.kind !== "get" || !libExports.isIdentifier(member.key)) continue;
             const getterName = member.key.name;
-            const deps = [];
+            const depMap = /* @__PURE__ */ new Map();
             const localRefs = /* @__PURE__ */ new Set();
             const program = libExports.program(member.body.body.map((s) => libExports.cloneNode(s, true)));
             traverse$4(program, {
               noScope: true,
+              OptionalMemberExpression(mePath) {
+                const objectNode = mePath.node.object;
+                if (!libExports.isMemberExpression(objectNode)) return;
+                if (!libExports.isIdentifier(objectNode.object) || !libExports.isIdentifier(objectNode.property)) return;
+                const objName = objectNode.object.name;
+                const ref = stateRefs.get(objName);
+                if (!ref || ref.kind !== "imported") return;
+                if (!mePath.node.computed || !libExports.isExpression(mePath.node.property)) return;
+                if (!canInlineDynamicObserverKey(mePath.node.property)) return;
+                depMap.set(`${objName}.${objectNode.property.name}`, {
+                  storeVar: objName,
+                  pathParts: [objectNode.property.name],
+                  dynamicKeyExpr: libExports.cloneNode(mePath.node.property, true)
+                });
+              },
               MemberExpression(mePath) {
                 if (libExports.isThisExpression(mePath.node.object) && libExports.isIdentifier(mePath.node.property)) {
                   const propName = mePath.node.property.name;
                   if (getterNames.has(propName) && propName !== getterName) localRefs.add(propName);
                   return;
                 }
+                if (libExports.isMemberExpression(mePath.node.object) && libExports.isIdentifier(mePath.node.object.object) && libExports.isIdentifier(mePath.node.object.property) && mePath.node.computed && libExports.isExpression(mePath.node.property)) {
+                  const objName2 = mePath.node.object.object.name;
+                  const ref2 = stateRefs.get(objName2);
+                  if (ref2 && ref2.kind === "imported" && canInlineDynamicObserverKey(mePath.node.property)) {
+                    depMap.set(`${objName2}.${mePath.node.object.property.name}`, {
+                      storeVar: objName2,
+                      pathParts: [mePath.node.object.property.name],
+                      dynamicKeyExpr: libExports.cloneNode(mePath.node.property, true)
+                    });
+                    return;
+                  }
+                }
                 if (!libExports.isIdentifier(mePath.node.object)) return;
                 const objName = mePath.node.object.name;
                 const ref = stateRefs.get(objName);
                 if (!ref || ref.kind !== "imported") return;
                 if (!libExports.isIdentifier(mePath.node.property)) return;
-                deps.push({ storeVar: objName, pathParts: [mePath.node.property.name] });
+                if (!depMap.has(`${objName}.${mePath.node.property.name}`)) {
+                  depMap.set(`${objName}.${mePath.node.property.name}`, {
+                    storeVar: objName,
+                    pathParts: [mePath.node.property.name]
+                  });
+                }
               }
             });
+            const deps = Array.from(depMap.values());
             if (deps.length > 0) componentGetterStoreDeps.set(member.key.name, deps);
             if (localRefs.size > 0) getterLocalRefs.set(member.key.name, localRefs);
           }
@@ -54840,8 +56273,10 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                 if (!refDeps) continue;
                 const existing = componentGetterStoreDeps.get(getterName) || [];
                 for (const dep of refDeps) {
-                  const key = `${dep.storeVar}.${dep.pathParts.join(".")}`;
-                  if (!existing.some((e) => `${e.storeVar}.${e.pathParts.join(".")}` === key)) {
+                  const key = `${dep.storeVar}.${dep.pathParts.join(".")}:${dep.dynamicKeyExpr ? "dyn" : "plain"}`;
+                  if (!existing.some(
+                    (e) => `${e.storeVar}.${e.pathParts.join(".")}:${e.dynamicKeyExpr ? "dyn" : "plain"}` === key
+                  )) {
                     existing.push(dep);
                     changed = true;
                   }
@@ -54859,18 +56294,50 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                 const stmt = tmplBody2[gi];
                 if (!libExports.isIfStatement(stmt) || !(libExports.isReturnStatement(stmt.consequent) || libExports.isBlockStatement(stmt.consequent) && stmt.consequent.body.some((b) => libExports.isReturnStatement(b))))
                   continue;
+                const guardAliasInits = /* @__PURE__ */ new Map();
+                for (let si = 0; si < gi; si++) {
+                  const setupStmt = tmplBody2[si];
+                  if (!libExports.isVariableDeclaration(setupStmt)) continue;
+                  for (const decl of setupStmt.declarations) {
+                    if (!libExports.isIdentifier(decl.id) || !decl.init || !libExports.isExpression(decl.init)) continue;
+                    guardAliasInits.set(decl.id.name, decl.init);
+                  }
+                }
+                const addGuardObserveKey = (resolved) => {
+                  if (!resolved?.parts?.length) return;
+                  if (!resolved.isImportedState) return;
+                  const observeKey = buildObserveKey(resolved.parts, resolved.storeVar);
+                  guardStateKeys.add(observeKey);
+                  if (!stateProps.has(observeKey)) stateProps.set(observeKey, [...resolved.parts]);
+                };
+                for (const [aliasName, init] of guardAliasInits) {
+                  if (!expressionReferencesIdentifier(stmt.test, aliasName)) continue;
+                  if (!(libExports.isIdentifier(init) || libExports.isMemberExpression(init) || libExports.isThisExpression(init) || libExports.isCallExpression(init)))
+                    continue;
+                  const resolvedAlias = resolvePath(init, stateRefs);
+                  if (resolvedAlias) addGuardObserveKey(resolvedAlias);
+                }
+                const resolveGuardStateExpr = (expr, seen = /* @__PURE__ */ new Set()) => {
+                  const resolved = resolvePath(expr, stateRefs);
+                  if (resolved?.parts?.length && resolved.isImportedState) return resolved;
+                  if (libExports.isIdentifier(expr) && !seen.has(expr.name)) {
+                    const init = guardAliasInits.get(expr.name);
+                    if (init && (libExports.isIdentifier(init) || libExports.isMemberExpression(init) || libExports.isThisExpression(init) || libExports.isCallExpression(init))) {
+                      seen.add(expr.name);
+                      return resolveGuardStateExpr(init, seen);
+                    }
+                  }
+                  return null;
+                };
                 const guardProg = libExports.program([libExports.expressionStatement(libExports.cloneNode(stmt.test, true))]);
                 traverse$4(guardProg, {
                   noScope: true,
                   Identifier(idPath) {
                     if (libExports.isMemberExpression(idPath.parent) && idPath.parent.property === idPath.node && !idPath.parent.computed)
                       return;
-                    const resolved = resolvePath(idPath.node, stateRefs);
-                    if (!resolved?.parts?.length) return;
-                    if (!resolved.isImportedState) return;
-                    const observeKey = buildObserveKey(resolved.parts, resolved.storeVar);
-                    guardStateKeys.add(observeKey);
-                    if (!stateProps.has(observeKey)) stateProps.set(observeKey, [...resolved.parts]);
+                    const resolved = resolveGuardStateExpr(idPath.node);
+                    if (!resolved) return;
+                    addGuardObserveKey(resolved);
                   }
                 });
               }
@@ -54899,6 +56366,8 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                   observeKey,
                   generateConditionalSlotObserveMethod(propPath, storeVar, conditionalSlotIndices, false)
                 );
+              } else if (guardStateKeys.has(observeKey)) {
+                mergeObserveMethod(observeKey, generateRerenderObserver(propPath, storeVar, true));
               }
               continue;
             }
@@ -54913,15 +56382,14 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
             })).filter((entry) => entry.bindings.length > 0);
             if (relationalArrayMaps.length > 0) {
               relationalArrayMaps.forEach(({ arrayMap, bindings }) => {
-                mergeObserveMethod(
-                  observeKey,
-                  generateArrayRelationalObserver(
-                    propPath,
-                    arrayMap,
-                    bindings,
-                    getObserveMethodName(propPath, storeVar)
-                  )
+                const relResult = generateArrayRelationalObserver(
+                  propPath,
+                  arrayMap,
+                  bindings,
+                  getObserveMethodName(propPath, storeVar)
                 );
+                mergeObserveMethod(observeKey, relResult.method);
+                for (const f of relResult.privateFields) classLevelPrivateFields.add(f);
               });
             }
             const fallbackArrayMaps = analysis.arrayMaps.map((arrayMap) => ({
@@ -55005,6 +56473,11 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
             } else if (guardStateKeys.has(observeKey)) {
               mergeObserveMethod(observeKey, generateRerenderObserver(propPath, storeVar, true));
             }
+          }
+          for (const guardKey of guardStateKeys) {
+            if (addedMethods.has(guardKey)) continue;
+            const { parts, storeVar } = parseObserveKey(guardKey);
+            mergeObserveMethod(guardKey, generateRerenderObserver(parts, storeVar, true));
           }
           const childrenWithResolvedMap = /* @__PURE__ */ new Set();
           compiledChildren.forEach((child) => {
@@ -55109,9 +56582,9 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
               }).map((child) => {
                 const updateExpr = libExports.expressionStatement(
                   libExports.callExpression(
-                    libExports.memberExpression(
+                    buildExprGeaMember(
                       libExports.memberExpression(libExports.thisExpression(), libExports.identifier(child.instanceVar)),
-                      libExports.identifier("__geaUpdateProps")
+                      "GEA_UPDATE_PROPS"
                     ),
                     [
                       libExports.callExpression(
@@ -55151,7 +56624,7 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
           unresolvedBindings.forEach(({ info, binding }) => {
             const deps = info.dependencies || collectUnresolvedDependencies([info], stateRefs, classPath.node.body);
             const mapIdx = getMapIndex(binding.arrayPathParts);
-            const delegateName = `__geaSyncMapDelegate_${mapIdx}`;
+            const delegateName = `geaSyncMapDelegate_${mapIdx}`;
             const hasNonRelationalDeps = deps.some(
               (dep) => !(info.relationalClassBindings || []).find((rb) => rb.observeKey === dep.observeKey)
             );
@@ -55168,27 +56641,22 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
             deps.forEach((dep) => {
               const relBinding = (info.relationalClassBindings || []).find((rb) => rb.observeKey === dep.observeKey);
               if (relBinding) {
-                mergeObserveMethod(
-                  dep.observeKey,
-                  generateUnresolvedRelationalObserver(
-                    binding,
-                    info,
-                    relBinding,
-                    getObserveMethodName(dep.pathParts, dep.storeVar),
-                    getTemplatePropNames(classPath.node.body),
-                    getTemplateParamIdentifier(classPath.node.body)
-                  )
+                const unresolvedRelResult = generateUnresolvedRelationalObserver(
+                  binding,
+                  info,
+                  relBinding,
+                  getObserveMethodName(dep.pathParts, dep.storeVar),
+                  getTemplatePropNames(classPath.node.body),
+                  getTemplateParamIdentifier(classPath.node.body)
                 );
+                mergeObserveMethod(dep.observeKey, unresolvedRelResult.method);
+                for (const f of unresolvedRelResult.privateFields) classLevelPrivateFields.add(f);
               } else if (dep.storeVar) {
                 if (!delegateEmitted) {
                   classPath.node.body.body.push(
                     appendToBody(
                       jsMethod`${id(delegateName)}() {}`,
-                      libExports.expressionStatement(
-                        libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__geaSyncMap")), [
-                          libExports.numericLiteral(mapIdx)
-                        ])
-                      )
+                      libExports.expressionStatement(libExports.callExpression(thisGea("GEA_SYNC_MAP"), [libExports.numericLiteral(mapIdx)]))
                     )
                   );
                   delegateEmitted = true;
@@ -55200,11 +56668,7 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                 });
               } else {
                 const syncBody = libExports.blockStatement([
-                  libExports.expressionStatement(
-                    libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__geaSyncMap")), [
-                      libExports.numericLiteral(mapIdx)
-                    ])
-                  )
+                  libExports.expressionStatement(libExports.callExpression(thisGea("GEA_SYNC_MAP"), [libExports.numericLiteral(mapIdx)]))
                 ]);
                 mergeObserveMethod(
                   dep.observeKey,
@@ -55267,6 +56731,7 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
               itemVariable: arrayMap.itemVariable,
               ...arrayMap.indexVariable ? { indexVariable: arrayMap.indexVariable } : {},
               itemIdProperty: arrayMap.itemIdProperty,
+              ...arrayMap.keyExpression ? { keyExpression: arrayMap.keyExpression } : {},
               containerElementPath: arrayMap.containerElementPath,
               containerBindingId: arrayMap.containerBindingId,
               computationExpr: computationExprSafe ?? computationExpr
@@ -55295,9 +56760,11 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                   usesTargetComponent: true
                 }));
                 if (delegatedEvents.length > 0) {
-                  appendCompiledEventMethods(classPath.node.body, delegatedEvents);
+                  appendCompiledEventMethods(classPath.node.body, delegatedEvents, [], ast);
                 }
               }
+              ensureImport(ast, "@geajs/core", "geaListItemsSymbol");
+              insertStmtBeforeClass(classPath, arrayResult.symbolConstDecl);
               inlineIntoConstructor(classPath.node.body, [
                 ...arrayResult.arrSetupStatements.map((s) => libExports.cloneNode(s, true)),
                 arrayResult.constructorInit
@@ -55309,6 +56776,7 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                   arrayPropName,
                   componentTag: arrayResult.componentTag,
                   containerBindingId: arrayResult.containerBindingId,
+                  containerUserIdExpr: arrayResult.containerUserIdExpr,
                   itemIdProperty: arrayResult.itemIdProperty
                 });
               }
@@ -55337,14 +56805,12 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
               const depObserveKey = buildObserveKey(depPath, arrayMap.storeVar);
               const depMethodName = getObserveMethodName(depPath, arrayMap.storeVar);
               const refreshStmt = libExports.expressionStatement(
-                libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__refreshList")), [
-                  libExports.stringLiteral(pathKey)
-                ])
+                libExports.callExpression(thisGea("GEA_REFRESH_LIST"), [libExports.stringLiteral(pathKey)])
               );
               const existing = addedMethods.get(depObserveKey);
               if (existing && libExports.isBlockStatement(existing.body)) {
                 const renderedGuardIdx = existing.body.body.findIndex(
-                  (s) => libExports.isIfStatement(s) && libExports.isMemberExpression(s.test) && libExports.isIdentifier(s.test.property) && s.test.property.name === "rendered_"
+                  (s) => libExports.isIfStatement(s) && libExports.isMemberExpression(s.test) && s.test.computed === true && libExports.isIdentifier(s.test.property) && s.test.property.name === "GEA_RENDERED"
                 );
                 if (renderedGuardIdx >= 0) {
                   existing.body.body.splice(renderedGuardIdx, 0, refreshStmt);
@@ -55390,7 +56856,7 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
               MemberExpression(mePath) {
                 const resolved = resolvePath(mePath.node, stateRefs);
                 if (!resolved?.parts?.length || !resolved.isImportedState) return;
-                if (resolved.parts.some((p) => p === "__raw")) return;
+                if (resolved.parts.some((p) => p === "__raw" || p === "GEA_PROXY_RAW")) return;
                 const depKey = buildObserveKey(resolved.parts, resolved.storeVar);
                 if (!getterDepKeys.has(depKey) && !externalDeps.has(depKey)) {
                   externalDeps.set(depKey, { parts: [...resolved.parts], storeVar: resolved.storeVar });
@@ -55401,11 +56867,7 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
               const depMethodName = getObserveMethodName(dep.parts, dep.storeVar);
               if (!stateProps.has(depKey)) stateProps.set(depKey, dep.parts);
               const delegateBody = libExports.blockStatement([
-                libExports.expressionStatement(
-                  libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__refreshList")), [
-                    libExports.stringLiteral(pathKey)
-                  ])
-                )
+                libExports.expressionStatement(libExports.callExpression(thisGea("GEA_REFRESH_LIST"), [libExports.stringLiteral(pathKey)]))
               ]);
               const delegateMethod = libExports.classMethod(
                 "method",
@@ -55420,7 +56882,7 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
           htmlArrayMaps.forEach((arrayMap) => {
             const observeKey = buildObserveKey(arrayMap.arrayPathParts, arrayMap.storeVar);
             const arrayHandlerMethodName = getObserveMethodName(arrayMap.arrayPathParts, arrayMap.storeVar);
-            const { method, needsUnwrapHelper } = generateRenderItemMethod(
+            const { method, needsUnwrapHelper, needsRawStoreCache } = generateRenderItemMethod(
               arrayMap,
               imports,
               renderEventHandlers,
@@ -55429,6 +56891,7 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
               tmplSetupCtx
             );
             if (needsUnwrapHelper) needsModuleLevelUnwrapHelper = true;
+            if (needsRawStoreCache) needsClassLevelRawStoreField = true;
             if (method) {
               classPath.node.body.body.push(method);
               applied = true;
@@ -55438,7 +56901,7 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
               const strippedInTemplate = templateMethod && (analysis.conditionalSlots || []).length > 0 ? stripHtmlArrayMapJoinInTemplateMethod(templateMethod, arrayMap) : false;
               if (strippedInSlots || strippedInTemplate) {
                 const currentValueExpr = arrayMap.storeVar ? buildMemberChainFromParts(libExports.identifier(arrayMap.storeVar), arrayMap.arrayPathParts) : buildMemberChainFromParts(libExports.thisExpression(), arrayMap.arrayPathParts);
-                const initialArrayName = `__geaInitial_${arrayHandlerMethodName}`;
+                const initialArrayName = `geaInitial_${arrayHandlerMethodName}`;
                 initialHtmlArrayRefreshOnMount.push(
                   libExports.variableDeclaration("const", [
                     libExports.variableDeclarator(libExports.identifier(initialArrayName), currentValueExpr)
@@ -55463,27 +56926,32 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                 );
               }
             }
-            const createMethod = generateCreateItemMethod(
+            const createResult = generateCreateItemMethod(
               arrayMap,
               getTemplatePropNames(classPath.node.body),
               getTemplateParamIdentifier(classPath.node.body),
               tmplSetupCtx
             );
-            if (createMethod) {
-              classPath.node.body.body.push(createMethod);
+            if (createResult.method) {
+              classPath.node.body.body.push(createResult.method);
             }
-            const patchMethod = generatePatchItemMethod(
+            if (createResult.needsRawStoreCache) needsClassLevelRawStoreField = true;
+            for (const f of createResult.privateFields) classLevelPrivateFields.add(f);
+            const patchResult = generatePatchItemMethod(
               arrayMap,
               getTemplatePropNames(classPath.node.body),
               getTemplateParamIdentifier(classPath.node.body),
               tmplSetupCtx
             );
-            if (patchMethod) {
-              classPath.node.body.body.push(patchMethod);
+            if (patchResult.method) {
+              classPath.node.body.body.push(patchResult.method);
             }
-            generateArrayHandlers(arrayMap, arrayHandlerMethodName).forEach((h) => {
+            for (const f of patchResult.privateFields) classLevelPrivateFields.add(f);
+            const handlersResult = generateArrayHandlers(arrayMap, arrayHandlerMethodName);
+            handlersResult.methods.forEach((h) => {
               mergeObserveMethod(observeKey, h);
             });
+            for (const f of handlersResult.privateFields) classLevelPrivateFields.add(f);
           });
           if ((analysis.conditionalSlots || []).length > 0) {
             const templatePropNames2 = getTemplatePropNames(classPath.node.body);
@@ -55541,17 +57009,17 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
             }
           }
           if (renderEventHandlers.length > 0) {
-            applied = appendCompiledEventMethods(classPath.node.body, renderEventHandlers) || applied;
+            applied = appendCompiledEventMethods(classPath.node.body, renderEventHandlers, [], ast) || applied;
           }
           if (unresolvedEventHandlers.length > 0) {
-            applied = appendCompiledEventMethods(classPath.node.body, unresolvedEventHandlers) || applied;
+            applied = appendCompiledEventMethods(classPath.node.body, unresolvedEventHandlers, [], ast) || applied;
           }
           if (applied) {
             const importedStores = /* @__PURE__ */ new Map();
             const localObserveHandlers = /* @__PURE__ */ new Map();
             const ensureStoreGroup = (storeVar) => {
               if (!importedStores.has(storeVar)) {
-                const captureExpression = libExports.memberExpression(libExports.identifier(storeVar), libExports.identifier("__store"));
+                const captureExpression = buildExprGeaMember(libExports.identifier(storeVar), "GEA_STORE_ROOT");
                 importedStores.set(storeVar, {
                   captureExpression,
                   observeHandlers: /* @__PURE__ */ new Map()
@@ -55567,13 +57035,16 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                   const compGetterDeps = componentGetterStoreDeps.get(parts[0]);
                   if (compGetterDeps && compGetterDeps.length > 0) {
                     const originalMethodName = getObserveMethodName(parts);
+                    const originalMethod = addedMethodsByName.get(originalMethodName);
                     for (const dep of compGetterDeps) {
                       const depKey = buildObserveKey(dep.pathParts, dep.storeVar) + `__getter_${parts[0]}`;
                       ensureStoreGroup(dep.storeVar).observeHandlers.set(depKey, {
                         pathParts: dep.pathParts,
                         methodName: originalMethodName,
                         isVia: true,
-                        rereadExpr: libExports.memberExpression(libExports.thisExpression(), libExports.identifier(parts[0]))
+                        rereadExpr: libExports.memberExpression(libExports.thisExpression(), libExports.identifier(parts[0])),
+                        passValue: originalMethod ? classMethodUsesParam(originalMethod, 0) : true,
+                        ...dep.dynamicKeyExpr ? { dynamicKeyExpr: dep.dynamicKeyExpr } : {}
                       });
                     }
                   }
@@ -55587,6 +57058,7 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                 const getterDepPaths = storeRef?.getterDeps?.get(parts[0]);
                 if (getterDepPaths && getterDepPaths.length > 0) {
                   const originalMethodName = getObserveMethodName(parts, storeVar);
+                  const originalMethod = addedMethodsByName.get(originalMethodName);
                   let rereadExpr = libExports.memberExpression(libExports.identifier(storeVar), libExports.identifier(parts[0]));
                   for (let i = 1; i < parts.length; i++) {
                     rereadExpr = libExports.optionalMemberExpression(rereadExpr, libExports.identifier(parts[i]), false, true);
@@ -55597,7 +57069,8 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                       pathParts: depPath,
                       methodName: originalMethodName,
                       isVia: true,
-                      rereadExpr
+                      rereadExpr,
+                      passValue: originalMethod ? classMethodUsesParam(originalMethod, 0) : true
                     });
                   }
                   return;
@@ -55749,22 +57222,24 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                 }
               }
             }
-            if (importedStores.size > 0 || localObserveHandlers.size > 0 || mapRegistrations.length > 0) {
+            for (const olc of observeListConfigs) {
+              ensureStoreGroup(olc.storeVar);
+            }
+            if (importedStores.size > 0 || localObserveHandlers.size > 0 || mapRegistrations.length > 0 || observeListConfigs.length > 0) {
               const storeConfigs = Array.from(importedStores.entries()).map(([storeVar, config]) => ({
                 storeVar,
                 captureExpression: config.captureExpression,
                 observeHandlers: Array.from(config.observeHandlers.values()).map(
-                  ({ pathParts, methodName, isVia, rereadExpr }) => ({
+                  ({ pathParts, methodName, isVia, rereadExpr, dynamicKeyExpr, passValue }) => ({
                     pathParts,
                     methodName,
                     isVia,
-                    rereadExpr
+                    rereadExpr,
+                    dynamicKeyExpr,
+                    passValue
                   })
                 )
               }));
-              for (const olc of observeListConfigs) {
-                ensureStoreGroup(olc.storeVar);
-              }
               if (storeConfigs.length > 0 || mapRegistrations.length > 0 || observeListConfigs.length > 0) {
                 const createdHooksMethod = generateCreatedHooks(
                   storeConfigs,
@@ -55807,6 +57282,15 @@ function applyStaticReactivity(ast, originalAST, className, sourceFile, imports,
                   generateLocalStateObserverSetup(Array.from(localObserveHandlers.values()), htmlArrayMaps.length > 0)
                 );
               }
+            }
+          }
+          if (needsClassLevelRawStoreField) classLevelPrivateFields.add("__rs");
+          for (const fieldName of classLevelPrivateFields) {
+            const alreadyHas = classPath.node.body.body.some(
+              (n) => libExports.isClassPrivateProperty(n) && libExports.isIdentifier(n.key.id) && n.key.id.name === fieldName
+            );
+            if (!alreadyHas) {
+              classPath.node.body.body.unshift(libExports.classPrivateProperty(libExports.privateName(libExports.identifier(fieldName))));
             }
           }
         }
@@ -55918,7 +57402,9 @@ function generateUnresolvedRelationalObserver(arrayMap, unresolvedMap, relBindin
   const arrayPathString = pathPartsToString(arrayMap.arrayPathParts);
   const containerName = `__${arrayPathString.replace(/\./g, "_")}_container`;
   const containerRef = libExports.memberExpression(libExports.thisExpression(), libExports.identifier(containerName));
-  const containerLookup = arrayMap.containerBindingId !== void 0 ? libExports.callExpression(libExports.memberExpression(libExports.identifier("document"), libExports.identifier("getElementById")), [
+  const containerLookup = arrayMap.containerUserIdExpr ? libExports.callExpression(libExports.memberExpression(libExports.identifier("document"), libExports.identifier("getElementById")), [
+    libExports.cloneNode(arrayMap.containerUserIdExpr, true)
+  ]) : arrayMap.containerBindingId !== void 0 ? libExports.callExpression(libExports.memberExpression(libExports.identifier("document"), libExports.identifier("getElementById")), [
     libExports.binaryExpression(
       "+",
       libExports.memberExpression(libExports.thisExpression(), libExports.identifier("id")),
@@ -55941,35 +57427,80 @@ function generateUnresolvedRelationalObserver(arrayMap, unresolvedMap, relBindin
     false,
     true
   ) : libExports.memberExpression(libExports.identifier("__arr"), libExports.identifier("__i"), true);
-  const method = jsMethod`${id(methodName)}(value, change) {}`;
-  return appendToBody(
-    method,
-    js`if (!this.rendered_) return;`,
+  const classNameLiteral = libExports.stringLiteral(relBinding.classToggleName);
+  const arrDecl = libExports.variableDeclaration("var", [
+    libExports.variableDeclarator(
+      libExports.identifier("__arr"),
+      libExports.conditionalExpression(
+        libExports.callExpression(libExports.memberExpression(libExports.identifier("Array"), libExports.identifier("isArray")), [arrExpr]),
+        libExports.cloneNode(arrExpr, true),
+        libExports.arrayExpression([])
+      )
+    )
+  ]);
+  const commonPreamble = [
+    libExports.ifStatement(libExports.unaryExpression("!", thisGea("GEA_RENDERED")), libExports.blockStatement([libExports.returnStatement()])),
     lazyInit(containerName, containerLookup),
     ...jsBlockBody`if (!${containerRef}) return;`,
     ...setupStatements,
-    libExports.variableDeclaration("var", [
-      libExports.variableDeclarator(
-        libExports.identifier("__arr"),
-        libExports.conditionalExpression(
-          libExports.callExpression(libExports.memberExpression(libExports.identifier("Array"), libExports.identifier("isArray")), [arrExpr]),
-          libExports.cloneNode(arrExpr, true),
-          libExports.arrayExpression([])
-        )
-      )
-    ]),
-    ...jsBlockBody`
-      var __items = ${containerRef}.querySelectorAll('[data-gea-item-id]');
-      for (var __i = 0; __i < __items.length && __i < __arr.length; __i++) {
-        var __child = __items[__i];
-        if (${itemComparison} === value) {
-          __child.classList.${id(relBinding.matchWhenEqual ? "add" : "remove")}(${libExports.stringLiteral(relBinding.classToggleName)});
-        } else {
-          __child.classList.${id(relBinding.matchWhenEqual ? "remove" : "add")}(${libExports.stringLiteral(relBinding.classToggleName)});
+    arrDecl
+  ];
+  if (relBinding.matchWhenEqual) {
+    const cacheFieldName = methodName.replace("__observe_", "__prel_");
+    const cacheRef = libExports.memberExpression(libExports.thisExpression(), libExports.privateName(libExports.identifier(cacheFieldName)));
+    const method2 = jsMethod`${id(methodName)}(value, change) {}`;
+    return {
+      method: appendToBody(
+        method2,
+        ...commonPreamble,
+        libExports.ifStatement(
+          libExports.cloneNode(cacheRef, true),
+          libExports.blockStatement([
+            libExports.expressionStatement(
+              libExports.callExpression(
+                libExports.memberExpression(
+                  libExports.memberExpression(libExports.cloneNode(cacheRef, true), libExports.identifier("classList")),
+                  libExports.identifier("remove")
+                ),
+                [libExports.cloneNode(classNameLiteral, true)]
+              )
+            ),
+            libExports.expressionStatement(libExports.assignmentExpression("=", libExports.cloneNode(cacheRef, true), libExports.nullLiteral()))
+          ])
+        ),
+        ...jsBlockBody`
+          var __items = ${containerRef}.querySelectorAll('[data-gea-item-id]');
+          for (var __i = 0; __i < __items.length && __i < __arr.length; __i++) {
+            if (${itemComparison} === value) {
+              __items[__i].classList.add(${classNameLiteral});
+              ${cacheRef} = __items[__i];
+              break;
+            }
+          }
+        `
+      ),
+      privateFields: [cacheFieldName]
+    };
+  }
+  const method = jsMethod`${id(methodName)}(value, change) {}`;
+  return {
+    method: appendToBody(
+      method,
+      ...commonPreamble,
+      ...jsBlockBody`
+        var __items = ${containerRef}.querySelectorAll('[data-gea-item-id]');
+        for (var __i = 0; __i < __items.length && __i < __arr.length; __i++) {
+          var __child = __items[__i];
+          if (${itemComparison} === value) {
+            __child.classList.${id("remove")}(${libExports.stringLiteral(relBinding.classToggleName)});
+          } else {
+            __child.classList.${id("add")}(${libExports.stringLiteral(relBinding.classToggleName)});
+          }
         }
-      }
-    `
-  );
+      `
+    ),
+    privateFields: []
+  };
 }
 function getMapIndex(arrayPathParts) {
   const s = pathPartsToString(arrayPathParts);
@@ -55983,7 +57514,9 @@ function generateMapRegistration(arrayMap, unresolvedMap, templatePropNames, who
   const capName = arrayName.charAt(0).toUpperCase() + arrayName.slice(1);
   const createMethodName = `create${capName}Item`;
   const mapIdx = getMapIndex(arrayMap.arrayPathParts);
-  const containerLookup = arrayMap.containerBindingId !== void 0 ? libExports.callExpression(libExports.memberExpression(libExports.identifier("document"), libExports.identifier("getElementById")), [
+  const containerLookup = arrayMap.containerUserIdExpr ? libExports.callExpression(libExports.memberExpression(libExports.identifier("document"), libExports.identifier("getElementById")), [
+    libExports.cloneNode(arrayMap.containerUserIdExpr, true)
+  ]) : arrayMap.containerBindingId !== void 0 ? libExports.callExpression(libExports.memberExpression(libExports.identifier("document"), libExports.identifier("getElementById")), [
     libExports.binaryExpression(
       "+",
       libExports.memberExpression(libExports.thisExpression(), libExports.identifier("id")),
@@ -56014,12 +57547,23 @@ function generateMapRegistration(arrayMap, unresolvedMap, templatePropNames, who
       )
     )
   ];
-  if (arrayMap.itemIdProperty && arrayMap.itemIdProperty !== ITEM_IS_KEY) {
+  if (unresolvedMap.keyExpression) {
+    const keyExpr = libExports.cloneNode(unresolvedMap.keyExpression, true);
+    const itemVar = unresolvedMap.itemVariable;
+    const idxVar = unresolvedMap.indexVariable;
+    traverse$4(libExports.program([libExports.expressionStatement(keyExpr)]), {
+      noScope: true,
+      Identifier(path) {
+        if (path.node.name === itemVar) path.node.name = "__k";
+        else if (idxVar && path.node.name === idxVar) path.node.name = "__ki";
+      }
+    });
+    const keyFnParams = idxVar ? [libExports.identifier("__k"), libExports.identifier("__ki")] : [libExports.identifier("__k")];
+    registerArgs.push(libExports.arrowFunctionExpression(keyFnParams, libExports.callExpression(libExports.identifier("String"), [keyExpr])));
+  } else if (arrayMap.itemIdProperty && arrayMap.itemIdProperty !== ITEM_IS_KEY) {
     registerArgs.push(libExports.stringLiteral(arrayMap.itemIdProperty));
   }
-  return libExports.expressionStatement(
-    libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__geaRegisterMap")), registerArgs)
-  );
+  return libExports.expressionStatement(libExports.callExpression(thisGea("GEA_REGISTER_MAP"), registerArgs));
 }
 function collectFreeIdentifiers(nodes) {
   const names = /* @__PURE__ */ new Set();
@@ -56114,7 +57658,10 @@ function replaceMapWithComponentArrayItems(templateMethod, arrayExpr, itemsName,
         toReplace = path.parentPath.parentPath;
       }
       const replacement = opts?.slotBranch ? libExports.stringLiteral("") : libExports.callExpression(
-        libExports.memberExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier(itemsName)), libExports.identifier("join")),
+        libExports.memberExpression(
+          libExports.memberExpression(libExports.thisExpression(), libExports.identifier(itemsName), true),
+          libExports.identifier("join")
+        ),
         [libExports.stringLiteral("")]
       );
       toReplace.replaceWith(replacement);
@@ -56160,7 +57707,27 @@ function inlineIntoConstructor(classBody, statements) {
 }
 function ensureDisposeCalls(classBody, targets) {
   const disposeStatements = targets.map(
-    (target) => js`this.${id(target)}?.forEach?.(item => item?.dispose?.());`
+    (target) => libExports.expressionStatement(
+      libExports.optionalCallExpression(
+        libExports.optionalMemberExpression(
+          libExports.memberExpression(libExports.thisExpression(), libExports.identifier(target), true),
+          libExports.identifier("forEach"),
+          false,
+          true
+        ),
+        [
+          libExports.arrowFunctionExpression(
+            [libExports.identifier("item")],
+            libExports.optionalCallExpression(
+              libExports.optionalMemberExpression(libExports.identifier("item"), libExports.identifier("dispose"), false, true),
+              [],
+              true
+            )
+          )
+        ],
+        true
+      )
+    )
   );
   const existingDispose = classBody.body.find(
     (member) => libExports.isClassMethod(member) && libExports.isIdentifier(member.key) && member.key.name === "dispose"
@@ -56174,9 +57741,12 @@ function ensureDisposeCalls(classBody, targets) {
   );
 }
 function ensureOnPropChangeMethod(classBody, inlinePatchBodies, compiledChildren, arrayRefreshDeps, conditionalSlots = [], unresolvedMapPropRefreshDeps = []) {
-  const existing = classBody.body.find(
-    (member) => libExports.isClassMethod(member) && libExports.isIdentifier(member.key) && member.key.name === "__onPropChange"
-  );
+  const existing = classBody.body.find((member) => {
+    if (!libExports.isClassMethod(member) || !libExports.isIdentifier(member.key)) return false;
+    if (member.computed && member.key.name === "GEA_ON_PROP_CHANGE") return true;
+    if (!member.computed && member.key.name === "__onPropChange") return true;
+    return false;
+  });
   if (existing) return;
   const directForwardCalls = [];
   const nonDirectChildren = [];
@@ -56194,9 +57764,9 @@ function ensureOnPropChangeMethod(classBody, inlinePatchBodies, compiledChildren
             guard,
             libExports.expressionStatement(
               libExports.callExpression(
-                libExports.memberExpression(
+                buildExprGeaMember(
                   libExports.memberExpression(libExports.thisExpression(), libExports.identifier(child.instanceVar)),
-                  libExports.identifier("__geaUpdateProps")
+                  "GEA_UPDATE_PROPS"
                 ),
                 [libExports.objectExpression([libExports.objectProperty(libExports.identifier("key"), libExports.identifier("value"), true)])]
               )
@@ -56210,9 +57780,9 @@ function ensureOnPropChangeMethod(classBody, inlinePatchBodies, compiledChildren
               libExports.binaryExpression("===", libExports.identifier("key"), libExports.stringLiteral(m.parentPropName)),
               libExports.expressionStatement(
                 libExports.callExpression(
-                  libExports.memberExpression(
+                  buildExprGeaMember(
                     libExports.memberExpression(libExports.thisExpression(), libExports.identifier(child.instanceVar)),
-                    libExports.identifier("__geaUpdateProps")
+                    "GEA_UPDATE_PROPS"
                   ),
                   [libExports.objectExpression([libExports.objectProperty(libExports.identifier(m.childPropName), libExports.identifier("value"))])]
                 )
@@ -56244,10 +57814,7 @@ function ensureOnPropChangeMethod(classBody, inlinePatchBodies, compiledChildren
   const childRefreshCalls = childRefreshEntries.map(({ child, depProps }) => {
     const call = libExports.expressionStatement(
       libExports.callExpression(
-        libExports.memberExpression(
-          libExports.memberExpression(libExports.thisExpression(), libExports.identifier(child.instanceVar)),
-          libExports.identifier("__geaUpdateProps")
-        ),
+        buildExprGeaMember(libExports.memberExpression(libExports.thisExpression(), libExports.identifier(child.instanceVar)), "GEA_UPDATE_PROPS"),
         [
           libExports.callExpression(
             libExports.memberExpression(libExports.thisExpression(), libExports.identifier(`__buildProps_${child.instanceVar.replace(/^_/, "")}`)),
@@ -56282,9 +57849,7 @@ function ensureOnPropChangeMethod(classBody, inlinePatchBodies, compiledChildren
   if (conditionalSlots.length > 0) {
     for (let i = 0; i < conditionalSlots.length; i++) {
       const slot = conditionalSlots[i];
-      const call = libExports.expressionStatement(
-        libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__geaPatchCond")), [libExports.numericLiteral(i)])
-      );
+      const call = libExports.expressionStatement(libExports.callExpression(thisGea("GEA_PATCH_COND"), [libExports.numericLiteral(i)]));
       if (slot.dependentPropNames.length > 0) {
         const guard = slot.dependentPropNames.reduce((acc, prop) => {
           const test = libExports.binaryExpression("===", libExports.identifier("key"), libExports.stringLiteral(prop));
@@ -56303,11 +57868,7 @@ function ensureOnPropChangeMethod(classBody, inlinePatchBodies, compiledChildren
     )
   );
   const unresolvedMapRefreshCalls = unresolvedMapPropRefreshDeps.map((dep) => {
-    const call = libExports.expressionStatement(
-      libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__geaSyncMap")), [
-        libExports.numericLiteral(dep.mapIdx)
-      ])
-    );
+    const call = libExports.expressionStatement(libExports.callExpression(thisGea("GEA_SYNC_MAP"), [libExports.numericLiteral(dep.mapIdx)]));
     if (dep.propNames.length > 0) {
       const guard = dep.propNames.reduce((acc, prop) => {
         const test = libExports.binaryExpression("===", libExports.identifier("key"), libExports.stringLiteral(prop));
@@ -56326,7 +57887,18 @@ function ensureOnPropChangeMethod(classBody, inlinePatchBodies, compiledChildren
   ];
   if (allKeyGuarded.length === 0) return;
   const merged = mergeKeyGuards(allKeyGuarded);
-  classBody.body.push(appendToBody(jsMethod`${id("__onPropChange")}(key, value) {}`, ...merged));
+  classBody.body.push(
+    appendToBody(
+      libExports.classMethod(
+        "method",
+        libExports.identifier("GEA_ON_PROP_CHANGE"),
+        [libExports.identifier("key"), libExports.identifier("value")],
+        libExports.blockStatement([]),
+        true
+      ),
+      ...merged
+    )
+  );
 }
 function serializeKeyGuard(test) {
   if (libExports.isBinaryExpression(test) && test.operator === "===" && libExports.isIdentifier(test.left, { name: "key" }) && libExports.isStringLiteral(test.right)) {
@@ -56487,7 +58059,11 @@ function generateConditionalPatchMethods(classBody, slots, templatePropNames, wh
       libExports.expressionStatement(
         libExports.assignmentExpression(
           "=",
-          libExports.memberExpression(libExports.thisExpression(), libExports.identifier(`__geaCond_${i}`)),
+          libExports.memberExpression(
+            libExports.thisExpression(),
+            libExports.callExpression(libExports.identifier("geaCondValueSymbol"), [libExports.numericLiteral(i)]),
+            true
+          ),
           libExports.unaryExpression("!", libExports.unaryExpression("!", rewrittenCondExprsSafe[i]))
         )
       )
@@ -56525,7 +58101,7 @@ function generateConditionalPatchMethods(classBody, slots, templatePropNames, wh
     };
     registerCondCalls.push(
       libExports.expressionStatement(
-        libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__geaRegisterCond")), [
+        libExports.callExpression(thisGea("GEA_REGISTER_COND"), [
           libExports.numericLiteral(i),
           libExports.stringLiteral(slot.slotId),
           libExports.arrowFunctionExpression([], libExports.blockStatement(getCondBody)),
@@ -56558,6 +58134,44 @@ function getTemplateParamIdentifier(classBody) {
   );
   const binding = templateMethod ? getTemplateParamBinding(templateMethod.params[0]) : void 0;
   return libExports.isIdentifier(binding) ? binding.name : void 0;
+}
+function expressionCallsJSXReturningClassProp(expr, classBody) {
+  if (!libExports.isCallExpression(expr)) return false;
+  let propName;
+  if (libExports.isMemberExpression(expr.callee) && libExports.isIdentifier(expr.callee.property) && !expr.callee.computed) {
+    propName = expr.callee.property.name;
+  }
+  if (!propName) return false;
+  const scanValue = (node) => {
+    if (libExports.isObjectExpression(node)) {
+      for (const prop of node.properties) {
+        if (libExports.isObjectProperty(prop) && libExports.isIdentifier(prop.key) && prop.key.name === propName && (libExports.isArrowFunctionExpression(prop.value) || libExports.isFunctionExpression(prop.value))) {
+          let found = false;
+          const check = (n) => {
+            if (found) return;
+            if (libExports.isJSXElement(n) || libExports.isJSXFragment(n)) {
+              found = true;
+              return;
+            }
+            for (const key of libExports.VISITOR_KEYS[n.type] || []) {
+              const child = n[key];
+              if (Array.isArray(child)) child.forEach((c) => c && typeof c === "object" && "type" in c && check(c));
+              else if (child && typeof child === "object" && "type" in child) check(child);
+              if (found) return;
+            }
+          };
+          check(prop.value);
+          return found;
+        }
+      }
+    }
+    if (libExports.isArrayExpression(node)) return node.elements.some((el) => el != null && scanValue(el));
+    return false;
+  };
+  for (const member of classBody.body) {
+    if (libExports.isClassProperty(member) && member.value && scanValue(member.value)) return true;
+  }
+  return false;
 }
 function collectPropNamesFromItemTemplate(itemTemplate, templatePropNames) {
   if (!itemTemplate) return [];
@@ -56640,12 +58254,14 @@ function injectMapItemAttrsIntoTemplate(templateMethod, mapInfos) {
       if (!tagMatch) return;
       const tagPart = tagMatch[1];
       const remainder = first.substring(tagPart.length);
-      const itemIdExpr = info.itemIdProperty && info.itemIdProperty !== ITEM_IS_KEY ? libExports.logicalExpression(
+      const tagName = tagPart.slice(1).toLowerCase();
+      const isIntrinsicRoot = !tagName.includes("-");
+      const eventAttr = info.eventToken && isIntrinsicRoot ? ` data-gea-event="${info.eventToken}"` : "";
+      const itemIdExpr = info.keyExpression ? libExports.callExpression(libExports.identifier("String"), [libExports.cloneNode(info.keyExpression, true)]) : info.itemIdProperty && info.itemIdProperty !== ITEM_IS_KEY ? libExports.logicalExpression(
         "??",
         buildOptionalMemberChain(libExports.identifier(info.itemVariable), info.itemIdProperty),
         libExports.identifier(info.itemVariable)
       ) : libExports.callExpression(libExports.identifier("String"), [libExports.identifier(info.itemVariable)]);
-      const eventAttr = info.eventToken ? ` data-gea-event="${info.eventToken}"` : "";
       {
         rootTL.quasis = [
           libExports.templateElement({ raw: `${tagPart} data-gea-item-id="`, cooked: `${tagPart} data-gea-item-id="` }),
@@ -56803,85 +58419,106 @@ function replaceMapInConditionalSlots(slots, arrayMap) {
 }
 function generateStoreInlinePatchObserver(pathParts, storeVar, patchStatements) {
   const method = jsMethod`${id(getObserveMethodName(pathParts, storeVar))}(value, change) {}`;
-  method.body.body.push(
-    libExports.ifStatement(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("rendered_")), libExports.blockStatement(patchStatements))
-  );
+  method.body.body.push(libExports.ifStatement(thisGea("GEA_RENDERED"), libExports.blockStatement(patchStatements)));
   return method;
 }
 function generateRerenderObserver(pathParts, storeVar, truthinessOnly) {
   const method = jsMethod`${id(getObserveMethodName(pathParts, storeVar))}(value, change) {}`;
   if (storeVar) {
-    const prevProp = `__geaPrev_${getObserveMethodName(pathParts, storeVar)}`;
+    const observePrevMem = libExports.memberExpression(
+      libExports.thisExpression(),
+      libExports.callExpression(libExports.identifier("geaObservePrevSymbol"), [
+        libExports.stringLiteral(getObserveMethodName(pathParts, storeVar))
+      ]),
+      true
+    );
     if (truthinessOnly) {
       method.body.body.push(
-        ...jsBlockBody`
-          if (!value === !this.${id(prevProp)}) return;
-          this.${id(prevProp)} = value;
-        `
+        libExports.ifStatement(
+          libExports.binaryExpression(
+            "===",
+            libExports.unaryExpression("!", libExports.identifier("value")),
+            libExports.unaryExpression("!", observePrevMem)
+          ),
+          libExports.returnStatement()
+        ),
+        libExports.expressionStatement(libExports.assignmentExpression("=", observePrevMem, libExports.identifier("value")))
       );
     } else {
       method.body.body.push(
-        ...jsBlockBody`
-          if (value === this.${id(prevProp)}) return;
-          this.${id(prevProp)} = value;
-        `
+        libExports.ifStatement(libExports.binaryExpression("===", libExports.identifier("value"), observePrevMem), libExports.returnStatement()),
+        libExports.expressionStatement(libExports.assignmentExpression("=", observePrevMem, libExports.identifier("value")))
       );
     }
   }
   method.body.body.push(
     libExports.ifStatement(
-      libExports.memberExpression(libExports.thisExpression(), libExports.identifier("rendered_")),
-      libExports.blockStatement([
-        libExports.expressionStatement(
-          libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__geaRequestRender")), [])
-        )
-      ])
+      thisGea("GEA_RENDERED"),
+      libExports.blockStatement([libExports.expressionStatement(libExports.callExpression(thisGea("GEA_REQUEST_RENDER"), []))])
     )
   );
   return method;
 }
 function generateConditionalSlotObserveMethod(pathParts, storeVar, slotIndices, emitEarlyReturn = true) {
   const method = jsMethod`${id(getObserveMethodName(pathParts, storeVar))}(value, change) {}`;
+  const anyPatchedExpr = slotIndices.map(
+    (i) => libExports.memberExpression(
+      libExports.thisExpression(),
+      libExports.callExpression(libExports.identifier("geaCondPatchedSymbol"), [libExports.numericLiteral(i)]),
+      true
+    )
+  ).reduce((acc, expr) => libExports.logicalExpression("||", acc, expr));
   const patchStatements = [];
+  if (slotIndices.length === 1) {
+    patchStatements.push(libExports.ifStatement(anyPatchedExpr, libExports.returnStatement()));
+  }
   slotIndices.forEach((slotIndex) => {
+    const patchedMem = libExports.memberExpression(
+      libExports.thisExpression(),
+      libExports.callExpression(libExports.identifier("geaCondPatchedSymbol"), [libExports.numericLiteral(slotIndex)]),
+      true
+    );
     patchStatements.push(
       libExports.expressionStatement(
         libExports.assignmentExpression(
           "=",
-          libExports.memberExpression(libExports.thisExpression(), libExports.identifier(`__geaCondPatched_${slotIndex}`)),
-          libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__geaPatchCond")), [
-            libExports.numericLiteral(slotIndex)
-          ])
+          patchedMem,
+          libExports.callExpression(thisGea("GEA_PATCH_COND"), [libExports.numericLiteral(slotIndex)])
         )
+      )
+    );
+    patchStatements.push(
+      libExports.ifStatement(
+        patchedMem,
+        libExports.blockStatement([
+          libExports.expressionStatement(
+            libExports.callExpression(libExports.identifier("queueMicrotask"), [
+              libExports.arrowFunctionExpression([], libExports.assignmentExpression("=", patchedMem, libExports.booleanLiteral(false)))
+            ])
+          )
+        ])
       )
     );
   });
   if (emitEarlyReturn) {
-    const anyPatchedExpr = slotIndices.map((i) => libExports.memberExpression(libExports.thisExpression(), libExports.identifier(`__geaCondPatched_${i}`))).reduce((acc, expr) => libExports.logicalExpression("||", acc, expr));
     patchStatements.push(libExports.ifStatement(anyPatchedExpr, libExports.returnStatement()));
   }
-  method.body.body.push(
-    libExports.ifStatement(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("rendered_")), libExports.blockStatement(patchStatements))
-  );
+  method.body.body.push(libExports.ifStatement(thisGea("GEA_RENDERED"), libExports.blockStatement(patchStatements)));
   return method;
 }
 function generateStateChildSwapObserver(pathParts, storeVar) {
   const method = jsMethod`${id(getObserveMethodName(pathParts, storeVar))}(value, change) {}`;
   method.body.body.push(
     libExports.ifStatement(
-      libExports.memberExpression(libExports.thisExpression(), libExports.identifier("rendered_")),
-      libExports.blockStatement([
-        libExports.expressionStatement(
-          libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__geaSwapStateChildren")), [])
-        )
-      ])
+      thisGea("GEA_RENDERED"),
+      libExports.blockStatement([libExports.expressionStatement(libExports.callExpression(thisGea("GEA_SWAP_STATE_CHILDREN"), []))])
     )
   );
   return method;
 }
 function generateStateChildSwapMethod(classBody, stateChildSlots) {
   const existing = classBody.body.find(
-    (member) => libExports.isClassMethod(member) && libExports.isIdentifier(member.key) && member.key.name === "__geaSwapStateChildren"
+    (member) => libExports.isClassMethod(member) && member.computed && libExports.isIdentifier(member.key) && member.key.name === "GEA_SWAP_STATE_CHILDREN"
   );
   if (existing) return;
   const templateMethod = classBody.body.find(
@@ -56904,9 +58541,9 @@ function generateStateChildSwapMethod(classBody, stateChildSlots) {
     if (!hasBuildProps) return null;
     return libExports.expressionStatement(
       libExports.callExpression(
-        libExports.memberExpression(
+        buildExprGeaMember(
           libExports.memberExpression(libExports.thisExpression(), libExports.identifier(slot.childInstanceVar)),
-          libExports.identifier("__geaUpdateProps")
+          "GEA_UPDATE_PROPS"
         ),
         [libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier(buildPropsName)), [])]
       )
@@ -56915,7 +58552,7 @@ function generateStateChildSwapMethod(classBody, stateChildSlots) {
   const swapCalls = stateChildSlots.map((slot) => {
     const guardClone = libExports.cloneNode(slot.guardExpr, true);
     return libExports.expressionStatement(
-      libExports.callExpression(libExports.memberExpression(libExports.thisExpression(), libExports.identifier("__geaSwapChild")), [
+      libExports.callExpression(thisGea("GEA_SWAP_CHILD"), [
         libExports.stringLiteral(slot.markerId),
         libExports.logicalExpression(
           "&&",
@@ -56928,9 +58565,10 @@ function generateStateChildSwapMethod(classBody, stateChildSlots) {
   const filteredSetup = pruneUnusedSetupDestructuring(setupStatements, [...propsUpdateCalls, ...swapCalls]);
   const method = libExports.classMethod(
     "method",
-    libExports.identifier("__geaSwapStateChildren"),
+    libExports.identifier("GEA_SWAP_STATE_CHILDREN"),
     [],
-    libExports.blockStatement([...filteredSetup, ...propsUpdateCalls, ...swapCalls])
+    libExports.blockStatement([...filteredSetup, ...propsUpdateCalls, ...swapCalls]),
+    true
   );
   classBody.body.push(method);
 }
@@ -56956,9 +58594,6 @@ function resolveImportPath(importer, source) {
 }
 const getterDepsCache = /* @__PURE__ */ new Map();
 const storeFieldsCache = /* @__PURE__ */ new Map();
-function isPrivateName(name) {
-  return name.charCodeAt(0) === 95 || name.charCodeAt(name.length - 1) === 95;
-}
 function extractGetterStatePaths(method) {
   if (!libExports.isBlockStatement(method.body)) return null;
   const paths = /* @__PURE__ */ new Map();
@@ -56971,7 +58606,6 @@ function extractGetterStatePaths(method) {
         return;
       }
       const propName = node.property.name;
-      if (isPrivateName(propName)) return;
       if (!paths.has(propName)) {
         paths.set(propName, [propName]);
       }
@@ -56981,7 +58615,6 @@ function extractGetterStatePaths(method) {
       for (const prop of path.node.id.properties) {
         if (!libExports.isObjectProperty(prop) || !libExports.isIdentifier(prop.key)) continue;
         const propName = prop.key.name;
-        if (isPrivateName(propName)) continue;
         if (!paths.has(propName)) {
           paths.set(propName, [propName]);
         }
@@ -57187,12 +58820,14 @@ function transformComponentFile(ast, imports, storeImports, className, sourceFil
         eventIdCounter,
         stateRefs,
         elementPathToBindingId: analysis.elementPathToBindingId,
+        elementPathToUserIdExpr: analysis.elementPathToUserIdExpr,
         templateSetupContext: {
           params: path.node.params,
           statements: returnIndex >= 0 ? body.slice(0, returnIndex) : [],
           earlyReturnBarrierIndex: analysis.earlyReturnBarrierIndex
         },
         sourceFile,
+        classBody,
         isRoot: true,
         conditionalSlots: conditionalSlotInfos,
         conditionalSlotCursor: { value: 0 },
@@ -57260,7 +58895,7 @@ function transformComponentFile(ast, imports, storeImports, className, sourceFil
           (p) => libExports.isClassDeclaration(p.node)
         );
         if (earlyClassPath) {
-          transformed = appendCompiledEventMethods(earlyClassPath.node.body, earlyReturnCtx.eventHandlers, []) || transformed;
+          transformed = appendCompiledEventMethods(earlyClassPath.node.body, earlyReturnCtx.eventHandlers, [], ast) || transformed;
         }
       }
       for (const info of conditionalSlotInfos) {
@@ -57291,6 +58926,7 @@ function transformComponentFile(ast, imports, storeImports, className, sourceFil
           cloneCtxForPatches
         );
         if (cloneMembers) {
+          ensureImport(ast, "@geajs/core", "GEA_CLONE_TEMPLATE");
           classPath.node.body.body.push(...cloneMembers);
           transformed = true;
         }
@@ -57299,35 +58935,39 @@ function transformComponentFile(ast, imports, storeImports, className, sourceFil
         const classPath2 = path.findParent((p) => libExports.isClassDeclaration(p.node));
         if (classPath2) {
           const setupStatements = returnIndex >= 0 ? body.slice(0, returnIndex) : [];
-          transformed = appendCompiledEventMethods(classPath2.node.body, eventHandlers, setupStatements) || transformed;
+          transformed = appendCompiledEventMethods(classPath2.node.body, eventHandlers, setupStatements, ast) || transformed;
         }
       }
       if (refBindings.length > 0) {
         const classPath2 = path.findParent((p) => libExports.isClassDeclaration(p.node));
         if (classPath2) {
-          const refStatements = refBindings.map(
-            (ref) => libExports.expressionStatement(
-              libExports.assignmentExpression(
-                "=",
-                ref.targetExpr,
-                libExports.callExpression(
-                  libExports.memberExpression(
-                    libExports.memberExpression(libExports.thisExpression(), libExports.identifier("element_")),
-                    libExports.identifier("querySelector")
-                  ),
-                  [libExports.stringLiteral(`[data-gea-ref="${ref.refId}"]`)]
-                )
-              )
-            )
-          );
-          const existingSetup = classPath2.node.body.body.find(
-            (m) => libExports.isClassMethod(m) && libExports.isIdentifier(m.key) && m.key.name === "__setupRefs"
-          );
+          ensureImport(ast, "@geajs/core", "GEA_ELEMENT");
+          const refStatements = refBindings.flatMap((ref) => {
+            const target = ref.targetExpr;
+            const q = libExports.callExpression(
+              libExports.memberExpression(
+                libExports.memberExpression(libExports.thisExpression(), libExports.identifier("GEA_ELEMENT"), true),
+                libExports.identifier("querySelector")
+              ),
+              [libExports.stringLiteral(`[data-gea-ref="${ref.refId}"]`)]
+            );
+            return [
+              libExports.expressionStatement(libExports.assignmentExpression("=", target, libExports.nullLiteral())),
+              libExports.expressionStatement(libExports.assignmentExpression("=", target, q))
+            ];
+          });
+          ensureImport(ast, "@geajs/core", "GEA_SETUP_REFS");
+          const existingSetup = classPath2.node.body.body.find((m) => {
+            if (!libExports.isClassMethod(m) || !libExports.isIdentifier(m.key)) return false;
+            if (m.computed && m.key.name === "GEA_SETUP_REFS") return true;
+            if (!m.computed && m.key.name === "__setupRefs") return true;
+            return false;
+          });
           if (existingSetup && libExports.isClassMethod(existingSetup)) {
             existingSetup.body.body.push(...refStatements);
           } else {
             classPath2.node.body.body.push(
-              libExports.classMethod("method", libExports.identifier("__setupRefs"), [], libExports.blockStatement(refStatements))
+              libExports.classMethod("method", libExports.identifier("GEA_SETUP_REFS"), [], libExports.blockStatement(refStatements), true)
             );
           }
           transformed = true;
@@ -57394,13 +59034,13 @@ function transformComponentFile(ast, imports, storeImports, className, sourceFil
             child.guardSetupStatements = guardSetupStatements;
           }
         }
-        injectChildComponents(ast, componentInstances, directForwardingSet);
+        injectChildComponents(ast, componentInstances, directForwardingSet, className);
         compiledChildren.push(...allChildren);
         transformed = true;
       }
       if (allComponentInstances.size > 0) {
         ensureComponentImport$1(ast, imports);
-        injectComponentRegistrations(ast, allComponentInstances);
+        injectComponentRegistrations(ast, allComponentInstances, className);
         transformed = true;
       }
       if (transformed) {
@@ -57441,20 +59081,24 @@ function transformComponentFile(ast, imports, storeImports, className, sourceFil
           if (!libExports.isClassMethod(member) || member.kind === "constructor") continue;
           const name = libExports.isIdentifier(member.key) ? member.key.name : null;
           if (!name) continue;
-          const isCompilerGenerated = name === "template" || name === "events" && member.kind === "get" || name.startsWith("__");
+          const isCompilerGenerated = name === "template" || name === "events" && member.kind === "get" || name.startsWith("__") || member.computed && name === "GEA_ON_PROP_CHANGE";
           if (isCompilerGenerated) {
             cacheThisIdInMethod(member);
           }
           if (name === "events" && member.kind === "get") {
+            ensureImport(ast, "@geajs/core", "GEA_ELEMENT");
             wrapEventsGetterWithCache(member);
           }
-          if (name === "__onPropChange") {
+          if (name === "__onPropChange" || member.computed && name === "GEA_ON_PROP_CHANGE") {
             wrapSubpathCacheGuards(member, subpathPcCounter, path.node.body);
           }
         }
         path.stop();
       }
     });
+  }
+  if (transformed) {
+    ensureGeaCompilerSymbolImports(ast);
   }
   return transformed;
 }
@@ -57773,7 +59417,7 @@ function compileForBrowser(files) {
             if (isComp) knownComponentImports.add(spec.local.name);
             if (spec.type === "ImportDefaultSpecifier") {
               if (resolvedPath && !storeModules.has(resolvedPath)) return;
-              if (!source.startsWith(".") && source === "@geajs/core" && spec.local.name === "router") {
+              if (!source.startsWith(".") && source.startsWith("@geajs/core") && spec.local.name === "router") {
                 storeImports.set(spec.local.name, source);
               } else if (resolvedPath && storeModules.has(resolvedPath)) {
                 storeImports.set(spec.local.name, source);
@@ -57782,7 +59426,7 @@ function compileForBrowser(files) {
               namedImportSources.set(spec.local.name, source);
               if (resolvedPath && storeModules.has(resolvedPath)) {
                 storeImports.set(spec.local.name, source);
-              } else if (source === "@geajs/core" && spec.local.name === "router") {
+              } else if (source.startsWith("@geajs/core") && spec.local.name === "router") {
                 storeImports.set(spec.local.name, source);
               }
               const importedName = spec.imported?.name ?? spec.local.name;
@@ -57803,6 +59447,9 @@ function compileForBrowser(files) {
       });
       let transformed = false;
       if (componentClassNames.length > 0) {
+        for (const cn of componentClassNames) {
+          if (!imports.has(cn)) imports.set(cn, virtualSourceFile);
+        }
         const originalAST = parseSource$1(code).ast;
         for (const cn of componentClassNames) {
           const result = transformComponentFile(

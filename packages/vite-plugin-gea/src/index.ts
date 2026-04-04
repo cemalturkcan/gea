@@ -5,7 +5,9 @@ import { parseSource } from './parse.ts'
 import { injectHMR } from './hmr.ts'
 import { transformComponentFile, transformNonComponentJSX } from './transform-component.ts'
 import { convertFunctionalToClass } from './transform-functional.ts'
-import { isComponentTag } from './utils.ts'
+import { ensureImport, isComponentTag } from './utils.ts'
+import { pascalToKebabCase } from './transform-jsx.ts'
+import * as t from '@babel/types'
 import { dirname, relative, resolve } from 'node:path'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -38,8 +40,9 @@ const STORE_REGISTRY_ID = 'virtual:gea-store-registry'
 const RESOLVED_STORE_REGISTRY_ID = '\0' + STORE_REGISTRY_ID
 
 const RECONCILE_SOURCE = `
+import { GEA_DOM_ITEM } from '@geajs/core';
 function getKey(el) {
-  if (el.__geaItem) return String(el.__geaItem.id);
+  if (el[GEA_DOM_ITEM]) return String(el[GEA_DOM_ITEM].id);
   return el.getAttribute('key');
 }
 export function reconcile(oldC, newC) {
@@ -178,41 +181,42 @@ export function unregisterComponentInstance(className, instance) {
 }
 
 function reRenderComponent(instance) {
-  if (!instance || !instance.element_) return;
-  var parent = instance.element_.parentElement;
+  if (!instance || !instance[GEA_ELEMENT]) return;
+  var parent = instance[GEA_ELEMENT].parentElement;
   if (!parent) return;
-  var index = Array.prototype.indexOf.call(parent.children, instance.element_);
+  var index = Array.prototype.indexOf.call(parent.children, instance[GEA_ELEMENT]);
   var props = Object.assign({}, instance.props);
   var __stateSnapshot = {};
   var __ownKeys = Object.getOwnPropertyNames(instance);
   for (var __ki = 0; __ki < __ownKeys.length; __ki++) {
     var __k = __ownKeys[__ki];
-    if (__k.charAt(0) === '_' || __k === 'props' || __k === 'element_' || __k === 'rendered_' || __k === 'id') continue;
+    if (__k.charAt(0) === '_' || __k === 'props' || __k === 'id') continue;
     var __desc = Object.getOwnPropertyDescriptor(instance, __k);
     if (__desc && (__desc.get || __desc.set)) continue;
     try { __stateSnapshot[__k] = instance[__k]; } catch(e) {}
   }
-  instance.rendered_ = false;
-  if (instance.cleanupBindings_) instance.cleanupBindings_();
-  if (instance.teardownSelfListeners_) instance.teardownSelfListeners_();
+  instance[GEA_RENDERED] = false;
+  if (typeof instance[GEA_CLEANUP_BINDINGS] === 'function') instance[GEA_CLEANUP_BINDINGS]();
+  if (typeof instance[GEA_TEARDOWN_SELF_LISTENERS] === 'function') instance[GEA_TEARDOWN_SELF_LISTENERS]();
   if (instance.__cleanupCompiledDirectEvents) instance.__cleanupCompiledDirectEvents();
-  if (instance.__childComponents && instance.__childComponents.length) {
-    instance.__childComponents.forEach(function(child) { if (child && child.dispose) child.dispose(); });
-    instance.__childComponents = [];
+  var __cc = instance[GEA_CHILD_COMPONENTS];
+  if (__cc && __cc.length) {
+    __cc.forEach(function(child) { if (child && child.dispose) child.dispose(); });
+    instance[GEA_CHILD_COMPONENTS] = [];
   }
-  if (instance.element_ && instance.element_.parentNode) {
-    instance.element_.parentNode.removeChild(instance.element_);
+  if (instance[GEA_ELEMENT] && instance[GEA_ELEMENT].parentNode) {
+    instance[GEA_ELEMENT].parentNode.removeChild(instance[GEA_ELEMENT]);
   }
-  instance.element_ = null;
+  instance[GEA_ELEMENT] = null;
   instance.props = props;
   var __restoreKeys = Object.getOwnPropertyNames(__stateSnapshot);
   for (var __ri = 0; __ri < __restoreKeys.length; __ri++) {
     try { instance[__restoreKeys[__ri]] = __stateSnapshot[__restoreKeys[__ri]]; } catch(e) {}
   }
-  if (!instance.__bindings) instance.__bindings = [];
+  if (!instance[GEA_BINDINGS]) instance[GEA_BINDINGS] = [];
   if (!instance.__bindingRemovers) instance.__bindingRemovers = [];
-  if (!instance.__selfListeners) instance.__selfListeners = [];
-  if (!instance.__childComponents) instance.__childComponents = [];
+  if (!instance[GEA_SELF_LISTENERS]) instance[GEA_SELF_LISTENERS] = [];
+  if (!instance[GEA_CHILD_COMPONENTS]) instance[GEA_CHILD_COMPONENTS] = [];
   instance.render(parent, index);
   if (typeof instance.createdHooks === 'function') {
     instance.createdHooks(instance.props);
@@ -266,10 +270,23 @@ function isComponentImportSource(source: string): boolean {
   return true
 }
 
+/**
+ * Gea functional components compile to classes but their **source** has no `extends Component`.
+ * `isComponentModule` must still treat them as components so HMR wraps imports in
+ * `createHotComponentProxy` and tab switches don't reconstruct stale constructors.
+ */
+function looksLikeGeaFunctionalComponentSource(source: string): boolean {
+  if (!source.includes('<') || !source.includes('>')) return false
+  if (/export\s+default\s+async\s+function\b/.test(source)) return true
+  if (/export\s+default\s+function\b/.test(source)) return true
+  if (/export\s+default\s*\([^)]*\)\s*=>\s*/.test(source)) return true
+  return false
+}
+
 export function geaPlugin(): Plugin {
   const storeModules = new Set<string>()
   const componentModules = new Set<string>()
-  let isServeCommand = true
+  let isServeCommand = false
   // Maps absolute file path → { className, hasDefaultExport }
   const storeRegistry = new Map<string, { className: string; hasDefaultExport: boolean }>()
 
@@ -314,7 +331,7 @@ export function geaPlugin(): Plugin {
         return true
       }
       if (
-        /from\s+['"]@geajs\/core['"]/.test(source) &&
+        /from\s+['"]@geajs\/core(?:\/[^'"]*)?['"]/.test(source) &&
         (/createRouter\b/.test(source) || /new\s+Router\b/.test(source))
       ) {
         storeModules.add(filePath)
@@ -332,6 +349,10 @@ export function geaPlugin(): Plugin {
     try {
       const source = readFileSync(filePath, 'utf8')
       if (source.includes('extends Component')) {
+        componentModules.add(filePath)
+        return true
+      }
+      if (looksLikeGeaFunctionalComponentSource(source)) {
         componentModules.add(filePath)
         return true
       }
@@ -472,7 +493,7 @@ export function geaPlugin(): Plugin {
                   namedImportSources.set(spec.local.name, source)
                   if (resolvedImport && isStoreModule(resolvedImport)) {
                     storeImports.set(spec.local.name, source)
-                  } else if (!resolvedImport && source === '@geajs/core' && spec.local.name === 'router') {
+                  } else if (!resolvedImport && source.startsWith('@geajs/core') && spec.local.name === 'router') {
                     storeImports.set(spec.local.name, source)
                   }
                   // Recognize PascalCase exports from @geajs/core as components
@@ -509,6 +530,9 @@ export function geaPlugin(): Plugin {
           const originalAST = parseSource(code)!.ast
           if (componentClassNames.length > 0) {
             for (const cn of componentClassNames) {
+              if (!imports.has(cn)) imports.set(cn, cleanId)
+            }
+            for (const cn of componentClassNames) {
               const result = transformComponentFile(
                 ast,
                 imports,
@@ -522,12 +546,42 @@ export function geaPlugin(): Plugin {
               )
               if (result) transformed = true
             }
+            // Static [GEA_CTOR_TAG_NAME] so the tag name survives minification.
+            for (const cn of componentClassNames) {
+              const kebab = pascalToKebabCase(cn)
+              traverse(ast, {
+                noScope: true,
+                ClassDeclaration(path: any) {
+                  if (!path.node.id || path.node.id.name !== cn) return
+                  const prop = t.classProperty(
+                    t.identifier('GEA_CTOR_TAG_NAME'),
+                    t.stringLiteral(kebab),
+                    undefined,
+                    undefined,
+                    true,
+                  )
+                  prop.static = true
+                  path.node.body.body.unshift(prop)
+                  path.stop()
+                },
+              })
+              transformed = true
+            }
+            ensureImport(ast, '@geajs/core', 'GEA_CTOR_TAG_NAME')
           } else {
             transformed = transformNonComponentJSX(ast, imports)
           }
         }
 
         if (isServeCommand) {
+          const shouldProxyDep = (source: string): boolean => {
+            if (!source.startsWith('.')) return false
+            const resolved = resolveImportPath(cleanId, source)
+            if (!resolved) return false
+            if (isStoreModule(resolved)) return false
+            if (isComponentModule(resolved)) return true
+            return false
+          }
           const hmrAdded = injectHMR(
             ast,
             componentClassName,
@@ -535,11 +589,17 @@ export function geaPlugin(): Plugin {
             componentImportsUsedAsTags,
             isDefaultExport,
             HMR_RUNTIME_ID,
+            shouldProxyDep,
           )
           if (hmrAdded) transformed = true
         }
 
         if (!transformed) return null
+
+        // Inject XSS prevention helper imports when the compiled output uses them
+        ensureImport(ast, '@geajs/core', 'geaEscapeHtml')
+        ensureImport(ast, '@geajs/core', 'geaSanitizeAttr')
+
         const output = generate(ast, { sourceMaps: true, sourceFileName: cleanId }, code)
         return { code: output.code, map: output.map }
       } catch (error: any) {

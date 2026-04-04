@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { installDom, flushMicrotasks } from '../../../../tests/helpers/jsdom-setup'
+import { GEA_DOM_KEY } from '../../../gea/src/lib/symbols'
 import { compileJsxComponent, loadComponentUnseeded } from '../helpers/compile'
 
 async function mountCompiledComponent(source: string, bindings: Record<string, unknown>, id: string) {
@@ -148,6 +149,59 @@ test('conditional slot empty branch remains visible when initial list is empty',
   try {
     assert.equal(mounted.root.querySelector('.empty')?.textContent?.trim(), 'Empty')
     assert.equal(mounted.root.querySelectorAll('.row').length, 0)
+  } finally {
+    await mounted.dispose()
+  }
+})
+
+test('gesture-log pattern: empty branch to keyed list with unshift keeps unique data-gea-item-id', async () => {
+  const { Store } = await import('../../../gea/src/lib/store.ts')
+
+  let counter = 0
+  class LogStore extends Store {
+    entries: Array<{ id: string; label: string }> = []
+
+    addEntry() {
+      this.entries.unshift({ id: String(++counter), label: 'tap' })
+      if (this.entries.length > 20) this.entries.pop()
+    }
+  }
+
+  const store = new LogStore()
+  const source = `
+    import { Component } from '@geajs/core'
+    import store from './store'
+
+    export default class App extends Component {
+      template() {
+        return (
+          <div class="gesture-log">
+            {store.entries.length === 0 ? (
+              <div class="gesture-log-empty">No gestures detected yet</div>
+            ) : (
+              store.entries.map((entry) => (
+                <div key={entry.id} class="gesture-log-entry">
+                  <span>{entry.label}</span>
+                </div>
+              ))
+            )}
+          </div>
+        )
+      }
+    }
+  `
+
+  const mounted = await mountCompiledComponent(source, { store }, '/virtual/gesture-log-unique-ids.tsx')
+  try {
+    for (let i = 0; i < 4; i++) {
+      store.addEntry()
+      await flushMicrotasks()
+    }
+
+    const rows = mounted.root.querySelectorAll('.gesture-log-entry')
+    const ids = [...rows].map((el) => (el as any)[GEA_DOM_KEY] ?? el.getAttribute('data-gea-item-id'))
+    const unique = new Set(ids)
+    assert.equal(unique.size, ids.length, `duplicate keys: ${JSON.stringify(ids)}`)
   } finally {
     await mounted.dispose()
   }

@@ -4,8 +4,7 @@ import ZagComponent from '../primitives/zag-component'
 
 const THUMB_CLASS =
   'slider-thumb block h-5 w-5 rounded-full border-2 border-primary bg-background shadow ' +
-  'ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 ' +
-  'focus-visible:ring-ring focus-visible:ring-offset-2'
+  'transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring'
 
 export default class Slider extends ZagComponent {
   declare value: number[]
@@ -96,6 +95,7 @@ export default class Slider extends ZagComponent {
 
   _applyAllSpreads() {
     this._syncThumbs()
+    this._elementCache?.clear()
     super._applyAllSpreads()
   }
 

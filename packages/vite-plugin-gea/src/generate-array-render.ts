@@ -1,8 +1,14 @@
 import * as t from '@babel/types'
+import type { NodePath } from '@babel/traverse'
 import { appendToBody, id, js, jsMethod } from 'eszter'
+import { createRequire } from 'module'
+
+const require = createRequire(import.meta.url)
+const traverse = require('@babel/traverse').default
 import type { ArrayMapBinding, EventHandler, HandlerPropInMap } from './ir.ts'
 import { transformJSXToTemplate } from './transform-jsx.ts'
 import {
+  buildExprGeaMember,
   buildOptionalMemberChain,
   normalizePathParts,
   pathPartsToString,
@@ -139,6 +145,10 @@ export function buildPopulateItemHandlersMethod(
  * different objects). We inject a tiny helper and wrap comparison operands
  * so they're unwrapped before the comparison.
  */
+export function buildRawStoreCacheField(): t.ClassPrivateProperty {
+  return t.classPrivateProperty(t.privateName(t.identifier('__rs')))
+}
+
 export function buildValueUnwrapHelper(): t.VariableDeclaration {
   return js`
     const __v = (v) =>
@@ -204,10 +214,17 @@ export function generateRenderItemMethod(
   handlers: EventHandler[]
   handlerPropsInMap: HandlerPropInMap[]
   needsUnwrapHelper: boolean
+  needsRawStoreCache: boolean
 } {
   const renderEventHandlers: EventHandler[] = []
   if (!arrayMap.itemTemplate)
-    return { method: null, handlers: renderEventHandlers, handlerPropsInMap: [], needsUnwrapHelper: false }
+    return {
+      method: null,
+      handlers: renderEventHandlers,
+      handlerPropsInMap: [],
+      needsUnwrapHelper: false,
+      needsRawStoreCache: false,
+    }
   const arrayPath = pathPartsToString(arrayMap.arrayPathParts || normalizePathParts((arrayMap as any).arrayPath || ''))
 
   const modified = t.cloneNode(arrayMap.itemTemplate, true) as t.JSXElement | t.JSXFragment
@@ -221,6 +238,7 @@ export function generateRenderItemMethod(
     mapItemIdProperty: arrayMap.itemIdProperty || 'id',
     mapItemVariable: arrayMap.itemVariable,
     mapContainerBindingId: arrayMap.containerBindingId,
+    ...(arrayMap.keyExpression ? { mapKeyExpression: arrayMap.keyExpression } : {}),
   }
   if (t.isJSXFragment(modified)) {
     const err = new Error(
@@ -257,6 +275,24 @@ export function generateRenderItemMethod(
       itemKey,
     ),
   )
+
+  let needsRawStoreCache = false
+  if (arrayMap.storeVar) {
+    wrapped.expressions = wrapped.expressions.map((expr) => {
+      const program = t.program([t.expressionStatement(t.cloneNode(expr as t.Expression, true))])
+      traverse(program, {
+        noScope: true,
+        MemberExpression(path: NodePath<t.MemberExpression>) {
+          if (!t.isIdentifier(path.node.object, { name: arrayMap.storeVar })) return
+          if (!t.isIdentifier(path.node.property)) return
+          if (path.node.computed) return
+          needsRawStoreCache = true
+          path.node.object = t.identifier('__rs')
+        },
+      })
+      return (program.body[0] as t.ExpressionStatement).expression
+    })
+  }
 
   const handlerRegStmts = buildHandlerRegistrationStatements(
     handlerPropsInMap,
@@ -310,15 +346,70 @@ export function generateRenderItemMethod(
     return false
   }
   const needsUnwrapHelper = [...rewrittenCallbackBody, returnStmt].some((stmt) => containsVCall(stmt))
-  const method = appendToBody(baseMethod, ...rewrittenSetup, ...rewrittenCallbackBody, ...handlerRegStmts, returnStmt)
+
+  const privateRsField = t.memberExpression(t.thisExpression(), t.privateName(t.identifier('__rs')))
+  const rawStoreCacheStmts: t.Statement[] = []
+  if (needsRawStoreCache && arrayMap.storeVar) {
+    rawStoreCacheStmts.push(
+      t.variableDeclaration('const', [
+        t.variableDeclarator(
+          t.identifier('__rs'),
+          t.logicalExpression(
+            '||',
+            t.cloneNode(privateRsField),
+            t.assignmentExpression(
+              '=',
+              t.cloneNode(privateRsField),
+              buildExprGeaMember(t.identifier(arrayMap.storeVar), 'GEA_PROXY_RAW'),
+            ),
+          ),
+        ),
+      ]),
+    )
+  }
+
+  const method = appendToBody(
+    baseMethod,
+    ...rawStoreCacheStmts,
+    ...rewrittenSetup,
+    ...rewrittenCallbackBody,
+    ...handlerRegStmts,
+    returnStmt,
+  )
 
   if (handlerPropsInMap.length > 0 && classBody) {
-    const handleItemHandler = jsMethod`__handleItemHandler(itemId, e) {
-    const fn = this.__itemHandlers_?.[itemId];
-    if (fn) fn(e);
-  }` as t.ClassMethod
+    const handleItemHandlerBody = t.blockStatement([
+      t.variableDeclaration('const', [
+        t.variableDeclarator(
+          t.identifier('fn'),
+          t.optionalMemberExpression(
+            t.memberExpression(t.thisExpression(), t.identifier('__itemHandlers_')),
+            t.identifier('itemId'),
+            true,
+            true,
+          ),
+        ),
+      ]),
+      t.ifStatement(
+        t.identifier('fn'),
+        t.expressionStatement(t.callExpression(t.identifier('fn'), [t.identifier('e')])),
+      ),
+    ])
+    const handleItemHandler = t.classMethod(
+      'method',
+      t.identifier('GEA_HANDLE_ITEM_HANDLER'),
+      [t.identifier('itemId'), t.identifier('e')],
+      handleItemHandlerBody,
+      true,
+    )
     if (
-      !classBody.body.some((m) => t.isClassMethod(m) && t.isIdentifier(m.key) && m.key.name === '__handleItemHandler')
+      !classBody.body.some(
+        (m) =>
+          t.isClassMethod(m) &&
+          m.computed === true &&
+          t.isIdentifier(m.key) &&
+          m.key.name === 'GEA_HANDLE_ITEM_HANDLER',
+      )
     ) {
       classBody.body.unshift(handleItemHandler)
     }
@@ -328,13 +419,15 @@ export function generateRenderItemMethod(
     h.mapContext = {
       arrayPathParts: arrayMap.arrayPathParts || normalizePathParts((arrayMap as any).arrayPath || ''),
       itemIdProperty: arrayMap.itemIdProperty || 'id',
+      ...(arrayMap.keyExpression ? { keyExpression: t.cloneNode(arrayMap.keyExpression, true) } : {}),
       itemVariable: arrayMap.itemVariable,
       indexVariable: arrayMap.indexVariable,
       isImportedState: arrayMap.isImportedState || false,
       storeVar: arrayMap.storeVar,
+      containerBindingId: arrayMap.containerBindingId ?? 'list',
     }
   })
 
   if (eventHandlers) renderEventHandlers.forEach((h) => eventHandlers.push(h))
-  return { method, handlers: renderEventHandlers, handlerPropsInMap, needsUnwrapHelper }
+  return { method, handlers: renderEventHandlers, handlerPropsInMap, needsUnwrapHelper, needsRawStoreCache }
 }

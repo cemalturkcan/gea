@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it, beforeEach, afterEach } from 'node:test'
 import { JSDOM } from 'jsdom'
+import { GEA_CTOR_TAG_NAME } from '../src/lib/symbols'
 
 function installDom() {
   const dom = new JSDOM('<!doctype html><html><body></body></html>')
@@ -102,12 +103,12 @@ describe('ComponentManager', () => {
     it('does not re-register same class', () => {
       const mgr = ComponentManager.getInstance()
       class Bar {
-        static __geaTagName?: string
+        static [GEA_CTOR_TAG_NAME]?: string
       }
       mgr.registerComponentClass(Bar)
-      const tag1 = (Bar as any).__geaTagName
+      const tag1 = (Bar as any)[GEA_CTOR_TAG_NAME]
       mgr.registerComponentClass(Bar, 'different-bar')
-      assert.equal((Bar as any).__geaTagName, tag1)
+      assert.equal((Bar as any)[GEA_CTOR_TAG_NAME], tag1)
     })
   })
 

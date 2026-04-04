@@ -2,7 +2,8 @@ import * as t from '@babel/types'
 import { appendToBody, id, jsMethod } from 'eszter'
 import type { NodePath } from '@babel/traverse'
 import type { ChildComponent } from './ir.ts'
-import { pruneUnusedSetupDestructuring, loggingCatchClause } from './utils.ts'
+import { buildThisGeaMember, pruneUnusedSetupDestructuring, loggingCatchClause } from './utils.ts'
+import { pascalToKebabCase } from './transform-jsx.ts'
 
 export function childHasNoProps(child: ChildComponent): boolean {
   return t.isObjectExpression(child.propsExpression) && child.propsExpression.properties.length === 0
@@ -38,6 +39,7 @@ export function injectChildComponents(
   ast: t.File,
   componentInstances: Map<string, ChildComponent[]>,
   directForwardingChildren?: Set<string>,
+  className?: string,
 ): void {
   if (componentInstances.size === 0) return
 
@@ -50,6 +52,7 @@ export function injectChildComponents(
   traverse(ast, {
     ClassDeclaration(path: NodePath<t.ClassDeclaration>) {
       if (!t.isIdentifier(path.node.superClass)) return
+      if (className && (!t.isIdentifier(path.node.id) || path.node.id.name !== className)) return
 
       const existingCtor = path.node.body.body.find(
         (m): m is t.ClassMethod => t.isClassMethod(m) && t.isIdentifier(m.key) && m.key.name === 'constructor',
@@ -110,10 +113,7 @@ export function injectChildComponents(
                 t.assignmentExpression(
                   '=',
                   t.memberExpression(t.thisExpression(), t.identifier(backingField)),
-                  t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('__child')), [
-                    t.identifier(child.tagName),
-                    propsArg,
-                  ]),
+                  t.callExpression(buildThisGeaMember('GEA_CHILD'), [t.identifier(child.tagName), propsArg]),
                 ),
               ),
             ),
@@ -135,14 +135,23 @@ export function injectChildComponents(
   })
 }
 
-export function injectComponentRegistrations(ast: t.File, componentInstances: Map<string, string>): void {
+export function injectComponentRegistrations(
+  ast: t.File,
+  componentInstances: Map<string, string>,
+  className?: string,
+): void {
   traverse(ast, {
     ClassMethod(path: NodePath<t.ClassMethod>) {
       if (!t.isIdentifier(path.node.key) || path.node.key.name !== 'template') return
+      if (className) {
+        const ownerClass = path.findParent((p) => t.isClassDeclaration(p.node)) as NodePath<t.ClassDeclaration> | null
+        if (ownerClass && t.isIdentifier(ownerClass.node.id) && ownerClass.node.id.name !== className) return
+      }
       const registrations = Array.from(componentInstances.keys()).map((tagName) =>
         t.expressionStatement(
           t.callExpression(t.memberExpression(t.identifier('Component'), t.identifier('_register')), [
             t.identifier(tagName),
+            t.stringLiteral(pascalToKebabCase(tagName)),
           ]),
         ),
       )
@@ -193,10 +202,7 @@ function buildInstanceStatements(
         t.assignmentExpression(
           '=',
           t.memberExpression(t.thisExpression(), t.identifier(child.instanceVar)),
-          t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('__child')), [
-            t.identifier(child.tagName),
-            propsArg,
-          ]),
+          t.callExpression(buildThisGeaMember('GEA_CHILD'), [t.identifier(child.tagName), propsArg]),
         ),
       ),
     )

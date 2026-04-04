@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict'
+import { GEA_PARENT_COMPONENT, GEA_PROXY_GET_RAW_TARGET, GEA_REQUEST_RENDER, GEA_UPDATE_PROPS } from '@geajs/core'
+
+function engineThis(c: object): any {
+  return (c as any)[GEA_PROXY_GET_RAW_TARGET] ?? c
+}
 import test from 'node:test'
 import { installDom, flushMicrotasks } from '../../../../tests/helpers/jsdom-setup'
+import { geaListItemsSymbol } from '../../../gea/src/lib/symbols'
 import { compileJsxComponent, loadRuntimeModules } from '../helpers/compile'
 
 test('drop scenario: move task between columns uses incremental DOM updates with zero full rebuilds', async () => {
@@ -83,9 +89,9 @@ test('drop scenario: move task between columns uses incremental DOM updates with
     colA.taskIds.splice(idx, 1)
     colB.taskIds.push('t2')
 
-    viewA.__geaUpdateProps({ column: colA })
-    viewB.__geaUpdateProps({ column: colB })
-    viewC.__geaUpdateProps({ column: colC })
+    viewA[GEA_UPDATE_PROPS]({ column: colA })
+    viewB[GEA_UPDATE_PROPS]({ column: colB })
+    viewC[GEA_UPDATE_PROPS]({ column: colC })
     await flushMicrotasks()
 
     const cardsA = bodyA.querySelectorAll('.card')
@@ -108,9 +114,9 @@ test('drop scenario: move task between columns uses incremental DOM updates with
     colA.taskIds.splice(idx2, 1)
     colC.taskIds.push('t3')
 
-    viewA.__geaUpdateProps({ column: colA })
-    viewB.__geaUpdateProps({ column: colB })
-    viewC.__geaUpdateProps({ column: colC })
+    viewA[GEA_UPDATE_PROPS]({ column: colA })
+    viewB[GEA_UPDATE_PROPS]({ column: colB })
+    viewC[GEA_UPDATE_PROPS]({ column: colC })
     await flushMicrotasks()
 
     const cardsA2 = bodyA.querySelectorAll('.card')
@@ -130,9 +136,9 @@ test('drop scenario: move task between columns uses incremental DOM updates with
     colB.taskIds.splice(idx3, 1)
     colA.taskIds.push('t4')
 
-    viewA.__geaUpdateProps({ column: colA })
-    viewB.__geaUpdateProps({ column: colB })
-    viewC.__geaUpdateProps({ column: colC })
+    viewA[GEA_UPDATE_PROPS]({ column: colA })
+    viewB[GEA_UPDATE_PROPS]({ column: colB })
+    viewC[GEA_UPDATE_PROPS]({ column: colC })
     await flushMicrotasks()
 
     const cardsA3 = bodyA.querySelectorAll('.card')
@@ -151,7 +157,7 @@ test('drop scenario: move task between columns uses incremental DOM updates with
     // --- No-op: update props without any array change ---
     const headerA = viewA.el.querySelector('.header')!
     const headerTextBefore = headerA.textContent
-    viewA.__geaUpdateProps({ column: colA })
+    viewA[GEA_UPDATE_PROPS]({ column: colA })
     await flushMicrotasks()
 
     const cardsA4 = bodyA.querySelectorAll('.card')
@@ -285,12 +291,16 @@ test('dndManager performs automatic component transfer on drop', async () => {
     list2.render(root)
     await flushMicrotasks()
 
-    assert.equal(list1._itemsItems.length, 2, 'list1 must have 2 items')
-    assert.equal(list2._itemsItems.length, 1, 'list2 must have 1 item')
+    const itemsSym = geaListItemsSymbol('items')
+    const listItems = (list: any) => (list as Record<symbol, unknown>)[itemsSym] as any[]
 
-    const itemA = list1._itemsItems[0]
+    assert.equal(listItems(list1).length, 2, 'list1 must have 2 items')
+    assert.equal(listItems(list2).length, 1, 'list2 must have 1 item')
+
+    const itemA = listItems(list1)[0]
     const itemAEl = itemA.el
 
+    assert.equal(engineThis(itemA)[GEA_PARENT_COMPONENT], list1, 'ChildItem must have parentComponent before transfer')
     assert.ok(itemAEl, 'item A must have a DOM element')
     assert.equal(itemAEl.textContent, 'Alpha')
 
@@ -308,14 +318,121 @@ test('dndManager performs automatic component transfer on drop', async () => {
     ;(dndManager as any)._sourceEl = itemAEl
     ;(dndManager as any)._performTransfer(destination)
 
-    assert.equal(list1._itemsItems.length, 1, 'list1 must have 1 item after transfer')
-    assert.equal(list2._itemsItems.length, 2, 'list2 must have 2 items after transfer')
-    assert.equal(list2._itemsItems[0], itemA, 'transferred component must be the same instance')
-    assert.equal(itemA.parentComponent, list2, 'parentComponent must point to dest parent')
+    assert.equal(listItems(list1).length, 1, 'list1 must have 1 item after transfer')
+    assert.equal(listItems(list2).length, 2, 'list2 must have 2 items after transfer')
+    assert.equal(listItems(list2)[0], itemA, 'transferred component must be the same instance')
+    assert.equal(engineThis(itemA)[GEA_PARENT_COMPONENT], list2, 'parentComponent must point to dest parent')
     assert.equal(itemAEl.parentElement, container2, 'DOM element must be in destination container')
     assert.equal(itemAEl.textContent, 'Alpha', 'content must be preserved')
 
     dndManager.destroy()
+    list1.dispose()
+    list2.dispose()
+    root.remove()
+    await flushMicrotasks()
+  } finally {
+    restoreDom()
+  }
+})
+
+test('stashComponentForTransfer allows reconciliation to adopt a component across lists', async () => {
+  const restoreDom = installDom()
+
+  try {
+    const seed = `runtime-${Date.now()}-stash-transfer`
+    const [{ default: Component, stashComponentForTransfer }] = await loadRuntimeModules(seed)
+
+    const ChildItem = await compileJsxComponent(
+      `
+        import { Component } from '@geajs/core'
+
+        export default class ChildItem extends Component {
+          template({ itemId, label }: any) {
+            return <div class="child-item" data-draggable-id={itemId}>{label}</div>
+          }
+        }
+      `,
+      '/virtual/ChildItem.tsx',
+      'ChildItem',
+      { Component },
+    )
+
+    const ParentList = await compileJsxComponent(
+      `
+        import { Component } from '@geajs/core'
+        import ChildItem from './ChildItem'
+
+        export default class ParentList extends Component {
+          template({ listId, items }: any) {
+            return (
+              <div class="parent-list" data-droppable-id={listId}>
+                {items.map((it: any) => (
+                  <ChildItem key={it.id} itemId={it.id} label={it.label} />
+                ))}
+              </div>
+            )
+          }
+        }
+      `,
+      '/virtual/ParentList.tsx',
+      'ParentList',
+      { Component, ChildItem },
+    )
+
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+
+    const list1 = new ParentList({
+      listId: 'list-1',
+      items: [
+        { id: 'a', label: 'Alpha' },
+        { id: 'b', label: 'Beta' },
+      ],
+    })
+    list1.render(root)
+    await flushMicrotasks()
+
+    const list2 = new ParentList({
+      listId: 'list-2',
+      items: [{ id: 'c', label: 'Gamma' }],
+    })
+    list2.render(root)
+    await flushMicrotasks()
+
+    const itemsSym = geaListItemsSymbol('items')
+    const listItems = (list: any) => (list as Record<symbol, unknown>)[itemsSym] as any[]
+
+    const itemA = listItems(list1)[0]
+    const itemAEl = itemA.el
+
+    assert.equal(itemAEl.textContent, 'Alpha')
+
+    // Stash item A for transfer (simulates DnD manager stashing before onDragEnd)
+    stashComponentForTransfer(itemA)
+
+    // Detach the element from its parent (simulates DnD manager removing from document.body)
+    itemAEl.remove()
+
+    // Setting props on a compiled component triggers [GEA_ON_PROP_CHANGE]
+    // synchronously, which refreshes the list via [GEA_RECONCILE_LIST].
+    list1.props.items = [{ id: 'b', label: 'Beta' }]
+    list2.props.items = [
+      { id: 'a', label: 'Alpha' },
+      { id: 'c', label: 'Gamma' },
+    ]
+
+    await flushMicrotasks()
+
+    // The transferred component must be adopted by list2, not recreated
+    assert.equal(listItems(list2).length, 2, 'list2 must have 2 items')
+    assert.equal(listItems(list1).length, 1, 'list1 must have 1 item')
+    const adoptedItem = listItems(list2)[0]
+    assert.equal(adoptedItem, itemA, 'must be the SAME component instance (not a new one)')
+    assert.equal(adoptedItem.el, itemAEl, 'must be the SAME DOM element')
+    assert.equal(itemAEl.textContent, 'Alpha', 'content must be preserved')
+    assert.equal(itemAEl.parentElement, list2.el, 'element must now be a child of list2 container')
+    assert.equal(engineThis(itemA)[GEA_PARENT_COMPONENT], list2, 'parentComponent must point to list2')
+
     list1.dispose()
     list2.dispose()
     root.remove()
@@ -474,6 +591,193 @@ test('multiple ref attributes each point to their respective DOM elements', asyn
     assert.equal(component.footerEl.tagName?.toLowerCase(), 'footer', 'footerEl should be a footer element')
     assert.equal(component.headerEl.textContent, 'Header')
     assert.equal(component.footerEl.textContent, 'Footer')
+
+    component.dispose()
+    root.remove()
+    await flushMicrotasks()
+  } finally {
+    restoreDom()
+  }
+})
+
+test('issue #34: ref={this.myTextarea} is not null after render and trySubmit can access it', async () => {
+  const restoreDom = installDom()
+
+  try {
+    const seed = `runtime-${Date.now()}-issue-34`
+    const [{ default: Component }] = await loadRuntimeModules(seed)
+
+    // Exact code from issue #34
+    const InputSection = await compileJsxComponent(
+      `
+        import { Component } from '@geajs/core'
+
+        export default class InputSection extends Component {
+          myTextarea = null
+
+          template() {
+            return (
+              <section>
+                <textarea ref={this.myTextarea} />
+
+                <div>
+                  <button onclick={this.trySubmit}>
+                    Send
+                  </button>
+                </div>
+              </section>
+            )
+          }
+
+          trySubmit() {
+            if (!this.myTextarea) return 'ref-is-null'
+            return 'ref-is-set'
+          }
+        }
+      `,
+      '/virtual/InputSection.jsx',
+      'InputSection',
+      { Component },
+    )
+
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+
+    const component = new InputSection()
+    component.render(root)
+    await flushMicrotasks()
+    await flushMicrotasks()
+
+    assert.ok(component.myTextarea, 'this.myTextarea must not be null after render (issue #34)')
+    assert.equal(
+      component.myTextarea.tagName?.toLowerCase(),
+      'textarea',
+      'this.myTextarea must point to the textarea DOM element',
+    )
+    assert.equal(
+      component.trySubmit(),
+      'ref-is-set',
+      'trySubmit must be able to access the ref — not return early due to null',
+    )
+
+    component.dispose()
+    root.remove()
+    await flushMicrotasks()
+  } finally {
+    restoreDom()
+  }
+})
+
+test('ref binding does not trigger re-render loop after initial render', async () => {
+  const restoreDom = installDom()
+
+  try {
+    const seed = `runtime-${Date.now()}-ref-no-rerender`
+    const [{ default: Component }] = await loadRuntimeModules(seed)
+
+    const ChatInput = await compileJsxComponent(
+      `
+        import { Component } from '@geajs/core'
+
+        export default class ChatInput extends Component {
+          myTextarea = null
+
+          template() {
+            return (
+              <div>
+                <textarea ref={this.myTextarea}></textarea>
+                <button onclick={this.trySubmit}>Send</button>
+              </div>
+            )
+          }
+
+          trySubmit() {
+            console.log(this.myTextarea)
+          }
+        }
+      `,
+      '/virtual/ChatInput.jsx',
+      'ChatInput',
+      { Component },
+    )
+
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+
+    const component = new ChatInput()
+    let renderCount = 0
+    const origRender = component[GEA_REQUEST_RENDER]?.bind(component)
+    if (origRender) {
+      component[GEA_REQUEST_RENDER] = function () {
+        renderCount++
+        return origRender()
+      }
+    }
+
+    component.render(root)
+    await flushMicrotasks()
+    // Drain any additional microtasks that a re-render loop would queue
+    await flushMicrotasks()
+    await flushMicrotasks()
+
+    assert.ok(component.myTextarea, 'ref should be assigned after render')
+    assert.equal(component.myTextarea.tagName?.toLowerCase(), 'textarea', 'ref should point to the textarea element')
+    assert.equal(renderCount, 0, 'ref assignment must not trigger [GEA_REQUEST_RENDER] (re-render loop)')
+
+    component.dispose()
+    root.remove()
+    await flushMicrotasks()
+  } finally {
+    restoreDom()
+  }
+})
+
+test('ref remains stable after multiple microtask flushes (no infinite loop)', async () => {
+  const restoreDom = installDom()
+
+  try {
+    const seed = `runtime-${Date.now()}-ref-stable`
+    const [{ default: Component }] = await loadRuntimeModules(seed)
+
+    const Viewer = await compileJsxComponent(
+      `
+        import { Component } from '@geajs/core'
+
+        export default class Viewer extends Component {
+          canvasEl = null
+          status = 'ready'
+
+          template() {
+            return (
+              <div>
+                <canvas ref={this.canvasEl} width="640" height="480" />
+                <span>{this.status}</span>
+              </div>
+            )
+          }
+        }
+      `,
+      '/virtual/Viewer.jsx',
+      'Viewer',
+      { Component },
+    )
+
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+
+    const component = new Viewer()
+    component.render(root)
+    await flushMicrotasks()
+
+    const firstRef = component.canvasEl
+    assert.ok(firstRef, 'canvasEl ref should be assigned')
+
+    // Flush several times — if there's a re-render loop the ref would change
+    await flushMicrotasks()
+    await flushMicrotasks()
+    await flushMicrotasks()
+
+    assert.equal(component.canvasEl, firstRef, 'canvasEl ref must remain the same element — no re-render loop')
 
     component.dispose()
     root.remove()

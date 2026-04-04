@@ -160,13 +160,13 @@ export default function OptionStep({ options, onSelect }) {
     assert.ok(output)
     assert.match(
       output,
-      /this\._optionsItems\s*=\s*\(this\.props\.options\s*\?\?\s*\[\]\)\.map/,
-      'constructor should init _optionsItems with __child()',
+      /this\[_gea_options_items\]\s*=\s*\(this\.props\.options\s*\?\?\s*\[\]\)\.map/,
+      'constructor should init options list array with [GEA_CHILD]()',
     )
-    assert.match(output, /this\.__child\(OptionItem/, 'constructor init should use __child()')
+    assert.match(output, /this\[GEA_CHILD\]\(OptionItem/, 'constructor init should use [GEA_CHILD]()')
     assert.doesNotMatch(output, /_buildOptionsItems/, 'build method should not exist')
     assert.doesNotMatch(output, /__mountOptionsItems/, 'mount method should not exist')
-    assert.match(output, /this\._optionsItems\.join\(""\)/, 'template should use .join("")')
+    assert.match(output, /this\[_gea_options_items\]\.join\(""\)/, 'template should use .join("")')
     assert.match(output, /this\.props\.onSelect/)
   } finally {
     await rm(dir, { recursive: true, force: true })
@@ -204,7 +204,7 @@ test('jsx map conditionals rerender rows instead of emitting raw jsx in observer
   `)
 
   assert.match(output, /render(?:__unresolved_0|Todos)Item/)
-  assert.match(output, /store\.editingId/)
+  assert.match(output, /(?:store|this\.__rawStore|__rs)\.editingId/)
   assert.doesNotMatch(output, /render(?:__unresolved_0|Todos)Item[\s\S]*<>/)
 })
 
@@ -299,10 +299,14 @@ test('unresolved map getItems includes local template setup when template() has 
   `)
 
   // With store-alias resolution, project.items is a known imported path → array observer + list sync
-  // (not an unresolved __geaRegisterMap getItems callback).
-  assert.match(output, /observe\(dataStore,\s*\["project",\s*"items"\]/, 'must observe project.items, not only project')
+  // (not an unresolved [GEA_REGISTER_MAP] getItems callback).
+  assert.match(
+    output,
+    /\[GEA_OBSERVE\]\(dataStore,\s*\["project",\s*"items"\]/,
+    'must observe project.items, not only project',
+  )
   assert.ok(
-    /__applyListChanges/.test(output) && /__observe_.*project__items/.test(output),
+    /\[GEA_APPLY_LIST_CHANGES\]/.test(output) && /__observe_.*project__items/.test(output),
     'project.items map should compile to array list observer',
   )
   assert.match(output, /const project = dataStore\.project/, 'template still hoists project for render helpers')
@@ -360,8 +364,8 @@ test('hyphenated component names inside .map() produce correct opening tags', ()
     }
   `)
 
-  // Components in map callbacks should produce real JS instances via __child(), not HTML strings
-  assert.match(output, /this\.__child\(IssueCard/, 'map callback should produce __child(IssueCard) instance')
+  // Components in map callbacks should produce real JS instances via [GEA_CHILD](), not HTML strings
+  assert.match(output, /this\[GEA_CHILD\]\(IssueCard/, 'map callback should produce [GEA_CHILD](IssueCard) instance')
   assert.doesNotMatch(output, /<issue-card/, 'should not produce HTML string for component in map')
 })
 
@@ -577,7 +581,7 @@ test('array .map() with key prop on root element compiles successfully', () => {
   assert.ok(output, 'component with keyed .map() must compile successfully')
 })
 
-test('store deps used in component array item props must route to __refreshXxxItems, not __geaRequestRender', () => {
+test('store deps used in component array item props must route to __refreshXxxItems, not [GEA_REQUEST_RENDER]', () => {
   const output = transformComponentSource(
     `
     import { Component } from '@geajs/core'
@@ -615,17 +619,17 @@ test('store deps used in component array item props must route to __refreshXxxIt
   // The refresh method should exist for non-store arrays with store deps
   assert.match(output, /__refreshIssuesItems/, 'must generate __refreshIssuesItems method')
 
-  // The observer in createdHooks should reference __refreshIssuesItems, not __geaRequestRender
+  // The observer in createdHooks should reference __refreshIssuesItems, not [GEA_REQUEST_RENDER]
   assert.doesNotMatch(
     output,
-    /__geaRequestRender/,
-    'output must NOT contain __geaRequestRender — store deps should route to __refreshIssuesItems',
+    /\[GEA_REQUEST_RENDER\]\(\)/,
+    'output must NOT call [GEA_REQUEST_RENDER]() — store deps should route to __refreshIssuesItems',
   )
 
   // createdHooks should observe the store and reference __refreshIssuesItems
   assert.match(
     output,
-    /this\.__observe\(projectStore,\s*\[.*\],\s*this\.__refreshIssuesItems\)/,
+    /this\[GEA_OBSERVE\]\(projectStore,\s*\[.*\],\s*this\.__refreshIssuesItems\)/,
     'createdHooks must observe projectStore and call __refreshIssuesItems',
   )
 })
@@ -657,7 +661,7 @@ test('chained .filter().map() resolves store path for reactivity', async () => {
     assert.ok(output, 'Should compile without errors')
     assert.match(
       output!,
-      /render.*Item|__geaRegisterMap/,
+      /render.*Item|[GEA_REGISTER_MAP]/,
       'Should generate a render item method or register a map for the chained array',
     )
     assert.ok(
@@ -723,7 +727,7 @@ test('generateCreateItemMethod uses data-prop-* for component-root map items', a
     key: 'conversations',
   }
 
-  const method = generateCreateItemMethod(arrayMap)
+  const { method } = generateCreateItemMethod(arrayMap)
   assert.ok(method, 'should generate createItem method')
 
   const code = generate(method!).code
@@ -734,14 +738,14 @@ test('generateCreateItemMethod uses data-prop-* for component-root map items', a
   // Should NOT use raw attribute names
   assert.doesNotMatch(code, /setAttribute\("name"/, 'should not use raw "name" attribute')
   assert.doesNotMatch(code, /setAttribute\("lastMessage"/, 'should not use raw "lastMessage" attribute')
-  // Should set __geaProps with actual JS values
-  assert.match(code, /__geaProps/, 'should set __geaProps on element')
-  assert.match(code, /id:\s*item\.id/, '__geaProps should include id prop')
-  assert.match(code, /name:\s*item\.name/, '__geaProps should include name prop')
-  assert.match(code, /lastMessage:\s*item\.lastMessage/, '__geaProps should include lastMessage prop')
+  // Should set [GEA_DOM_PROPS] with actual JS values
+  assert.match(code, /\[GEA_DOM_PROPS\]/, 'should set [GEA_DOM_PROPS] on element')
+  assert.match(code, /id:\s*item\.id/, '[GEA_DOM_PROPS] should include id prop')
+  assert.match(code, /name:\s*item\.name/, '[GEA_DOM_PROPS] should include name prop')
+  assert.match(code, /lastMessage:\s*item\.lastMessage/, '[GEA_DOM_PROPS] should include lastMessage prop')
 })
 
-test('generateCreateItemMethod sets __geaProps with object props for component-root items', async () => {
+test('generateCreateItemMethod sets [GEA_DOM_PROPS] with object props for component-root items', async () => {
   const babelParser = await import('@babel/parser')
   const jsxCode = `<MessageBubble key={msg.id} message={msg} />`
   const ast = babelParser.parseExpression(jsxCode, { plugins: ['jsx'] })
@@ -756,16 +760,16 @@ test('generateCreateItemMethod sets __geaProps with object props for component-r
     key: 'messages',
   }
 
-  const method = generateCreateItemMethod(arrayMap)
+  const { method } = generateCreateItemMethod(arrayMap)
   assert.ok(method, 'should generate createItem method')
 
   const code = generate(method!).code
-  // __geaProps should pass the entire item as the message prop
-  assert.match(code, /__geaProps/, 'should set __geaProps on element')
-  assert.match(code, /message:\s*item/, '__geaProps should pass item as message prop')
+  // [GEA_DOM_PROPS] should pass the entire item as the message prop
+  assert.match(code, /\[GEA_DOM_PROPS\]/, 'should set [GEA_DOM_PROPS] on element')
+  assert.match(code, /message:\s*item/, '[GEA_DOM_PROPS] should pass item as message prop')
 })
 
-test('generateCreateItemMethod does NOT set __geaProps for non-component map items', async () => {
+test('generateCreateItemMethod does NOT set [GEA_DOM_PROPS] for non-component map items', async () => {
   const babelParser = await import('@babel/parser')
   const jsxCode = `<div key={item.id} title={item.title}>{item.text}</div>`
   const ast = babelParser.parseExpression(jsxCode, { plugins: ['jsx'] })
@@ -780,13 +784,13 @@ test('generateCreateItemMethod does NOT set __geaProps for non-component map ite
     key: 'items',
   }
 
-  const method = generateCreateItemMethod(arrayMap)
+  const { method } = generateCreateItemMethod(arrayMap)
   assert.ok(method, 'should generate createItem method')
 
   const code = generate(method!).code
   // HTML elements should use raw attribute names
   assert.doesNotMatch(code, /data-prop-/, 'HTML elements should not use data-prop-*')
-  assert.doesNotMatch(code, /__geaProps/, 'HTML elements should not set __geaProps')
+  assert.doesNotMatch(code, /\[GEA_DOM_PROPS\]/, 'HTML elements should not set [GEA_DOM_PROPS]')
 })
 
 test('generateEnsureArrayConfigsMethod sets hasComponentItems for component-root maps', async () => {
@@ -805,7 +809,7 @@ test('generateEnsureArrayConfigsMethod sets hasComponentItems for component-root
   }
 
   const method = generateEnsureArrayConfigsMethod([arrayMap])
-  assert.ok(method, 'should generate __ensureArrayConfigs method')
+  assert.ok(method, 'should generate [GEA_ENSURE_ARRAY_CONFIGS] method')
 
   const code = generate(method!).code
   assert.match(code, /hasComponentItems:\s*true/, 'config should include hasComponentItems: true')
@@ -827,7 +831,7 @@ test('generateEnsureArrayConfigsMethod does NOT set hasComponentItems for non-co
   }
 
   const method = generateEnsureArrayConfigsMethod([arrayMap])
-  assert.ok(method, 'should generate __ensureArrayConfigs method')
+  assert.ok(method, 'should generate [GEA_ENSURE_ARRAY_CONFIGS] method')
 
   const code = generate(method!).code
   assert.doesNotMatch(code, /hasComponentItems/, 'config should NOT include hasComponentItems')
@@ -861,7 +865,7 @@ export default class App {
 
     // Regular HTML elements should use raw attribute names
     assert.doesNotMatch(output!, /data-prop-/, 'HTML elements should not use data-prop-* attributes')
-    assert.doesNotMatch(output!, /__geaProps/, 'HTML elements should not set __geaProps')
+    assert.doesNotMatch(output!, /\[GEA_DOM_PROPS\]/, 'HTML elements should not set [GEA_DOM_PROPS]')
     assert.doesNotMatch(output!, /hasComponentItems/, 'HTML element maps should not have hasComponentItems')
   } finally {
     await rm(dir, { recursive: true, force: true })
@@ -901,4 +905,129 @@ export default class App {
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
+})
+
+test('.map() with (item, index) callback exposes index inside the render method', () => {
+  const output = transformComponentSource(`
+    import { Component } from '@geajs/core'
+    import store from './tab-store'
+
+    export default class TabBar extends Component {
+      template({ activeTabIndex, onTabChange }) {
+        return (
+          <div class="tab-titles">
+            {store.tabs.map((tab, index) => (
+              <button
+                key={tab.id}
+                class={\`ghost \${index === activeTabIndex ? "active" : ""}\`}
+                click={() => onTabChange(index)}
+              >
+                {tab.title}
+              </button>
+            ))}
+          </div>
+        )
+      }
+    }
+  `)
+
+  // The render/create method must accept index as a parameter (not just item)
+  assert.match(output, /render\w*Item\s*\(\s*\w+\s*,\s*\w+\s*\)/, 'render method must accept two params (item, index)')
+  // The index variable must appear in the render method body
+  assert.match(output, /activeTabIndex/, 'activeTabIndex prop reference must appear in compiled output')
+  // The index must not be undefined — it must be the actual second parameter
+  assert.doesNotMatch(
+    output,
+    /undefined\s*===\s*activeTabIndex|activeTabIndex\s*===\s*undefined/,
+    'index must not resolve to undefined',
+  )
+})
+
+test('store-only component array map generates [GEA_OBSERVE_LIST] and createdHooks', () => {
+  const output = transformComponentSource(`
+    import { Component } from '@geajs/core'
+    import recordingStore from './recording-store'
+    import SidebarItem from './SidebarItem'
+
+    export default class RecordingSidebar extends Component {
+      template() {
+        return (
+          <div class="recordings">
+            {recordingStore.recordings.map((recording) => (
+              <SidebarItem key={recording.folder} folder={recording.folder} name={recording.name} />
+            ))}
+          </div>
+        )
+      }
+    }
+  `)
+
+  assert.match(output, /\[GEA_OBSERVE_LIST\]/, 'must generate [GEA_OBSERVE_LIST] call for store-based component array')
+  assert.match(output, /createdHooks/, 'must generate createdHooks method')
+  assert.match(output, /geaListItemsSymbol\("recordings"\)/, 'must generate recordings list-items symbol')
+})
+
+test('template literal key expression is preserved in data-gea-item-id', () => {
+  const output = transformComponentSource(`
+    import { Component } from '@geajs/core'
+
+    export default class TabBar extends Component {
+      template({ tabs, activeTabIndex, onTabChange }) {
+        return (
+          <div class="tab-titles">
+            {tabs.map((tab) => (
+              <button
+                key={\`\${tab.title}-button\`}
+                class="ghost"
+              >
+                {tab.title}
+              </button>
+            ))}
+          </div>
+        )
+      }
+    }
+  `)
+
+  // The key expression should use tab.title (not String(tab) which gives [object Object])
+  assert.doesNotMatch(
+    output,
+    /data-gea-item-id="\$\{String\(tab\)\}"/,
+    'must not stringify the whole item object as key — causes [object Object]',
+  )
+  // The template literal key should evaluate to something that includes tab.title
+  assert.match(
+    output,
+    /data-gea-item-id="[^"]*tab\.title|data-gea-item-id="[^"]*tab\?\.title/,
+    'data-gea-item-id must reference tab.title from the template literal key',
+  )
+})
+
+test('template literal key with index parameter does not produce ReferenceError', () => {
+  const output = transformComponentSource(`
+    import { Component } from '@geajs/core'
+
+    export default class TagsInput extends Component {
+      template({ tags }) {
+        return (
+          <div class="tags">
+            {tags.map((tag, i) => (
+              <span key={\`\${tag}-\${i}\`} data-index={String(i)}>
+                {tag}
+              </span>
+            ))}
+          </div>
+        )
+      }
+    }
+  `)
+
+  // The key function in [GEA_REGISTER_MAP] must accept both item and index params
+  assert.match(output, /\(__k,\s*__ki\)\s*=>/, 'key function must accept both item and index parameters')
+  // create/patch methods must use __idx, not the original 'i'
+  assert.match(
+    output,
+    /\[GEA_DOM_KEY\] = String\(`\$\{item}-\$\{__idx}`\)/,
+    'create/patch [GEA_DOM_KEY] must use __idx, not original index variable',
+  )
 })

@@ -10,6 +10,7 @@ import { JSDOM } from 'jsdom'
 import { parseSource } from '../src/parse'
 import { transformComponentFile } from '../src/transform-component'
 import { geaPlugin } from '../src/index'
+import { buildEvalPrelude, mergeEvalBindings } from './helpers/compile'
 
 const generate = 'default' in babelGenerator ? babelGenerator.default : babelGenerator
 
@@ -56,6 +57,7 @@ function installDom() {
     window: globalThis.window,
     document: globalThis.document,
     HTMLElement: globalThis.HTMLElement,
+    Element: globalThis.Element,
     Node: globalThis.Node,
     NodeFilter: globalThis.NodeFilter,
     MutationObserver: globalThis.MutationObserver,
@@ -69,6 +71,7 @@ function installDom() {
     window: dom.window,
     document: dom.window.document,
     HTMLElement: dom.window.HTMLElement,
+    Element: dom.window.Element,
     Node: dom.window.Node,
     NodeFilter: dom.window.NodeFilter,
     MutationObserver: dom.window.MutationObserver,
@@ -95,11 +98,12 @@ async function loadRuntimeModules(seed: string) {
   return Promise.all([
     import(`../../gea/src/lib/base/component.tsx?${seed}`),
     import(`../../gea/src/lib/store.ts?${seed}`),
+    import(`../../gea/src/lib/symbols.ts?${seed}`),
   ])
 }
 
-// --- Optimization #3: Prop patch methods (inlined into __onPropChange) ---
-test('compiler inlines prop text patches into __onPropChange', () => {
+// --- Optimization #3: Prop patch methods (inlined into GEA_ON_PROP_CHANGE) ---
+test('compiler inlines prop text patches into GEA_ON_PROP_CHANGE', () => {
   const output = transformComponentSource(`
     import { Component } from '@geajs/core'
 
@@ -110,12 +114,12 @@ test('compiler inlines prop text patches into __onPropChange', () => {
     }
   `)
 
-  assert.match(output, /__onPropChange/)
+  assert.match(output, /GEA_ON_PROP_CHANGE/)
   assert.match(output, /textContent = value/)
   assert.doesNotMatch(output, /__geaPatchProp_count\(/)
 })
 
-test('compiler inlines this.props text patches into __onPropChange', () => {
+test('compiler inlines this.props text patches into GEA_ON_PROP_CHANGE', () => {
   const output = transformComponentSource(`
     import { Component } from '@geajs/core'
 
@@ -126,12 +130,12 @@ test('compiler inlines this.props text patches into __onPropChange', () => {
     }
   `)
 
-  assert.match(output, /__onPropChange/)
+  assert.match(output, /GEA_ON_PROP_CHANGE/)
   assert.match(output, /textContent = value/)
   assert.doesNotMatch(output, /__geaPatchProp_label\(/)
 })
 
-test('compiler inlines class prop patches into __onPropChange', () => {
+test('compiler inlines class prop patches into GEA_ON_PROP_CHANGE', () => {
   const output = transformComponentSource(`
     import { Component } from '@geajs/core'
 
@@ -142,12 +146,12 @@ test('compiler inlines class prop patches into __onPropChange', () => {
     }
   `)
 
-  assert.match(output, /__onPropChange/)
+  assert.match(output, /GEA_ON_PROP_CHANGE/)
   assert.match(output, /className/)
   assert.doesNotMatch(output, /__geaPatchProp_activeClass\(/)
 })
 
-test('compiler generates __geaPatchProp_* for attribute props (data-*, aria-*)', () => {
+test('compiler inlines attribute prop patches (data-*, aria-*) into GEA_ON_PROP_CHANGE', () => {
   const output = transformComponentSource(`
     import { Component } from '@geajs/core'
 
@@ -158,7 +162,7 @@ test('compiler generates __geaPatchProp_* for attribute props (data-*, aria-*)',
     }
   `)
 
-  assert.match(output, /__onPropChange/)
+  assert.match(output, /GEA_ON_PROP_CHANGE/)
   assert.match(output, /setAttribute/)
   assert.match(output, /removeAttribute/)
 })
@@ -182,38 +186,40 @@ test('ComponentManager createElement produces valid DOM from HTML string', async
   }
 })
 
-// --- Optimization #6: Store __raw ---
-test('store state proxy exposes __raw as alias for __getTarget', async () => {
+// --- Optimization #6: Store [GEA_PROXY_RAW] ---
+test('store state proxy exposes GEA_PROXY_RAW as alias for GEA_PROXY_GET_TARGET', async () => {
   const restoreDom = installDom()
 
   try {
-    const [, { Store }] = await loadRuntimeModules(`opt-raw-${Date.now()}`)
+    const [, { Store }, { GEA_PROXY_GET_TARGET, GEA_PROXY_RAW }] = await loadRuntimeModules(`opt-raw-${Date.now()}`)
     const store = new Store({ items: [{ id: 1, name: 'a' }] })
 
-    assert.strictEqual(store.items.__raw, store.items.__getTarget)
-    assert.ok(Array.isArray(store.items.__raw))
-    assert.equal(store.items.__raw.length, 1)
-    assert.equal(store.items.__raw[0].name, 'a')
+    assert.strictEqual(store.items[GEA_PROXY_RAW], store.items[GEA_PROXY_GET_TARGET])
+    assert.ok(Array.isArray(store.items[GEA_PROXY_RAW]))
+    assert.equal(store.items[GEA_PROXY_RAW].length, 1)
+    assert.equal(store.items[GEA_PROXY_RAW][0].name, 'a')
   } finally {
     restoreDom()
   }
 })
 
-test('store __raw forEach passes raw values without proxy overhead', async () => {
+test('store GEA_PROXY_RAW forEach passes raw values without proxy overhead', async () => {
   const restoreDom = installDom()
 
   try {
-    const [, { Store }] = await loadRuntimeModules(`opt-raw-foreach-${Date.now()}`)
+    const [, { Store }, { GEA_PROXY_GET_TARGET, GEA_PROXY_IS_PROXY, GEA_PROXY_RAW }] = await loadRuntimeModules(
+      `opt-raw-foreach-${Date.now()}`,
+    )
     const store = new Store({ items: [{ id: 1 }, { id: 2 }] })
 
     const collected: unknown[] = []
-    store.items.__raw.forEach((item: { id: number }) => {
+    store.items[GEA_PROXY_RAW].forEach((item: { id: number }) => {
       collected.push(item)
-      assert.ok(!(item as any).__isProxy, 'raw forEach should pass unproxied values')
+      assert.ok(!(item as any)[GEA_PROXY_IS_PROXY], 'raw forEach should pass unproxied values')
     })
 
     assert.equal(collected.length, 2)
-    assert.equal(collected[0], store.items.__getTarget[0])
+    assert.equal(collected[0], store.items[GEA_PROXY_GET_TARGET][0])
   } finally {
     restoreDom()
   }
@@ -236,8 +242,8 @@ test('style object expression is computed once, not triplicated', () => {
   `)
 
   // Object.entries().map().join() is always a string — guard is unnecessary.
-  // Expect at most 2 occurrences: one in template(), one in __onPropChange().
-  // Before fix: 4 occurrences (3 in template guard + 1 in __onPropChange).
+  // Expect at most 2 occurrences: one in template(), one in GEA_ON_PROP_CHANGE().
+  // Before fix: 4 occurrences (3 in template guard + 1 in GEA_ON_PROP_CHANGE).
   const styleExprCount = (output.match(/Object\.entries/g) || []).length
   assert.ok(
     styleExprCount <= 2,
@@ -305,17 +311,17 @@ test('functional component with multiple conds omits unused destructured props f
     'OptionCard',
   )
 
-  // Verify __geaRegisterCond is generated
-  assert.match(output, /__geaRegisterCond\(0/, 'should generate __geaRegisterCond(0,...)')
-  assert.match(output, /__geaRegisterCond\(1/, 'should generate __geaRegisterCond(1,...)')
+  // Verify [GEA_REGISTER_COND] is generated
+  assert.match(output, /\[GEA_REGISTER_COND\]\(0/, 'should generate [GEA_REGISTER_COND](0,...)')
+  assert.match(output, /\[GEA_REGISTER_COND\]\(1/, 'should generate [GEA_REGISTER_COND](1,...)')
 
   // Cond 0's truthy callback returns static HTML (✓ span) — should NOT have
   // destructured props since the HTML doesn't reference any of them.
   // Match the 4th argument (truthy callback) — either block body or expression body
   const cond0Match = output.match(
-    /__geaRegisterCond\(0,\s*"c0",\s*\(\)\s*=>\s*\{[\s\S]*?\},\s*(\(\)\s*=>\s*\{[\s\S]*?\}|\(\)\s*=>\s*[^,]+),/,
+    /\[GEA_REGISTER_COND\]\(0,\s*"c0",\s*\(\)\s*=>\s*\{[\s\S]*?\},\s*(\(\)\s*=>\s*\{[\s\S]*?\}|\(\)\s*=>\s*[^,]+),/,
   )
-  assert.ok(cond0Match, 'should find __geaRegisterCond(0,...) truthy callback')
+  assert.ok(cond0Match, 'should find [GEA_REGISTER_COND](0,...) truthy callback')
   const cond0TruthyCallback = cond0Match![1]
   assert.doesNotMatch(
     cond0TruthyCallback,
@@ -349,8 +355,8 @@ test('compiler generates patch for array item with multiple text expressions', (
     }
   `)
 
-  assert.match(output, /__ensureArrayConfigs\(\)/)
-  assert.match(output, /__applyListChanges/)
+  assert.match(output, /\[GEA_ENSURE_ARRAY_CONFIGS\]\(\)/)
+  assert.match(output, /\[GEA_APPLY_LIST_CHANGES\]/)
   assert.match(output, /propPatchers/)
   assert.match(output, /item\.label.*item\.id/, 'prop patcher should combine label and id in single update')
 })
@@ -441,8 +447,8 @@ export default class StatusStore extends Store {
     )
 
     // Both subscriptions should exist, pointing to the same method
-    const observeCalls = output.match(/this\.__observe\(store/g) || []
-    assert.ok(observeCalls.length >= 2, 'Should have at least 2 __observe subscriptions')
+    const observeCalls = output.match(/this\[GEA_OBSERVE\]\(store/g) || []
+    assert.ok(observeCalls.length >= 2, 'Should have at least 2 [GEA_OBSERVE] subscriptions')
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
@@ -494,5 +500,275 @@ export default class MultiStore extends Store {
     )
   } finally {
     await rm(dir, { recursive: true, force: true })
+  }
+})
+
+async function compileJsxComponent(source: string, id: string, className: string, bindings: Record<string, unknown>) {
+  const allBindings = mergeEvalBindings(bindings)
+  const plugin = geaPlugin()
+  const transform = typeof plugin.transform === 'function' ? plugin.transform : plugin.transform?.handler
+  const result = await transform?.call({} as never, source, id)
+  assert.ok(result)
+
+  const code = typeof result === 'string' ? result : result.code
+  const compiledSource = `${buildEvalPrelude()}${code
+    .replace(/^import .*;$/gm, '')
+    .replaceAll('import.meta.hot', 'undefined')
+    .replaceAll('import.meta.url', '""')
+    .replace(/export default class\s+/, 'class ')}
+return ${className};`
+
+  return new Function(...Object.keys(allBindings), compiledSource)(...Object.values(allBindings))
+}
+
+// --- setAttribute equality guard ---
+
+test('compiler should generate equality guard for setAttribute on attribute bindings', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'gea-attr-guard-'))
+
+  try {
+    const storePath = join(dir, 'grid-store.ts')
+    const componentPath = join(dir, 'Cell.jsx')
+
+    await writeFile(
+      storePath,
+      `import { Store } from '@geajs/core'
+export default class GridStore extends Store {
+  activeId = 0
+}`,
+    )
+
+    const output = await transformWithFile(
+      `
+        import { Component } from '@geajs/core'
+        import store from './grid-store'
+
+        export default class Cell extends Component {
+          template() {
+            return <td tabIndex={store.activeId === 99 ? 0 : -1}>cell</td>
+          }
+        }
+      `,
+      componentPath,
+    )
+
+    // className gets: if (__el.className !== __newClass) __el.className = __newClass
+    // setAttribute should similarly guard with a value comparison before writing.
+    // Currently the compiler emits unconditional setAttribute — this test should FAIL.
+    assert.match(
+      output,
+      /getAttribute\(["']tabIndex["']\)|tabIndex["']\)\s*!==|__prevAttr/,
+      'setAttribute for tabIndex should be guarded by an equality check, like className is',
+    )
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('store observer should not call setAttribute when attribute value has not changed', async () => {
+  const restoreDom = installDom()
+
+  try {
+    const seed = `attr-guard-rt-${Date.now()}`
+    const [{ default: Component }, { Store }] = await loadRuntimeModules(seed)
+    const store = new (class extends Store {
+      activeId = 1
+    })()
+
+    const CellClass = await compileJsxComponent(
+      `
+        import { Component } from '@geajs/core'
+        import store from './store.ts'
+
+        export default class Cell extends Component {
+          template() {
+            return <td tabIndex={store.activeId === 99 ? 0 : -1}>cell</td>
+          }
+        }
+      `,
+      '/virtual/Cell.jsx',
+      'Cell',
+      { Component, store },
+    )
+
+    const cell = new CellClass()
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+    cell.render(root)
+    await flushMicrotasks()
+
+    const td = cell.el as HTMLElement
+    assert.equal(td.tagName, 'TD')
+    assert.equal(td.getAttribute('tabIndex'), '-1')
+
+    let setAttributeCalls = 0
+    const originalSetAttribute = td.setAttribute.bind(td)
+    td.setAttribute = function (name: string, value: string) {
+      setAttributeCalls++
+      return originalSetAttribute(name, value)
+    }
+
+    // activeId changes from 1 to 2 — neither is 99, so tabIndex stays -1.
+    // The observer fires, but setAttribute should be skipped since the value didn't change.
+    store.activeId = 2
+    await flushMicrotasks()
+
+    assert.equal(td.getAttribute('tabIndex'), '-1', 'tabIndex value should still be -1')
+    assert.equal(
+      setAttributeCalls,
+      0,
+      `setAttribute was called ${setAttributeCalls} time(s) on the td even though tabIndex value did not change (was -1, still -1)`,
+    )
+
+    cell.dispose()
+  } finally {
+    restoreDom()
+  }
+})
+
+test('map-item patch method should generate equality guard for setAttribute on attribute bindings', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'gea-map-attr-guard-'))
+
+  try {
+    const storePath = join(dir, 'grid-store.ts')
+    const componentPath = join(dir, 'Grid.jsx')
+
+    await writeFile(
+      storePath,
+      `import { Store } from '@geajs/core'
+export default class GridStore extends Store {
+  activeId = 0
+  items = [{ id: 1 }, { id: 2 }, { id: 3 }]
+}`,
+    )
+
+    const output = await transformWithFile(
+      `
+        import { Component } from '@geajs/core'
+        import store from './grid-store'
+
+        export default class Grid extends Component {
+          template() {
+            return (
+              <table>
+                <tbody>
+                  {store.items.map(item => (
+                    <tr key={item.id} tabIndex={store.activeId === item.id ? 0 : -1}>
+                      <td>{item.id}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )
+          }
+        }
+      `,
+      componentPath,
+    )
+
+    assert.match(
+      output,
+      /getAttribute\(["']tabIndex["']\)/,
+      'map-item patch setAttribute for tabIndex should be guarded by a getAttribute equality check',
+    )
+
+    const setAttrMatches = output.match(/\.setAttribute\(["']tabIndex["']/g) || []
+    const getAttrMatches = output.match(/\.getAttribute\(["']tabIndex["']/g) || []
+    assert.ok(
+      getAttrMatches.length >= setAttrMatches.length,
+      `Every setAttribute("tabIndex") should have a corresponding getAttribute guard. ` +
+        `Found ${setAttrMatches.length} setAttribute but only ${getAttrMatches.length} getAttribute`,
+    )
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('selecting a cell in a grid should only mutate the old and new selected cells, not all cells', async () => {
+  const restoreDom = installDom()
+
+  try {
+    const seed = `grid-select-${Date.now()}`
+    const [{ default: Component }, { Store }] = await loadRuntimeModules(seed)
+    const store = new (class extends Store {
+      activeId = 1
+    })()
+
+    const CellClass = await compileJsxComponent(
+      `
+        import { Component } from '@geajs/core'
+        import store from './store.ts'
+
+        export default class GridCell extends Component {
+          template() {
+            const selected = store.activeId === this.props.id
+            return (
+              <td
+                class={selected ? 'cell selected' : 'cell'}
+                tabIndex={selected ? 0 : -1}
+              >
+                {this.props.label}
+              </td>
+            )
+          }
+        }
+      `,
+      '/virtual/GridCell.jsx',
+      'GridCell',
+      { Component, store },
+    )
+
+    const CELL_COUNT = 10
+    const cells: InstanceType<typeof CellClass>[] = []
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+
+    for (let i = 1; i <= CELL_COUNT; i++) {
+      const cell = new CellClass({ id: i, label: `cell-${i}` })
+      cell.render(root)
+      cells.push(cell)
+    }
+    await flushMicrotasks()
+
+    assert.equal(cells[0].el.className, 'cell selected')
+    assert.equal(cells[1].el.className, 'cell')
+
+    const mutations: string[] = []
+    const observer = new MutationObserver((records) => {
+      for (const r of records) {
+        if (r.type === 'attributes') {
+          mutations.push(`attr:${r.attributeName}:${(r.target as HTMLElement).getAttribute(r.attributeName!)}`)
+        } else if (r.type === 'characterData') {
+          mutations.push(`text:${r.target.nodeValue}`)
+        } else if (r.type === 'childList') {
+          mutations.push(`childList:+${r.addedNodes.length}:-${r.removedNodes.length}`)
+        }
+      }
+    })
+
+    for (const cell of cells) {
+      observer.observe(cell.el, { attributes: true, characterData: true, childList: true, subtree: true })
+    }
+
+    store.activeId = 3
+    await flushMicrotasks()
+    await new Promise((r) => setTimeout(r, 10))
+    observer.disconnect()
+
+    assert.equal(cells[0].el.className, 'cell', 'old selected cell should lose selected class')
+    assert.equal(cells[2].el.className, 'cell selected', 'new selected cell should gain selected class')
+    assert.equal(cells[2].el.getAttribute('tabIndex'), '0')
+    assert.equal(cells[0].el.getAttribute('tabIndex'), '-1')
+
+    // Only the old selected (cell 1) and new selected (cell 3) should have DOM mutations.
+    // All other 8 cells should have ZERO mutations — their class and tabIndex didn't change.
+    assert.ok(
+      mutations.length <= 4,
+      `Expected at most 4 DOM mutations (2 class + 2 tabIndex) but got ${mutations.length}: ${JSON.stringify(mutations)}`,
+    )
+
+    for (const cell of cells) cell.dispose()
+  } finally {
+    restoreDom()
   }
 })

@@ -1,4 +1,4 @@
-import { Component } from '@geajs/core'
+import { Component, GEA_MAPS, GEA_SYNC_MAP, GEA_UPDATE_PROPS } from '@geajs/core'
 import { VanillaMachine, normalizeProps, spreadProps } from '@zag-js/vanilla'
 
 type SpreadCleanup = () => void
@@ -14,6 +14,7 @@ export default class ZagComponent<P = Record<string, unknown>> extends Component
   declare _spreadCleanups: Map<string, SpreadCleanup>
   declare _spreadScheduled: boolean
   declare _zagIdMap: Map<string, Element>
+  declare _elementCache: Map<string, Element[]>
 
   createMachine(_props: any): any {
     return null
@@ -37,6 +38,7 @@ export default class ZagComponent<P = Record<string, unknown>> extends Component
     if (!this._spreadCleanups) this._spreadCleanups = new Map()
     if (this._spreadScheduled === undefined) this._spreadScheduled = false
     if (!this._zagIdMap) this._zagIdMap = new Map()
+    if (!this._elementCache) this._elementCache = new Map()
 
     const machineDef = this.createMachine(props)
     if (!machineDef) return
@@ -74,8 +76,8 @@ export default class ZagComponent<P = Record<string, unknown>> extends Component
     this._scheduleSpreadApplication()
   }
 
-  __geaUpdateProps(nextProps: Record<string, any>) {
-    super.__geaUpdateProps(nextProps)
+  [GEA_UPDATE_PROPS](nextProps: Record<string, any>) {
+    super[GEA_UPDATE_PROPS](nextProps)
     this._syncMachineProps()
   }
 
@@ -107,12 +109,17 @@ export default class ZagComponent<P = Record<string, unknown>> extends Component
   }
 
   _applyAllSpreads() {
-    if (!this.rendered_ || !this._api) return
+    if (!this.rendered || !this._api) return
     const map = this.getSpreadMap()
 
     for (const selector in map) {
       const getter = map[selector]
-      const elements = this._queryAllIncludingSelf(selector)
+
+      let elements = this._elementCache.get(selector)
+      if (!elements) {
+        elements = this._queryAllIncludingSelf(selector)
+        this._elementCache.set(selector, elements)
+      }
 
       for (let i = 0; i < elements.length; i++) {
         const el = elements[i]
@@ -138,8 +145,9 @@ export default class ZagComponent<P = Record<string, unknown>> extends Component
     }
   }
 
-  __geaSyncMap(idx: number) {
-    super.__geaSyncMap(idx)
+  [GEA_SYNC_MAP](idx: number) {
+    super[GEA_SYNC_MAP](idx)
+    this._elementCache.clear()
     // After the map syncs new/updated DOM items, Zag spreads must be
     // re-applied because createItemFn produces elements without Zag's
     // event handlers and attributes.
@@ -148,11 +156,12 @@ export default class ZagComponent<P = Record<string, unknown>> extends Component
 
   onAfterRender() {
     this._cacheArrayContainers()
+    this._elementCache.clear()
     this._applyAllSpreads()
   }
 
   _cacheArrayContainers() {
-    const maps = (this as any).__geaMaps
+    const maps = (this as any)[GEA_MAPS]
     if (!maps) return
     for (const idx in maps) {
       const map = maps[idx]
@@ -173,6 +182,7 @@ export default class ZagComponent<P = Record<string, unknown>> extends Component
     }
     this._api = null
     this._zagIdMap?.clear()
+    this._elementCache?.clear()
 
     super.dispose()
   }

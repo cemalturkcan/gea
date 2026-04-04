@@ -19,7 +19,7 @@ async function collectErrors(page: Page): Promise<string[]> {
 /** Switch to todo example and wait for it to be fully interactive */
 async function switchToTodo(page: Page) {
   await page.getByRole('button', { name: 'Todo' }).click()
-  await expect(preview(page).locator('.todo-app')).toBeVisible({ timeout: 10000 })
+  await expect(preview(page).locator('.todo-app')).toBeVisible({ timeout: 500 })
   // Wait for event delegation to be fully wired up in the iframe
   await page.waitForTimeout(500)
 }
@@ -28,14 +28,14 @@ async function switchToTodo(page: Page) {
 async function addTodo(frame: FrameLocator, text: string, expectedCount: number) {
   await frame.getByPlaceholder('What needs to be done?').pressSequentially(text)
   await frame.getByRole('button', { name: 'Add' }).click()
-  await expect(frame.locator('.todo-list li')).toHaveCount(expectedCount, { timeout: 10000 })
+  await expect(frame.locator('.todo-list li')).toHaveCount(expectedCount, { timeout: 500 })
 }
 
 test.describe('Website Playground', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/')
     // Wait for playground to initialise — counter preview iframe should render
-    await expect(preview(page).locator('.counter')).toBeVisible({ timeout: 10000 })
+    await expect(preview(page).locator('.counter')).toBeVisible({ timeout: 2000 })
   })
 
   // ── Counter example ──────────────────────────────────────
@@ -144,7 +144,7 @@ test.describe('Website Playground', () => {
     test('switching from todo back to counter loads counter', async ({ page }) => {
       await switchToTodo(page)
       await page.getByRole('button', { name: 'Counter' }).click()
-      await expect(preview(page).locator('.counter')).toBeVisible({ timeout: 10000 })
+      await expect(preview(page).locator('.counter')).toBeVisible({ timeout: 2000 })
       await expect(preview(page).locator('.todo-app')).not.toBeVisible()
     })
   })
@@ -158,9 +158,9 @@ test.describe('Website Playground', () => {
     })
 
     test('counter: no undefined in element IDs', async ({ page }) => {
-      const ids = await preview(page).locator('[id]').evaluateAll((els) =>
-        els.map((el) => el.id),
-      )
+      const ids = await preview(page)
+        .locator('[id]')
+        .evaluateAll((els) => els.map((el) => el.id))
       for (const id of ids) {
         expect(id).not.toContain('undefined')
         expect(id).not.toContain('null')
@@ -188,9 +188,7 @@ test.describe('Website Playground', () => {
       const frame = preview(page)
       await addTodo(frame, 'ID check', 1)
 
-      const ids = await frame.locator('[id]').evaluateAll((els) =>
-        els.map((el) => el.id),
-      )
+      const ids = await frame.locator('[id]').evaluateAll((els) => els.map((el) => el.id))
       for (const id of ids) {
         expect(id).not.toContain('undefined')
         expect(id).not.toContain('null')

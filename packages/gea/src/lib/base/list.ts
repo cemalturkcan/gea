@@ -1,4 +1,5 @@
 import type { StoreChange } from '../store'
+import { GEA_DOM_KEY, GEA_PROXY_GET_TARGET } from '../symbols'
 
 export interface ListConfig {
   arrayPathParts: string[]
@@ -20,22 +21,7 @@ function samePathParts(a?: string[], b?: string[]): boolean {
 
 function rebuildList(container: HTMLElement, array: any[], config: ListConfig): void {
   if (array.length === 0) {
-    if (container.textContent !== '') container.textContent = ''
-    return
-  }
-
-  if (config.render && !config.hasComponentItems) {
-    const n = array.length
-    const parts = new Array<string>(n)
-    const render = config.render
-    for (let i = 0; i < n; i++) {
-      parts[i] = render(array[i], i)
-    }
-    container.innerHTML = parts.join('')
-    for (let i = 0; i < n; i++) {
-      const row = container.children[i] as HTMLElement | undefined
-      if (row) (row as any).__geaItem = array[i]
-    }
+    container.textContent = ''
     return
   }
 
@@ -43,7 +29,7 @@ function rebuildList(container: HTMLElement, array: any[], config: ListConfig): 
   for (let i = 0; i < array.length; i++) {
     fragment.appendChild(config.create(array[i], i))
   }
-  if (container.textContent !== '') container.textContent = ''
+  container.textContent = ''
   container.appendChild(fragment)
 }
 
@@ -109,7 +95,7 @@ function applySwap(container: HTMLElement, firstIndex: number, secondIndex: numb
 function applyPropChanges(container: HTMLElement, items: any[], changes: StoreChange[], config: ListConfig): boolean {
   if (!config.propPatchers) return false
 
-  const rawItems = items && (items as any).__getTarget ? (items as any).__getTarget : items
+  const rawItems = items && (items as any)[GEA_PROXY_GET_TARGET] ? (items as any)[GEA_PROXY_GET_TARGET] : items
   let handledAny = false
   for (let i = 0; i < changes.length; i++) {
     const change = changes[i]
@@ -152,7 +138,7 @@ function applyRootReplacementPatch(
     if (prevKey !== nextKey) return false
     const row = container.children[index] as HTMLElement | undefined
     if (!row) return false
-    const domKey = row.getAttribute('data-gea-item-id')
+    const domKey = (row as any)[GEA_DOM_KEY] ?? row.getAttribute('data-gea-item-id')
     if (domKey == null || domKey !== prevKey) return false
   }
 
@@ -171,7 +157,10 @@ export function applyListChanges(
   config: ListConfig,
 ): void {
   const proxiedItems = Array.isArray(array) ? array : []
-  const items = proxiedItems && (proxiedItems as any).__getTarget ? (proxiedItems as any).__getTarget : proxiedItems
+  const items =
+    proxiedItems && (proxiedItems as any)[GEA_PROXY_GET_TARGET]
+      ? (proxiedItems as any)[GEA_PROXY_GET_TARGET]
+      : proxiedItems
 
   if (!changes || changes.length === 0) {
     rerenderListInPlace(container, items, config.create)
@@ -266,7 +255,11 @@ export function applyListChanges(
 
   if (addIndexes.length > 0 && addIndexes.includes(0)) {
     const firstChild = container.children[0] as HTMLElement | undefined
-    if (firstChild && !firstChild.hasAttribute('data-gea-item-id')) {
+    if (
+      firstChild &&
+      (firstChild as any)[GEA_DOM_KEY] == null &&
+      !firstChild.hasAttribute('data-gea-item-id')
+    ) {
       if (container.children.length !== items.length) {
         rebuildList(container, items, config)
         return

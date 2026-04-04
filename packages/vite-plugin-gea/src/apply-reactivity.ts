@@ -2,6 +2,8 @@ import babelGenerator from '@babel/generator'
 import * as t from '@babel/types'
 
 const generate = 'default' in babelGenerator ? babelGenerator.default : babelGenerator
+
+const URL_ATTRS = new Set(['href', 'src', 'action', 'formaction', 'data', 'cite', 'poster', 'background'])
 import { appendToBody, id, js, jsBlockBody, jsExpr, jsMethod } from 'eszter'
 import type { NodePath } from '@babel/traverse'
 import type { ClassMethod } from '@babel/types'
@@ -25,8 +27,13 @@ import { generateCreateItemMethod, generatePatchItemMethod } from './generate-ar
 import { ITEM_IS_KEY } from './analyze-helpers.ts'
 import { getTemplateParamBinding } from './template-param-utils.ts'
 import {
+  buildExprGeaMember,
+  buildThisGeaCall,
+  buildThisGeaMember,
   buildTrimmedClassJoinedExpression,
   buildTrimmedClassValueExpression,
+  ensureGeaCompilerSymbolImports,
+  ensureImport,
   isAlwaysStringExpression,
   isWhitespaceFree,
 } from './utils.ts'
@@ -55,7 +62,6 @@ import {
   resolvePath,
   pruneUnusedSetupDestructuring,
   earlyReturnFalsyBindingName,
-  cacheThisIdInMethod,
   optionalizeBindingRootInStatements,
   optionalizeMemberChainsFromBindingRoot,
 } from './utils.ts'
@@ -96,7 +102,14 @@ function generateCreatedHooks(
   stores: Array<{
     storeVar: string
     captureExpression: t.Expression
-    observeHandlers: Array<{ pathParts: PathParts; methodName: string; isVia?: boolean; rereadExpr?: t.Expression }>
+    observeHandlers: Array<{
+      pathParts: PathParts
+      methodName: string
+      isVia?: boolean
+      rereadExpr?: t.Expression
+      dynamicKeyExpr?: t.Expression
+      passValue?: boolean
+    }>
   }>,
   hasArrayConfigs: boolean,
   observeListConfigs: Array<{
@@ -105,17 +118,19 @@ function generateCreatedHooks(
     arrayPropName: string
     componentTag: string
     containerBindingId?: string
+    containerUserIdExpr?: t.Expression
     itemIdProperty?: string
+    afterCondSlotIndex?: number
   }> = [],
 ): t.ClassMethod {
   const body: t.Statement[] = []
 
   if (hasArrayConfigs) {
-    body.push(js`this.__ensureArrayConfigs();`)
+    body.push(t.expressionStatement(buildThisGeaCall('GEA_ENSURE_ARRAY_CONFIGS')))
   }
 
   // Collect all observe handlers and group by store+path, including
-  // those that should become onchange callbacks for __observeList
+  // those that should become onchange callbacks for observeList
   const observeListPathKeys = new Set<string>()
   for (const config of observeListConfigs) {
     observeListPathKeys.add(`${config.storeVar}:${JSON.stringify(config.pathParts)}`)
@@ -123,7 +138,17 @@ function generateCreatedHooks(
 
   for (const store of stores) {
     // Group handlers by path to merge duplicate observers
-    const byPath = new Map<string, Array<{ methodName: string; isVia?: boolean; rereadExpr?: t.Expression }>>()
+    const byPath = new Map<
+      string,
+      Array<{
+        pathParts: PathParts
+        methodName: string
+        isVia?: boolean
+        rereadExpr?: t.Expression
+        dynamicKeyExpr?: t.Expression
+        passValue?: boolean
+      }>
+    >()
     for (const handler of store.observeHandlers) {
       const pathKey = JSON.stringify(handler.pathParts)
       // Skip handlers whose path is covered by __observeList — they'll be
@@ -131,9 +156,14 @@ function generateCreatedHooks(
       const listKey = `${store.storeVar}:${pathKey}`
       if (observeListPathKeys.has(listKey)) continue
       if (!byPath.has(pathKey)) byPath.set(pathKey, [])
-      byPath
-        .get(pathKey)!
-        .push({ methodName: handler.methodName, isVia: handler.isVia, rereadExpr: handler.rereadExpr })
+      byPath.get(pathKey)!.push({
+        pathParts: handler.pathParts,
+        methodName: handler.methodName,
+        isVia: handler.isVia,
+        rereadExpr: handler.rereadExpr,
+        dynamicKeyExpr: handler.dynamicKeyExpr,
+        passValue: handler.passValue,
+      })
     }
 
     // The store variable expression (e.g. `storeVar` identifier)
@@ -147,7 +177,7 @@ function generateCreatedHooks(
         // Single handler — direct method reference
         body.push(
           t.expressionStatement(
-            t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('__observe')), [
+            t.callExpression(thisGea('GEA_OBSERVE'), [
               storeVarExpr,
               pathArray,
               t.memberExpression(t.thisExpression(), t.identifier(handlers[0].methodName)),
@@ -159,17 +189,100 @@ function generateCreatedHooks(
         const vParam = t.identifier('__v')
         const cParam = t.identifier('__c')
         const callStmts: t.Statement[] = []
-        for (const h of handlers) {
+        const seenCallKeys = new Set<string>()
+        for (let hi = 0; hi < handlers.length; hi++) {
+          const h = handlers[hi]
+          const callKey = [
+            h.methodName,
+            h.isVia ? 'via' : 'direct',
+            h.passValue === false ? 'novalue' : 'value',
+            serializeAstNode(h.dynamicKeyExpr),
+            h.passValue === false ? '' : serializeAstNode(h.rereadExpr as t.Node | undefined),
+          ].join('|')
+          if (seenCallKeys.has(callKey)) continue
+          seenCallKeys.add(callKey)
           if (h.isVia && h.rereadExpr) {
-            // Inline re-read: call target method with re-read value
-            callStmts.push(
-              t.expressionStatement(
-                t.callExpression(t.memberExpression(t.thisExpression(), t.identifier(h.methodName)), [
-                  t.cloneNode(h.rereadExpr, true),
-                  t.nullLiteral(),
-                ]),
-              ),
+            const callStmt = t.expressionStatement(
+              t.callExpression(t.memberExpression(t.thisExpression(), t.identifier(h.methodName)), [
+                h.passValue === false ? t.identifier('undefined') : t.cloneNode(h.rereadExpr, true),
+                t.nullLiteral(),
+              ]),
             )
+            if (h.dynamicKeyExpr) {
+              const keyId = t.identifier(`geaDynKey${hi}`)
+              const changeId = t.identifier(`geaDynChange${hi}`)
+              const partsId = t.identifier(`geaDynParts${hi}`)
+              const prevRootId = t.identifier(`geaDynPrevRoot${hi}`)
+              const prefixChecks = h.pathParts.map((part, idx) =>
+                t.binaryExpression(
+                  '===',
+                  t.memberExpression(partsId, t.numericLiteral(idx), true),
+                  t.stringLiteral(part),
+                ),
+              )
+              const prevEntryExpr = t.conditionalExpression(
+                t.binaryExpression('==', prevRootId, t.nullLiteral()),
+                t.identifier('undefined'),
+                t.memberExpression(prevRootId, keyId, true),
+              )
+              const nextEntryExpr = t.conditionalExpression(
+                t.binaryExpression('==', vParam, t.nullLiteral()),
+                t.identifier('undefined'),
+                t.memberExpression(vParam, keyId, true),
+              )
+              const sameRootAffectsKey = t.logicalExpression(
+                '&&',
+                t.binaryExpression(
+                  '===',
+                  t.memberExpression(partsId, t.identifier('length')),
+                  t.numericLiteral(h.pathParts.length),
+                ),
+                t.binaryExpression('!==', prevEntryExpr, nextEntryExpr),
+              )
+              const matchingNestedKey = t.binaryExpression(
+                '===',
+                t.memberExpression(partsId, t.numericLiteral(h.pathParts.length), true),
+                keyId,
+              )
+              const sameRootOrMatchingKey = t.logicalExpression('||', sameRootAffectsKey, matchingNestedKey)
+              const relevantChangeExpr = prefixChecks
+                .concat([sameRootOrMatchingKey])
+                .reduce<t.Expression>((left, right) => t.logicalExpression('&&', left, right))
+              const someCall = t.callExpression(t.memberExpression(cParam, t.identifier('some')), [
+                t.arrowFunctionExpression(
+                  [changeId],
+                  t.blockStatement([
+                    t.variableDeclaration('const', [
+                      t.variableDeclarator(partsId, t.memberExpression(changeId, t.identifier('pathParts'))),
+                      t.variableDeclarator(prevRootId, t.memberExpression(changeId, t.identifier('previousValue'))),
+                    ]),
+                    t.returnStatement(
+                      t.logicalExpression(
+                        '&&',
+                        t.callExpression(t.memberExpression(t.identifier('Array'), t.identifier('isArray')), [partsId]),
+                        relevantChangeExpr,
+                      ),
+                    ),
+                  ]),
+                ),
+              ])
+              callStmts.push(
+                t.blockStatement([
+                  t.variableDeclaration('const', [t.variableDeclarator(keyId, t.cloneNode(h.dynamicKeyExpr, true))]),
+                  t.ifStatement(
+                    t.logicalExpression(
+                      '&&',
+                      t.callExpression(t.memberExpression(t.identifier('Array'), t.identifier('isArray')), [cParam]),
+                      someCall,
+                    ),
+                    t.blockStatement([callStmt]),
+                  ),
+                ]),
+              )
+            } else {
+              // Inline re-read: call target method with re-read value
+              callStmts.push(callStmt)
+            }
           } else {
             callStmts.push(
               t.expressionStatement(
@@ -180,7 +293,7 @@ function generateCreatedHooks(
         }
         body.push(
           t.expressionStatement(
-            t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('__observe')), [
+            t.callExpression(thisGea('GEA_OBSERVE'), [
               storeVarExpr,
               pathArray,
               t.arrowFunctionExpression([vParam, cParam], t.blockStatement(callStmts)),
@@ -201,17 +314,19 @@ function generateCreatedHooks(
       // before constructor body sets the instance variable). The runtime uses
       // itemsKey to lazily resolve the items array from the component instance.
       const configProps: t.ObjectProperty[] = [
-        t.objectProperty(t.identifier('items'), t.memberExpression(t.thisExpression(), t.identifier(itemsName))),
-        t.objectProperty(t.identifier('itemsKey'), t.stringLiteral(itemsName)),
+        t.objectProperty(t.identifier('items'), t.memberExpression(t.thisExpression(), t.identifier(itemsName), true)),
+        t.objectProperty(t.identifier('itemsKey'), t.identifier(itemsName)),
         t.objectProperty(
           t.identifier('container'),
           t.arrowFunctionExpression(
             [],
-            config.containerBindingId
-              ? t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('__el')), [
-                  t.stringLiteral(config.containerBindingId),
+            config.containerUserIdExpr
+              ? t.callExpression(t.memberExpression(t.identifier('document'), t.identifier('getElementById')), [
+                  t.cloneNode(config.containerUserIdExpr, true) as t.Expression,
                 ])
-              : (jsExpr`this.$(":scope")` as t.Expression),
+              : config.containerBindingId
+                ? t.callExpression(thisGea('GEA_EL'), [t.stringLiteral(config.containerBindingId)])
+                : (jsExpr`this.$(":scope")` as t.Expression),
           ),
         ),
         t.objectProperty(t.identifier('Ctor'), t.identifier(config.componentTag)),
@@ -245,6 +360,12 @@ function generateCreatedHooks(
         ),
       ]
 
+      if (config.afterCondSlotIndex != null) {
+        configProps.push(
+          t.objectProperty(t.identifier('afterCondSlotIndex'), t.numericLiteral(config.afterCondSlotIndex)),
+        )
+      }
+
       // Merge any scalar observers on the same path into the onchange callback
       const samePathHandlers: Array<{ methodName: string; isVia?: boolean; rereadExpr?: t.Expression }> = []
       const pathKey = JSON.stringify(config.pathParts)
@@ -274,11 +395,7 @@ function generateCreatedHooks(
 
       body.push(
         t.expressionStatement(
-          t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('__observeList')), [
-            storeVarExpr,
-            pathArray,
-            t.objectExpression(configProps),
-          ]),
+          t.callExpression(thisGea('GEA_OBSERVE_LIST'), [storeVarExpr, pathArray, t.objectExpression(configProps)]),
         ),
       )
     }
@@ -289,21 +406,83 @@ function generateCreatedHooks(
   return method
 }
 
+function canInlineDynamicObserverKey(expr: t.Expression): boolean {
+  let safe = true
+  const program = t.program([t.expressionStatement(t.cloneNode(expr, true))])
+  traverse(program, {
+    noScope: true,
+    Identifier(path: NodePath<t.Identifier>) {
+      if (!path.isReferencedIdentifier()) return
+      safe = false
+      path.stop()
+    },
+  })
+  return safe
+}
+
+function classMethodUsesParam(method: t.ClassMethod, index: number): boolean {
+  const param = method.params[index]
+  if (!t.isIdentifier(param) || !t.isBlockStatement(method.body)) return true
+
+  let used = false
+  const program = t.program(method.body.body.map((stmt) => t.cloneNode(stmt, true) as t.Statement))
+  traverse(program, {
+    noScope: true,
+    Identifier(path: NodePath<t.Identifier>) {
+      if (!path.isReferencedIdentifier()) return
+      if (path.node.name !== param.name) return
+      used = true
+      path.stop()
+    },
+  })
+  return used
+}
+
+function serializeAstNode(node: t.Node | null | undefined): string {
+  return node ? JSON.stringify(node) : ''
+}
+
+const thisGea = buildThisGeaMember
+
+function insertStmtBeforeClass(classPath: NodePath<t.ClassDeclaration>, stmt: t.Statement) {
+  const parent = classPath.parentPath
+  if (parent.isExportDefaultDeclaration()) {
+    parent.insertBefore(stmt)
+  } else {
+    classPath.insertBefore(stmt)
+  }
+}
+
+function expressionReferencesIdentifier(expr: t.Expression, name: string): boolean {
+  let found = false
+  const program = t.program([t.expressionStatement(t.cloneNode(expr, true))])
+  traverse(program, {
+    noScope: true,
+    Identifier(path: NodePath<t.Identifier>) {
+      if (!path.isReferencedIdentifier()) return
+      if (path.node.name !== name) return
+      found = true
+      path.stop()
+    },
+  })
+  return found
+}
+
 function generateLocalStateObserverSetup(
   observeHandlers: Array<{ pathParts: PathParts; methodName: string }>,
   hasArrayConfigs: boolean,
 ): t.ClassMethod {
-  const localStore = t.memberExpression(t.thisExpression(), t.identifier('__store'))
+  const localStore = buildThisGeaMember('GEA_STORE_ROOT')
   const body: t.Statement[] = []
   if (hasArrayConfigs) {
-    body.push(js`this.__ensureArrayConfigs();`)
+    body.push(t.expressionStatement(buildThisGeaCall('GEA_ENSURE_ARRAY_CONFIGS')))
   }
   body.push(js`if (!${localStore}) { return; }`)
 
   for (const observeHandler of observeHandlers) {
     body.push(
       t.expressionStatement(
-        t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('__observe')), [
+        t.callExpression(thisGea('GEA_OBSERVE'), [
           t.thisExpression(),
           t.arrayExpression(observeHandler.pathParts.map((part) => t.stringLiteral(part))),
           t.memberExpression(t.thisExpression(), t.identifier(observeHandler.methodName)),
@@ -312,8 +491,14 @@ function generateLocalStateObserverSetup(
     )
   }
 
-  const method = jsMethod`${id('__setupLocalStateObservers')}() {}`
-  method.body.body.push(...body)
+  const method = t.classMethod(
+    'method',
+    t.identifier('GEA_SETUP_LOCAL_STATE_OBSERVERS'),
+    [],
+    t.blockStatement([]),
+    true,
+  )
+  method.body!.body.push(...body)
   return method
 }
 
@@ -339,6 +524,8 @@ export function applyStaticReactivity(
 ): boolean {
   let applied = false
   let needsModuleLevelUnwrapHelper = false
+  let needsClassLevelRawStoreField = false
+  const classLevelPrivateFields = new Set<string>()
 
   const astToTraverse = preTransformAnalysis?.has(className) ? ast : originalAST
   const getAnalysis = (clsName: string, origPath: NodePath<ClassMethod>): AnalysisResult | null => {
@@ -360,13 +547,28 @@ export function applyStaticReactivity(
         analysis.arrayMaps.length === 0 &&
         analysis.stateProps.size === 0 &&
         analysis.unresolvedMaps.length === 0 &&
-        !hasCompiledChildStoreDeps
+        !hasCompiledChildStoreDeps &&
+        analysis.earlyReturnGuard === undefined
       )
         return
 
       traverse(ast, {
         ClassDeclaration(classPath: NodePath<t.ClassDeclaration>) {
           if (!t.isIdentifier(classPath.node.id) || classPath.node.id.name !== className) return
+          ensureGeaCompilerSymbolImports(ast)
+
+          // Extract original (pre-transform) class body for JSX detection in render props.
+          // The current classPath.node.body has JSX already compiled away.
+          let originalClassBody: t.ClassBody | undefined
+          traverse(originalAST, {
+            noScope: true,
+            ClassDeclaration(origClass: NodePath<t.ClassDeclaration>) {
+              if (t.isIdentifier(origClass.node.id) && origClass.node.id.name === className) {
+                originalClassBody = origClass.node.body
+                origClass.stop()
+              }
+            },
+          })
 
           const templateMethod = classPath.node.body.body.find(
             (n): n is t.ClassMethod => t.isClassMethod(n) && t.isIdentifier(n.key) && n.key.name === 'template',
@@ -462,8 +664,9 @@ export function applyStaticReactivity(
 
           const patchStatementsByBinding = new Map<(typeof analysis.propBindings)[0], t.Statement[]>()
           for (const pb of analysis.propBindings) {
-            const elExpr =
-              pb.bindingId !== undefined
+            const elExpr = pb.userIdExpr
+              ? buildCachedGetElementById(t.cloneNode(pb.userIdExpr, true) as t.Expression)
+              : pb.bindingId !== undefined
                 ? buildCachedGetElementById(
                     t.binaryExpression(
                       '+',
@@ -472,41 +675,81 @@ export function applyStaticReactivity(
                     ),
                   )
                 : pb.selector === ':scope'
-                  ? t.memberExpression(t.thisExpression(), t.identifier('element_'))
+                  ? thisGea('GEA_ELEMENT')
                   : t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('$')), [
                       t.stringLiteral(pb.selector),
                     ])
             const valueExpr = pb.expression && pb.setupStatements ? t.identifier('__boundValue') : t.identifier('value')
             let updateStmt: t.Statement
             if (pb.type === 'text' && pb.textNodeIndex !== undefined) {
+              const tnIdx = t.numericLiteral(pb.textNodeIndex)
               const tnAccess = t.memberExpression(
                 t.memberExpression(t.identifier('__el'), t.identifier('childNodes')),
-                t.numericLiteral(pb.textNodeIndex),
+                t.cloneNode(tnIdx, true),
                 true,
               )
-              updateStmt = t.blockStatement([
-                t.variableDeclaration('const', [t.variableDeclarator(t.identifier('__tn'), tnAccess)]),
-                t.ifStatement(
-                  t.logicalExpression(
-                    '&&',
+              // Check if the node at the expected index is a text node (nodeType 3).
+              // When the initial value is empty the browser may not create a text node,
+              // so we insert one on first update.
+              const notTextNode = t.logicalExpression(
+                '||',
+                t.unaryExpression('!', t.identifier('__tn')),
+                t.binaryExpression(
+                  '!==',
+                  t.memberExpression(t.identifier('__tn'), t.identifier('nodeType')),
+                  t.numericLiteral(3),
+                ),
+              )
+              const insertNewTextNode = t.blockStatement([
+                t.expressionStatement(
+                  t.assignmentExpression(
+                    '=',
                     t.identifier('__tn'),
-                    t.binaryExpression(
-                      '!==',
-                      t.memberExpression(t.identifier('__tn'), t.identifier('nodeValue')),
-                      valueExpr,
-                    ),
-                  ),
-                  t.expressionStatement(
-                    t.assignmentExpression(
-                      '=',
-                      t.memberExpression(t.identifier('__tn'), t.identifier('nodeValue')),
+                    t.callExpression(t.memberExpression(t.identifier('document'), t.identifier('createTextNode')), [
                       t.cloneNode(valueExpr, true),
-                    ),
+                    ]),
                   ),
                 ),
+                t.expressionStatement(
+                  t.callExpression(t.memberExpression(t.identifier('__el'), t.identifier('insertBefore')), [
+                    t.identifier('__tn'),
+                    t.logicalExpression(
+                      '||',
+                      t.memberExpression(
+                        t.memberExpression(t.identifier('__el'), t.identifier('childNodes')),
+                        t.cloneNode(tnIdx, true),
+                        true,
+                      ),
+                      t.nullLiteral(),
+                    ),
+                  ]),
+                ),
+              ])
+              const updateExisting = t.ifStatement(
+                t.binaryExpression(
+                  '!==',
+                  t.memberExpression(t.identifier('__tn'), t.identifier('nodeValue')),
+                  t.cloneNode(valueExpr, true),
+                ),
+                t.expressionStatement(
+                  t.assignmentExpression(
+                    '=',
+                    t.memberExpression(t.identifier('__tn'), t.identifier('nodeValue')),
+                    t.cloneNode(valueExpr, true),
+                  ),
+                ),
+              )
+              updateStmt = t.blockStatement([
+                t.variableDeclaration('let', [t.variableDeclarator(t.identifier('__tn'), tnAccess)]),
+                t.ifStatement(notTextNode, insertNewTextNode, updateExisting),
               ])
             } else if (pb.type === 'text') {
-              const targetProp = pb.propName === 'children' ? 'innerHTML' : 'textContent'
+              const isHtmlProducing =
+                pb.propName === 'children' ||
+                (pb.expression &&
+                  originalClassBody &&
+                  expressionCallsJSXReturningClassProp(pb.expression, originalClassBody))
+              const targetProp = isHtmlProducing ? 'innerHTML' : 'textContent'
               const assignStmt = t.expressionStatement(
                 t.assignmentExpression(
                   '=',
@@ -514,34 +757,179 @@ export function applyStaticReactivity(
                   t.cloneNode(valueExpr, true),
                 ),
               )
-              const consequent =
-                pb.propName === 'children'
-                  ? t.blockStatement([
-                      assignStmt,
-                      // After replacing innerHTML for children, re-initialize child
-                      // components that were created from the new HTML string.
-                      t.expressionStatement(
-                        t.callExpression(
-                          t.memberExpression(t.thisExpression(), t.identifier('instantiateChildComponents_')),
-                          [],
-                        ),
+              let consequent: t.Statement
+              if (isHtmlProducing) {
+                // Diff-patch children instead of wholesale innerHTML replacement so
+                // that runtime-added attributes (Zag.js, ARIA) on existing elements
+                // are preserved. Fall back to innerHTML only when the child count
+                // changes (structure mismatch).
+                const __tpl = t.identifier('__tpl')
+                const __nc = t.identifier('__nc')
+                const __oc = t.identifier('__oc')
+                const __structural = t.identifier('__structural')
+                const __j = t.identifier('__j')
+
+                // var __tpl = document.createElement('template'); __tpl.innerHTML = value;
+                // var __nc = __tpl.content.childNodes; var __oc = __el.childNodes;
+                const setupStmts: t.Statement[] = [
+                  t.variableDeclaration('var', [
+                    t.variableDeclarator(
+                      __tpl,
+                      t.callExpression(t.memberExpression(t.identifier('document'), t.identifier('createElement')), [
+                        t.stringLiteral('template'),
+                      ]),
+                    ),
+                  ]),
+                  t.expressionStatement(
+                    t.assignmentExpression(
+                      '=',
+                      t.memberExpression(__tpl, t.identifier('innerHTML')),
+                      t.cloneNode(valueExpr, true),
+                    ),
+                  ),
+                  t.variableDeclaration('var', [
+                    t.variableDeclarator(
+                      __nc,
+                      t.memberExpression(
+                        t.memberExpression(__tpl, t.identifier('content')),
+                        t.identifier('childNodes'),
                       ),
-                      // Reconnect compiled children from the parent component whose
-                      // DOM elements were replaced by the innerHTML update.
-                      t.ifStatement(
-                        t.memberExpression(t.thisExpression(), t.identifier('parentComponent')),
-                        t.expressionStatement(
-                          t.callExpression(
-                            t.memberExpression(
-                              t.memberExpression(t.thisExpression(), t.identifier('parentComponent')),
-                              t.identifier('mountCompiledChildComponents_'),
+                    ),
+                  ]),
+                  t.variableDeclaration('var', [
+                    t.variableDeclarator(__oc, t.memberExpression(t.identifier('__el'), t.identifier('childNodes'))),
+                  ]),
+                ]
+
+                // var __structural = __nc.length !== __oc.length
+                const structuralDetect: t.Statement[] = [
+                  t.variableDeclaration('var', [
+                    t.variableDeclarator(
+                      __structural,
+                      t.binaryExpression(
+                        '!==',
+                        t.memberExpression(__nc, t.identifier('length')),
+                        t.memberExpression(__oc, t.identifier('length')),
+                      ),
+                    ),
+                  ]),
+                  t.ifStatement(
+                    t.unaryExpression('!', __structural),
+                    t.blockStatement([
+                      t.forStatement(
+                        t.variableDeclaration('var', [t.variableDeclarator(__j, t.numericLiteral(0))]),
+                        t.binaryExpression('<', __j, t.memberExpression(__nc, t.identifier('length'))),
+                        t.updateExpression('++', __j),
+                        t.blockStatement([
+                          t.ifStatement(
+                            t.logicalExpression(
+                              '||',
+                              t.binaryExpression(
+                                '!==',
+                                t.memberExpression(t.memberExpression(__oc, __j, true), t.identifier('nodeType')),
+                                t.memberExpression(t.memberExpression(__nc, __j, true), t.identifier('nodeType')),
+                              ),
+                              t.logicalExpression(
+                                '&&',
+                                t.binaryExpression(
+                                  '===',
+                                  t.memberExpression(t.memberExpression(__oc, __j, true), t.identifier('nodeType')),
+                                  t.numericLiteral(1),
+                                ),
+                                t.binaryExpression(
+                                  '!==',
+                                  t.memberExpression(t.memberExpression(__oc, __j, true), t.identifier('tagName')),
+                                  t.memberExpression(t.memberExpression(__nc, __j, true), t.identifier('tagName')),
+                                ),
+                              ),
                             ),
-                            [],
+                            t.blockStatement([
+                              t.expressionStatement(t.assignmentExpression('=', __structural, t.booleanLiteral(true))),
+                              t.breakStatement(),
+                            ]),
+                          ),
+                        ]),
+                      ),
+                    ]),
+                  ),
+                ]
+
+                // Patch loop: diff each child via GEA_PATCH_NODE (static method on constructor).
+                // Pass preserveExtraAttrs=true so runtime-added attributes (Zag.js, ARIA)
+                // are not stripped during the diff.
+                const patchNodeCall = t.callExpression(
+                  t.memberExpression(
+                    t.memberExpression(t.thisExpression(), t.identifier('constructor')),
+                    t.identifier('GEA_PATCH_NODE'),
+                    true,
+                  ),
+                  [t.memberExpression(__oc, __j, true), t.memberExpression(__nc, __j, true), t.booleanLiteral(true)],
+                )
+
+                const patchLoop = t.forStatement(
+                  t.variableDeclaration('var', [t.variableDeclarator(__j, t.numericLiteral(0))]),
+                  t.binaryExpression('<', __j, t.memberExpression(__nc, t.identifier('length'))),
+                  t.updateExpression('++', __j),
+                  t.blockStatement([
+                    t.ifStatement(
+                      t.binaryExpression(
+                        '===',
+                        t.memberExpression(t.memberExpression(__oc, __j, true), t.identifier('nodeType')),
+                        t.numericLiteral(3),
+                      ),
+                      t.blockStatement([
+                        t.ifStatement(
+                          t.binaryExpression(
+                            '!==',
+                            t.memberExpression(t.memberExpression(__oc, __j, true), t.identifier('textContent')),
+                            t.memberExpression(t.memberExpression(__nc, __j, true), t.identifier('textContent')),
+                          ),
+                          t.expressionStatement(
+                            t.assignmentExpression(
+                              '=',
+                              t.memberExpression(t.memberExpression(__oc, __j, true), t.identifier('textContent')),
+                              t.memberExpression(t.memberExpression(__nc, __j, true), t.identifier('textContent')),
+                            ),
                           ),
                         ),
+                      ]),
+                      t.ifStatement(
+                        t.binaryExpression(
+                          '===',
+                          t.memberExpression(t.memberExpression(__oc, __j, true), t.identifier('nodeType')),
+                          t.numericLiteral(1),
+                        ),
+                        t.expressionStatement(patchNodeCall),
                       ),
-                    ])
-                  : assignStmt
+                    ),
+                  ]),
+                )
+
+                const fallbackBlock = t.blockStatement([
+                  assignStmt,
+                  t.expressionStatement(t.callExpression(buildThisGeaMember('GEA_INSTANTIATE_CHILD_COMPONENTS'), [])),
+                  t.ifStatement(
+                    buildThisGeaMember('GEA_PARENT_COMPONENT'),
+                    t.expressionStatement(
+                      t.callExpression(
+                        buildExprGeaMember(
+                          buildThisGeaMember('GEA_PARENT_COMPONENT'),
+                          'GEA_MOUNT_COMPILED_CHILD_COMPONENTS',
+                        ),
+                        [],
+                      ),
+                    ),
+                  ),
+                ])
+
+                consequent = t.blockStatement([
+                  ...setupStmts,
+                  ...structuralDetect,
+                  t.ifStatement(__structural, fallbackBlock, t.blockStatement([patchLoop])),
+                ])
+              } else {
+                consequent = assignStmt
+              }
               updateStmt = t.ifStatement(
                 t.binaryExpression(
                   '!==',
@@ -647,6 +1035,41 @@ export function applyStaticReactivity(
             } else if (pb.type === 'attribute' && pb.attributeName) {
               const attrName = pb.attributeName
               if (attrName === 'style') {
+                const cssTextExpr = t.conditionalExpression(
+                  t.binaryExpression('===', t.unaryExpression('typeof', valueExpr), t.stringLiteral('object')),
+                  t.callExpression(
+                    t.memberExpression(
+                      t.callExpression(
+                        t.memberExpression(
+                          t.callExpression(t.memberExpression(t.identifier('Object'), t.identifier('entries')), [
+                            valueExpr,
+                          ]),
+                          t.identifier('map'),
+                        ),
+                        [
+                          t.arrowFunctionExpression(
+                            [t.arrayPattern([t.identifier('k'), t.identifier('v')])],
+                            t.binaryExpression(
+                              '+',
+                              t.binaryExpression(
+                                '+',
+                                t.callExpression(t.memberExpression(t.identifier('k'), t.identifier('replace')), [
+                                  t.regExpLiteral('[A-Z]', 'g'),
+                                  t.stringLiteral('-$&'),
+                                ]),
+                                t.stringLiteral(': '),
+                              ),
+                              t.identifier('v'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      t.identifier('join'),
+                    ),
+                    [t.stringLiteral('; ')],
+                  ),
+                  t.callExpression(t.identifier('String'), [valueExpr]),
+                )
                 updateStmt = t.ifStatement(
                   t.logicalExpression(
                     '||',
@@ -658,51 +1081,53 @@ export function applyStaticReactivity(
                       t.stringLiteral('style'),
                     ]),
                   ),
-                  t.expressionStatement(
-                    t.assignmentExpression(
-                      '=',
-                      t.memberExpression(
-                        t.memberExpression(t.identifier('__el'), t.identifier('style')),
-                        t.identifier('cssText'),
-                      ),
-                      t.conditionalExpression(
-                        t.binaryExpression('===', t.unaryExpression('typeof', valueExpr), t.stringLiteral('object')),
-                        t.callExpression(
-                          t.memberExpression(
-                            t.callExpression(
-                              t.memberExpression(
-                                t.callExpression(t.memberExpression(t.identifier('Object'), t.identifier('entries')), [
-                                  valueExpr,
-                                ]),
-                                t.identifier('map'),
-                              ),
-                              [
-                                t.arrowFunctionExpression(
-                                  [t.arrayPattern([t.identifier('k'), t.identifier('v')])],
-                                  t.binaryExpression(
-                                    '+',
-                                    t.binaryExpression(
-                                      '+',
-                                      t.callExpression(t.memberExpression(t.identifier('k'), t.identifier('replace')), [
-                                        t.regExpLiteral('[A-Z]', 'g'),
-                                        t.stringLiteral('-$&'),
-                                      ]),
-                                      t.stringLiteral(': '),
-                                    ),
-                                    t.identifier('v'),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            t.identifier('join'),
-                          ),
-                          [t.stringLiteral('; ')],
+                  t.blockStatement([
+                    t.variableDeclaration('const', [t.variableDeclarator(t.identifier('__newCss'), cssTextExpr)]),
+                    t.ifStatement(
+                      t.binaryExpression(
+                        '!==',
+                        t.memberExpression(
+                          t.memberExpression(t.identifier('__el'), t.identifier('style')),
+                          t.identifier('cssText'),
                         ),
-                        t.callExpression(t.identifier('String'), [valueExpr]),
+                        t.identifier('__newCss'),
+                      ),
+                      t.expressionStatement(
+                        t.assignmentExpression(
+                          '=',
+                          t.memberExpression(
+                            t.memberExpression(t.identifier('__el'), t.identifier('style')),
+                            t.identifier('cssText'),
+                          ),
+                          t.identifier('__newCss'),
+                        ),
+                      ),
+                    ),
+                  ]),
+                )
+              } else if (attrName === 'dangerouslySetInnerHTML') {
+                updateStmt = t.blockStatement([
+                  t.variableDeclaration('const', [
+                    t.variableDeclarator(
+                      t.identifier('__newHtml'),
+                      t.callExpression(t.identifier('String'), [valueExpr]),
+                    ),
+                  ]),
+                  t.ifStatement(
+                    t.binaryExpression(
+                      '!==',
+                      t.memberExpression(t.identifier('__el'), t.identifier('innerHTML')),
+                      t.identifier('__newHtml'),
+                    ),
+                    t.expressionStatement(
+                      t.assignmentExpression(
+                        '=',
+                        t.memberExpression(t.identifier('__el'), t.identifier('innerHTML')),
+                        t.identifier('__newHtml'),
                       ),
                     ),
                   ),
-                )
+                ])
               } else {
                 const isBooleanAttr = BOOLEAN_HTML_ATTRS.has(attrName)
                 const removeCondition = isBooleanAttr
@@ -712,6 +1137,14 @@ export function applyStaticReactivity(
                       t.binaryExpression('===', valueExpr, t.nullLiteral()),
                       t.binaryExpression('===', valueExpr, t.identifier('undefined')),
                     )
+                const newAttrValueExpr = isBooleanAttr
+                  ? t.stringLiteral('')
+                  : URL_ATTRS.has(attrName)
+                    ? t.callExpression(t.identifier('geaSanitizeAttr'), [
+                        t.stringLiteral(attrName),
+                        t.callExpression(t.identifier('String'), [valueExpr]),
+                      ])
+                    : t.callExpression(t.identifier('String'), [valueExpr])
                 updateStmt = t.ifStatement(
                   removeCondition,
                   t.expressionStatement(
@@ -719,12 +1152,24 @@ export function applyStaticReactivity(
                       t.stringLiteral(attrName),
                     ]),
                   ),
-                  t.expressionStatement(
-                    t.callExpression(t.memberExpression(t.identifier('__el'), t.identifier('setAttribute')), [
-                      t.stringLiteral(attrName),
-                      isBooleanAttr ? t.stringLiteral('') : t.callExpression(t.identifier('String'), [valueExpr]),
-                    ]),
-                  ),
+                  t.blockStatement([
+                    t.variableDeclaration('const', [t.variableDeclarator(t.identifier('__newAttr'), newAttrValueExpr)]),
+                    t.ifStatement(
+                      t.binaryExpression(
+                        '!==',
+                        t.callExpression(t.memberExpression(t.identifier('__el'), t.identifier('getAttribute')), [
+                          t.stringLiteral(attrName),
+                        ]),
+                        t.identifier('__newAttr'),
+                      ),
+                      t.expressionStatement(
+                        t.callExpression(t.memberExpression(t.identifier('__el'), t.identifier('setAttribute')), [
+                          t.stringLiteral(attrName),
+                          t.identifier('__newAttr'),
+                        ]),
+                      ),
+                    ),
+                  ]),
                 )
               }
             } else {
@@ -940,8 +1385,35 @@ export function applyStaticReactivity(
               const parsed = JSON.parse(entry.observeKey)
               const storeVarName = parsed.storeVar || undefined
               const methodNameStr = getObserveMethodName(propPath, storeVarName)
-              const prevProp = `__geaPrev_guard_${methodNameStr}`
-              const rerenderMethod = jsMethod`${id(methodNameStr)}(__v, __c) { if (!__v === !this.${id(prevProp)}) return; this.${id(prevProp)} = __v; this.__geaRequestRender(); }`
+              const prevGuardMem = t.memberExpression(
+                t.thisExpression(),
+                t.callExpression(t.identifier('geaPrevGuardSymbol'), [t.stringLiteral(methodNameStr)]),
+                true,
+              )
+              const rerenderMethod = t.classMethod(
+                'method',
+                t.identifier(methodNameStr),
+                [t.identifier('__v'), t.identifier('__c')],
+                t.blockStatement([
+                  // Skip only when we've seen a prior value and truthiness is unchanged.
+                  // If prev is undefined and __v is false, !__v and !prev are both true — without this
+                  // guard the first delivery after mount would skip rerender (auth early-return repro).
+                  t.ifStatement(
+                    t.logicalExpression(
+                      '&&',
+                      t.binaryExpression('!==', prevGuardMem, t.identifier('undefined')),
+                      t.binaryExpression(
+                        '===',
+                        t.unaryExpression('!', t.identifier('__v')),
+                        t.unaryExpression('!', prevGuardMem),
+                      ),
+                    ),
+                    t.returnStatement(),
+                  ),
+                  t.expressionStatement(t.assignmentExpression('=', prevGuardMem, t.identifier('__v'))),
+                  t.expressionStatement(buildThisGeaCall('GEA_REQUEST_RENDER')),
+                ]),
+              )
               mergeObserveMethod(entry.observeKey, rerenderMethod)
               if (!stateProps.has(entry.observeKey)) {
                 stateProps.set(entry.observeKey, entry.pathParts)
@@ -964,7 +1436,9 @@ export function applyStaticReactivity(
             arrayPropName: string
             componentTag: string
             containerBindingId?: string
+            containerUserIdExpr?: t.Expression
             itemIdProperty?: string
+            afterCondSlotIndex?: number
           }> = []
           // Static array maps whose .map() wasn't found in the template method
           // (e.g. inside a child component's children prop) need a __refresh call
@@ -1034,9 +1508,11 @@ export function applyStaticReactivity(
                     usesTargetComponent: true,
                   })) as EventHandler[]
                   if (delegatedEvents.length > 0) {
-                    appendCompiledEventMethods(classPath.node.body, delegatedEvents)
+                    appendCompiledEventMethods(classPath.node.body, delegatedEvents, [], ast)
                   }
                 }
+                ensureImport(ast, '@geajs/core', 'geaListItemsSymbol')
+                insertStmtBeforeClass(classPath, arrayResult.symbolConstDecl)
                 inlineIntoConstructor(classPath.node.body, [
                   ...arrayResult.arrSetupStatements.map((s) => t.cloneNode(s, true) as t.Statement),
                   arrayResult.constructorInit,
@@ -1048,7 +1524,9 @@ export function applyStaticReactivity(
                     arrayPropName,
                     componentTag: arrayResult.componentTag,
                     containerBindingId: arrayResult.containerBindingId,
+                    containerUserIdExpr: arrayResult.containerUserIdExpr,
                     itemIdProperty: arrayResult.itemIdProperty,
+                    afterCondSlotIndex: um.afterCondSlotIndex,
                   })
                 } else {
                   const computedDeps = (
@@ -1060,11 +1538,13 @@ export function applyStaticReactivity(
                   const itemsName = getComponentArrayItemsName(arrayPropName)
                   const itemPropsMethodNameRef = `__itemProps_${arrayPropName}`
                   const containerSuffix = arrayResult.containerBindingId
-                  const containerExpr = containerSuffix
-                    ? t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('__el')), [
-                        t.stringLiteral(containerSuffix),
+                  const containerExpr = arrayResult.containerUserIdExpr
+                    ? t.callExpression(t.memberExpression(t.identifier('document'), t.identifier('getElementById')), [
+                        t.cloneNode(arrayResult.containerUserIdExpr, true) as t.Expression,
                       ])
-                    : (jsExpr`this.$(":scope")` as t.Expression)
+                    : containerSuffix
+                      ? t.callExpression(thisGea('GEA_EL'), [t.stringLiteral(containerSuffix)])
+                      : (jsExpr`this.$(":scope")` as t.Expression)
 
                   // Build key function expression
                   const itemIdProp = arrayResult.itemIdProperty
@@ -1107,8 +1587,8 @@ export function applyStaticReactivity(
                       t.variableDeclaration('const', [
                         t.variableDeclarator(
                           t.identifier('__new'),
-                          t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('__reconcileList')), [
-                            t.memberExpression(t.thisExpression(), t.identifier(itemsName)),
+                          t.callExpression(thisGea('GEA_RECONCILE_LIST'), [
+                            t.memberExpression(t.thisExpression(), t.identifier(itemsName), true),
                             t.identifier('__arr'),
                             t.cloneNode(containerExpr, true),
                             t.identifier(arrayResult.componentTag),
@@ -1127,7 +1607,7 @@ export function applyStaticReactivity(
                         t.assignmentExpression(
                           '=',
                           t.memberExpression(
-                            t.memberExpression(t.thisExpression(), t.identifier(itemsName)),
+                            t.memberExpression(t.thisExpression(), t.identifier(itemsName), true),
                             t.identifier('length'),
                           ),
                           t.numericLiteral(0),
@@ -1136,7 +1616,7 @@ export function applyStaticReactivity(
                       t.expressionStatement(
                         t.callExpression(
                           t.memberExpression(
-                            t.memberExpression(t.thisExpression(), t.identifier(itemsName)),
+                            t.memberExpression(t.thisExpression(), t.identifier(itemsName), true),
                             t.identifier('push'),
                           ),
                           [t.spreadElement(t.identifier('__new'))],
@@ -1236,11 +1716,12 @@ export function applyStaticReactivity(
               itemTemplate: um.itemTemplate,
               isImportedState: false,
               itemIdProperty: um.itemIdProperty,
+              ...(um.keyExpression ? { keyExpression: um.keyExpression } : {}),
               ...(um.callbackBodyStatements?.length ? { callbackBodyStatements: um.callbackBodyStatements } : {}),
             }
             unresolvedBindings.push({ info: um, binding: syntheticBinding })
             const prevEventLen = unresolvedEventHandlers.length
-            const { method, handlerPropsInMap, needsUnwrapHelper } = generateRenderItemMethod(
+            const { method, handlerPropsInMap, needsUnwrapHelper, needsRawStoreCache } = generateRenderItemMethod(
               syntheticBinding,
               imports,
               unresolvedEventHandlers,
@@ -1249,11 +1730,13 @@ export function applyStaticReactivity(
               tmplSetupCtx,
             )
             if (needsUnwrapHelper) needsModuleLevelUnwrapHelper = true
+            if (needsRawStoreCache) needsClassLevelRawStoreField = true
             const newHandlers = unresolvedEventHandlers.slice(prevEventLen)
             const tokenMatch = newHandlers[0]?.selector?.match(/data-gea-event="([^"]+)"/)
             mapItemAttrInfos.push({
               itemVariable: um.itemVariable,
               itemIdProperty: um.itemIdProperty,
+              ...(um.keyExpression ? { keyExpression: um.keyExpression } : {}),
               containerBindingId: um.containerBindingId,
               eventToken: tokenMatch ? tokenMatch[1] : undefined,
             })
@@ -1261,20 +1744,23 @@ export function applyStaticReactivity(
               classPath.node.body.body.push(method)
               applied = true
             }
-            const createMethod = generateCreateItemMethod(
+            const createResult = generateCreateItemMethod(
               syntheticBinding,
               getTemplatePropNames(classPath.node.body),
               getTemplateParamIdentifier(classPath.node.body),
               tmplSetupCtx,
             )
-            if (createMethod) classPath.node.body.body.push(createMethod)
-            const patchMethod = generatePatchItemMethod(
+            if (createResult.method) classPath.node.body.body.push(createResult.method)
+            if (createResult.needsRawStoreCache) needsClassLevelRawStoreField = true
+            for (const f of createResult.privateFields) classLevelPrivateFields.add(f)
+            const patchResult = generatePatchItemMethod(
               syntheticBinding,
               getTemplatePropNames(classPath.node.body),
               getTemplateParamIdentifier(classPath.node.body),
               tmplSetupCtx,
             )
-            if (patchMethod) classPath.node.body.body.push(patchMethod)
+            if (patchResult.method) classPath.node.body.body.push(patchResult.method)
+            for (const f of patchResult.privateFields) classLevelPrivateFields.add(f)
             if (handlerPropsInMap.length > 0 && um.computationExpr) {
               if (arrayPropName) {
                 const propNames = getTemplatePropNames(classPath.node.body)
@@ -1329,19 +1815,12 @@ export function applyStaticReactivity(
                   t.identifier(getObserveMethodName(dep.pathParts, dep.storeVar)),
                   [t.identifier('value'), t.identifier('change')],
                   t.blockStatement([
-                    t.expressionStatement(
-                      t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('__geaSyncMap')), [
-                        t.numericLiteral(mapIdx),
-                      ]),
-                    ),
+                    t.expressionStatement(t.callExpression(thisGea('GEA_SYNC_MAP'), [t.numericLiteral(mapIdx)])),
                   ]),
                 ),
               )
               if (!stateProps.has(dep.observeKey)) stateProps.set(dep.observeKey, dep.pathParts)
             }
-
-            const propDeps = deps.filter((dep) => !dep.storeVar && dep.pathParts[0] === 'props')
-            if (propDeps.length === 0) return
 
             const usedPropNames = new Set<string>()
             const scanNodes: t.Statement[] = [
@@ -1350,6 +1829,16 @@ export function applyStaticReactivity(
             if (info.computationExpr) {
               scanNodes.push(t.expressionStatement(t.cloneNode(info.computationExpr, true) as t.Expression))
             }
+            const addPropNameFromMember = (path: NodePath<t.MemberExpression>) => {
+              if (
+                templateWholeParam &&
+                t.isIdentifier(path.node.object, { name: templateWholeParam }) &&
+                t.isIdentifier(path.node.property) &&
+                !path.node.computed
+              ) {
+                usedPropNames.add(path.node.property.name)
+              }
+            }
             if (scanNodes.length > 0) {
               const prog = t.program(scanNodes)
               traverse(prog, {
@@ -1357,18 +1846,27 @@ export function applyStaticReactivity(
                 Identifier(path: NodePath<t.Identifier>) {
                   if (templatePropNames.has(path.node.name)) usedPropNames.add(path.node.name)
                 },
-                MemberExpression(path: NodePath<t.MemberExpression>) {
-                  if (
-                    templateWholeParam &&
-                    t.isIdentifier(path.node.object, { name: templateWholeParam }) &&
-                    t.isIdentifier(path.node.property) &&
-                    !path.node.computed
-                  ) {
-                    usedPropNames.add(path.node.property.name)
-                  }
-                },
+                MemberExpression: addPropNameFromMember,
               })
             }
+            // Also scan the item template for prop references (e.g. index === activeTabIndex in class bindings).
+            // Exclude the item variable and index variable since those are callback-local, not props.
+            if (info.itemTemplate) {
+              const skipVars = new Set([info.itemVariable, ...(info.indexVariable ? [info.indexVariable] : [])])
+              const templateProg = t.program([
+                t.expressionStatement(t.cloneNode(info.itemTemplate, true) as t.Expression),
+              ])
+              traverse(templateProg, {
+                noScope: true,
+                Identifier(path: NodePath<t.Identifier>) {
+                  if (!skipVars.has(path.node.name) && templatePropNames.has(path.node.name)) {
+                    usedPropNames.add(path.node.name)
+                  }
+                },
+                MemberExpression: addPropNameFromMember,
+              })
+            }
+            if (usedPropNames.size === 0) return
 
             unresolvedMapPropRefreshDeps.push({
               mapIdx: getMapIndex(binding.arrayPathParts),
@@ -1387,13 +1885,14 @@ export function applyStaticReactivity(
 
           if (elRefFieldNames.length > 0) {
             const hasReset = classPath.node.body.body.some(
-              (m) => t.isClassMethod(m) && t.isIdentifier(m.key) && m.key.name === '__resetEls',
+              (m) =>
+                t.isClassMethod(m) && m.computed === true && t.isIdentifier(m.key) && m.key.name === 'GEA_RESET_ELS',
             )
             if (!hasReset) {
               classPath.node.body.body.push(
                 t.classMethod(
                   'method',
-                  t.identifier('__resetEls'),
+                  t.identifier('GEA_RESET_ELS'),
                   [],
                   t.blockStatement(
                     elRefFieldNames.map((name) =>
@@ -1406,6 +1905,7 @@ export function applyStaticReactivity(
                       ),
                     ),
                   ),
+                  true,
                 ),
               )
               applied = true
@@ -1437,11 +1937,15 @@ export function applyStaticReactivity(
               if (!dep.storeVar) continue
               addCondSlotIndex(dep.observeKey, slotIndex)
             }
-            for (const htmlExpr of [slot.truthyHtmlExpr, slot.falsyHtmlExpr]) {
-              if (!htmlExpr) continue
-              const contentDeps = collectExpressionDependencies(htmlExpr, stateRefs, slot.setupStatements)
-              for (const dep of contentDeps) {
-                addCondSlotIndex(dep.observeKey, slotIndex)
+            // Branch content that includes compiled children must not register content deps: GEA_PATCH_COND
+            // would call GEA_PATCH_NODE on the subtree and strip Zag/runtime attrs from the child root.
+            if (!slot.hasCompiledChildren) {
+              for (const htmlExpr of [slot.truthyHtmlExpr, slot.falsyHtmlExpr]) {
+                if (!htmlExpr) continue
+                const contentDeps = collectExpressionDependencies(htmlExpr, stateRefs, slot.setupStatements)
+                for (const dep of contentDeps) {
+                  addCondSlotIndex(dep.observeKey, slotIndex)
+                }
               }
             }
           })
@@ -1453,9 +1957,10 @@ export function applyStaticReactivity(
             }
           }
 
-          const hasOnPropChange = classPath.node.body.body.some(
-            (member) => t.isClassMethod(member) && t.isIdentifier(member.key) && member.key.name === '__onPropChange',
-          )
+          const hasOnPropChange = classPath.node.body.body.some((member) => {
+            if (!t.isClassMethod(member) || !t.isIdentifier(member.key)) return false
+            return member.computed && member.key.name === 'GEA_ON_PROP_CHANGE'
+          })
 
           const childObserveGroups = new Map<string, ChildComponent[]>()
           compiledChildren.forEach((child) => {
@@ -1497,7 +2002,10 @@ export function applyStaticReactivity(
               .map((m) => (m.key as t.Identifier).name),
           )
 
-          const componentGetterStoreDeps = new Map<string, Array<{ storeVar: string; pathParts: PathParts }>>()
+          const componentGetterStoreDeps = new Map<
+            string,
+            Array<{ storeVar: string; pathParts: PathParts; dynamicKeyExpr?: t.Expression }>
+          >()
           const getterLocalRefs = new Map<string, Set<string>>()
           const getterNames = new Set<string>()
           for (const member of classPath.node.body.body) {
@@ -1507,25 +2015,64 @@ export function applyStaticReactivity(
           for (const member of classPath.node.body.body) {
             if (!t.isClassMethod(member) || member.kind !== 'get' || !t.isIdentifier(member.key)) continue
             const getterName = member.key.name
-            const deps: Array<{ storeVar: string; pathParts: PathParts }> = []
+            const depMap = new Map<string, { storeVar: string; pathParts: PathParts; dynamicKeyExpr?: t.Expression }>()
             const localRefs = new Set<string>()
             const program = t.program(member.body.body.map((s) => t.cloneNode(s, true) as t.Statement))
             traverse(program, {
               noScope: true,
+              OptionalMemberExpression(mePath: NodePath<t.OptionalMemberExpression>) {
+                const objectNode = mePath.node.object
+                if (!t.isMemberExpression(objectNode)) return
+                if (!t.isIdentifier(objectNode.object) || !t.isIdentifier(objectNode.property)) return
+                const objName = objectNode.object.name
+                const ref = stateRefs.get(objName)
+                if (!ref || ref.kind !== 'imported') return
+                if (!mePath.node.computed || !t.isExpression(mePath.node.property)) return
+                if (!canInlineDynamicObserverKey(mePath.node.property)) return
+                depMap.set(`${objName}.${objectNode.property.name}`, {
+                  storeVar: objName,
+                  pathParts: [objectNode.property.name],
+                  dynamicKeyExpr: t.cloneNode(mePath.node.property, true),
+                })
+              },
               MemberExpression(mePath: NodePath<t.MemberExpression>) {
                 if (t.isThisExpression(mePath.node.object) && t.isIdentifier(mePath.node.property)) {
                   const propName = mePath.node.property.name
                   if (getterNames.has(propName) && propName !== getterName) localRefs.add(propName)
                   return
                 }
+                if (
+                  t.isMemberExpression(mePath.node.object) &&
+                  t.isIdentifier(mePath.node.object.object) &&
+                  t.isIdentifier(mePath.node.object.property) &&
+                  mePath.node.computed &&
+                  t.isExpression(mePath.node.property)
+                ) {
+                  const objName = mePath.node.object.object.name
+                  const ref = stateRefs.get(objName)
+                  if (ref && ref.kind === 'imported' && canInlineDynamicObserverKey(mePath.node.property)) {
+                    depMap.set(`${objName}.${mePath.node.object.property.name}`, {
+                      storeVar: objName,
+                      pathParts: [mePath.node.object.property.name],
+                      dynamicKeyExpr: t.cloneNode(mePath.node.property, true),
+                    })
+                    return
+                  }
+                }
                 if (!t.isIdentifier(mePath.node.object)) return
                 const objName = mePath.node.object.name
                 const ref = stateRefs.get(objName)
                 if (!ref || ref.kind !== 'imported') return
                 if (!t.isIdentifier(mePath.node.property)) return
-                deps.push({ storeVar: objName, pathParts: [mePath.node.property.name] })
+                if (!depMap.has(`${objName}.${mePath.node.property.name}`)) {
+                  depMap.set(`${objName}.${mePath.node.property.name}`, {
+                    storeVar: objName,
+                    pathParts: [mePath.node.property.name],
+                  })
+                }
               },
             })
+            const deps = Array.from(depMap.values())
             if (deps.length > 0) componentGetterStoreDeps.set(member.key.name, deps)
             if (localRefs.size > 0) getterLocalRefs.set(member.key.name, localRefs)
           }
@@ -1539,8 +2086,12 @@ export function applyStaticReactivity(
                 if (!refDeps) continue
                 const existing = componentGetterStoreDeps.get(getterName) || []
                 for (const dep of refDeps) {
-                  const key = `${dep.storeVar}.${dep.pathParts.join('.')}`
-                  if (!existing.some((e) => `${e.storeVar}.${e.pathParts.join('.')}` === key)) {
+                  const key = `${dep.storeVar}.${dep.pathParts.join('.')}:${dep.dynamicKeyExpr ? 'dyn' : 'plain'}`
+                  if (
+                    !existing.some(
+                      (e) => `${e.storeVar}.${e.pathParts.join('.')}:${e.dynamicKeyExpr ? 'dyn' : 'plain'}` === key,
+                    )
+                  ) {
                     existing.push(dep)
                     changed = true
                   }
@@ -1565,6 +2116,61 @@ export function applyStaticReactivity(
                   )
                 )
                   continue
+                const guardAliasInits = new Map<string, t.Expression>()
+                for (let si = 0; si < gi; si++) {
+                  const setupStmt = tmplBody[si]
+                  if (!t.isVariableDeclaration(setupStmt)) continue
+                  for (const decl of setupStmt.declarations) {
+                    if (!t.isIdentifier(decl.id) || !decl.init || !t.isExpression(decl.init)) continue
+                    guardAliasInits.set(decl.id.name, decl.init)
+                  }
+                }
+                const addGuardObserveKey = (resolved: {
+                  parts: PathParts | null
+                  isImportedState?: boolean
+                  storeVar?: string
+                }) => {
+                  if (!resolved?.parts?.length) return
+                  if (!resolved.isImportedState) return
+                  const observeKey = buildObserveKey(resolved.parts, resolved.storeVar)
+                  guardStateKeys.add(observeKey)
+                  if (!stateProps.has(observeKey)) stateProps.set(observeKey, [...resolved.parts])
+                }
+                for (const [aliasName, init] of guardAliasInits) {
+                  if (!expressionReferencesIdentifier(stmt.test, aliasName)) continue
+                  if (
+                    !(
+                      t.isIdentifier(init) ||
+                      t.isMemberExpression(init) ||
+                      t.isThisExpression(init) ||
+                      t.isCallExpression(init)
+                    )
+                  )
+                    continue
+                  const resolvedAlias = resolvePath(init, stateRefs)
+                  if (resolvedAlias) addGuardObserveKey(resolvedAlias)
+                }
+                const resolveGuardStateExpr = (
+                  expr: t.Identifier | t.MemberExpression | t.ThisExpression | t.CallExpression,
+                  seen = new Set<string>(),
+                ) => {
+                  const resolved = resolvePath(expr, stateRefs)
+                  if (resolved?.parts?.length && resolved.isImportedState) return resolved
+                  if (t.isIdentifier(expr) && !seen.has(expr.name)) {
+                    const init = guardAliasInits.get(expr.name)
+                    if (
+                      init &&
+                      (t.isIdentifier(init) ||
+                        t.isMemberExpression(init) ||
+                        t.isThisExpression(init) ||
+                        t.isCallExpression(init))
+                    ) {
+                      seen.add(expr.name)
+                      return resolveGuardStateExpr(init, seen)
+                    }
+                  }
+                  return null
+                }
                 const guardProg = t.program([t.expressionStatement(t.cloneNode(stmt.test, true) as t.Expression)])
                 traverse(guardProg, {
                   noScope: true,
@@ -1575,12 +2181,9 @@ export function applyStaticReactivity(
                       !idPath.parent.computed
                     )
                       return
-                    const resolved = resolvePath(idPath.node, stateRefs)
-                    if (!resolved?.parts?.length) return
-                    if (!resolved.isImportedState) return
-                    const observeKey = buildObserveKey(resolved.parts, resolved.storeVar)
-                    guardStateKeys.add(observeKey)
-                    if (!stateProps.has(observeKey)) stateProps.set(observeKey, [...resolved.parts])
+                    const resolved = resolveGuardStateExpr(idPath.node)
+                    if (!resolved) return
+                    addGuardObserveKey(resolved)
                   },
                 })
               }
@@ -1619,6 +2222,8 @@ export function applyStaticReactivity(
                   observeKey,
                   generateConditionalSlotObserveMethod(propPath, storeVar, conditionalSlotIndices, false),
                 )
+              } else if (guardStateKeys.has(observeKey)) {
+                mergeObserveMethod(observeKey, generateRerenderObserver(propPath, storeVar, true))
               }
               continue
             }
@@ -1644,15 +2249,14 @@ export function applyStaticReactivity(
 
             if (relationalArrayMaps.length > 0) {
               relationalArrayMaps.forEach(({ arrayMap, bindings }) => {
-                mergeObserveMethod(
-                  observeKey,
-                  generateArrayRelationalObserver(
-                    propPath,
-                    arrayMap,
-                    bindings,
-                    getObserveMethodName(propPath, storeVar),
-                  ),
+                const relResult = generateArrayRelationalObserver(
+                  propPath,
+                  arrayMap,
+                  bindings,
+                  getObserveMethodName(propPath, storeVar),
                 )
+                mergeObserveMethod(observeKey, relResult.method)
+                for (const f of relResult.privateFields) classLevelPrivateFields.add(f)
               })
             }
 
@@ -1757,6 +2361,12 @@ export function applyStaticReactivity(
               // so that null<->non-null transitions trigger a full DOM rebuild.
               mergeObserveMethod(observeKey, generateRerenderObserver(propPath, storeVar, true))
             }
+          }
+
+          for (const guardKey of guardStateKeys) {
+            if (addedMethods.has(guardKey)) continue
+            const { parts, storeVar } = parseObserveKey(guardKey)
+            mergeObserveMethod(guardKey, generateRerenderObserver(parts, storeVar, true))
           }
 
           // Identify compiled children whose `children` prop contains a resolved
@@ -1944,9 +2554,9 @@ export function applyStaticReactivity(
                 .map((child) => {
                   const updateExpr = t.expressionStatement(
                     t.callExpression(
-                      t.memberExpression(
+                      buildExprGeaMember(
                         t.memberExpression(t.thisExpression(), t.identifier(child.instanceVar)),
-                        t.identifier('__geaUpdateProps'),
+                        'GEA_UPDATE_PROPS',
                       ),
                       [
                         t.callExpression(
@@ -1991,7 +2601,7 @@ export function applyStaticReactivity(
           unresolvedBindings.forEach(({ info, binding }) => {
             const deps = info.dependencies || collectUnresolvedDependencies([info], stateRefs, classPath.node.body)
             const mapIdx = getMapIndex(binding.arrayPathParts)
-            const delegateName = `__geaSyncMapDelegate_${mapIdx}`
+            const delegateName = `geaSyncMapDelegate_${mapIdx}`
             const hasNonRelationalDeps = deps.some(
               (dep) => !(info.relationalClassBindings || []).find((rb) => rb.observeKey === dep.observeKey),
             )
@@ -2008,27 +2618,22 @@ export function applyStaticReactivity(
             deps.forEach((dep) => {
               const relBinding = (info.relationalClassBindings || []).find((rb) => rb.observeKey === dep.observeKey)
               if (relBinding) {
-                mergeObserveMethod(
-                  dep.observeKey,
-                  generateUnresolvedRelationalObserver(
-                    binding,
-                    info,
-                    relBinding,
-                    getObserveMethodName(dep.pathParts, dep.storeVar),
-                    getTemplatePropNames(classPath.node.body),
-                    getTemplateParamIdentifier(classPath.node.body),
-                  ),
+                const unresolvedRelResult = generateUnresolvedRelationalObserver(
+                  binding,
+                  info,
+                  relBinding,
+                  getObserveMethodName(dep.pathParts, dep.storeVar),
+                  getTemplatePropNames(classPath.node.body),
+                  getTemplateParamIdentifier(classPath.node.body),
                 )
+                mergeObserveMethod(dep.observeKey, unresolvedRelResult.method)
+                for (const f of unresolvedRelResult.privateFields) classLevelPrivateFields.add(f)
               } else if (dep.storeVar) {
                 if (!delegateEmitted) {
                   classPath.node.body.body.push(
                     appendToBody(
                       jsMethod`${id(delegateName)}() {}`,
-                      t.expressionStatement(
-                        t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('__geaSyncMap')), [
-                          t.numericLiteral(mapIdx),
-                        ]),
-                      ),
+                      t.expressionStatement(t.callExpression(thisGea('GEA_SYNC_MAP'), [t.numericLiteral(mapIdx)])),
                     ),
                   )
                   delegateEmitted = true
@@ -2040,11 +2645,7 @@ export function applyStaticReactivity(
                 })
               } else {
                 const syncBody = t.blockStatement([
-                  t.expressionStatement(
-                    t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('__geaSyncMap')), [
-                      t.numericLiteral(mapIdx),
-                    ]),
-                  ),
+                  t.expressionStatement(t.callExpression(thisGea('GEA_SYNC_MAP'), [t.numericLiteral(mapIdx)])),
                 ])
                 mergeObserveMethod(
                   dep.observeKey,
@@ -2124,6 +2725,7 @@ export function applyStaticReactivity(
               itemVariable: arrayMap.itemVariable,
               ...(arrayMap.indexVariable ? { indexVariable: arrayMap.indexVariable } : {}),
               itemIdProperty: arrayMap.itemIdProperty,
+              ...(arrayMap.keyExpression ? { keyExpression: arrayMap.keyExpression } : {}),
               containerElementPath: arrayMap.containerElementPath,
               containerBindingId: arrayMap.containerBindingId,
               computationExpr: computationExprSafe ?? computationExpr,
@@ -2152,9 +2754,11 @@ export function applyStaticReactivity(
                   usesTargetComponent: true,
                 })) as EventHandler[]
                 if (delegatedEvents.length > 0) {
-                  appendCompiledEventMethods(classPath.node.body, delegatedEvents)
+                  appendCompiledEventMethods(classPath.node.body, delegatedEvents, [], ast)
                 }
               }
+              ensureImport(ast, '@geajs/core', 'geaListItemsSymbol')
+              insertStmtBeforeClass(classPath, arrayResult.symbolConstDecl)
               inlineIntoConstructor(classPath.node.body, [
                 ...arrayResult.arrSetupStatements.map((s) => t.cloneNode(s, true) as t.Statement),
                 arrayResult.constructorInit,
@@ -2166,7 +2770,9 @@ export function applyStaticReactivity(
                   arrayPropName,
                   componentTag: arrayResult.componentTag,
                   containerBindingId: arrayResult.containerBindingId,
+                  containerUserIdExpr: arrayResult.containerUserIdExpr,
                   itemIdProperty: arrayResult.itemIdProperty,
+                  afterCondSlotIndex: arrayMap.afterCondSlotIndex,
                 })
               }
               componentArrayDisposeTargets.push(getComponentArrayItemsName(arrayPropName))
@@ -2204,12 +2810,10 @@ export function applyStaticReactivity(
               const depObserveKey = buildObserveKey(depPath, arrayMap.storeVar)
               const depMethodName = getObserveMethodName(depPath, arrayMap.storeVar)
               const refreshStmt = t.expressionStatement(
-                t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('__refreshList')), [
-                  t.stringLiteral(pathKey),
-                ]),
+                t.callExpression(thisGea('GEA_REFRESH_LIST'), [t.stringLiteral(pathKey)]),
               )
               // If observer already exists (e.g. from conditional slot), insert
-              // __refreshList BEFORE the `if (this.rendered_)` block so it isn't
+              // __refreshList BEFORE the `if (this[GEA_RENDERED])` block so it isn't
               // blocked by the conditional-patch early return.
               const existing = addedMethods.get(depObserveKey)
               if (existing && t.isBlockStatement(existing.body)) {
@@ -2217,8 +2821,9 @@ export function applyStaticReactivity(
                   (s) =>
                     t.isIfStatement(s) &&
                     t.isMemberExpression(s.test) &&
+                    s.test.computed === true &&
                     t.isIdentifier(s.test.property) &&
-                    s.test.property.name === 'rendered_',
+                    s.test.property.name === 'GEA_RENDERED',
                 )
                 if (renderedGuardIdx >= 0) {
                   existing.body.body.splice(renderedGuardIdx, 0, refreshStmt)
@@ -2278,8 +2883,8 @@ export function applyStaticReactivity(
               MemberExpression(mePath: NodePath<t.MemberExpression>) {
                 const resolved = resolvePath(mePath.node, stateRefs)
                 if (!resolved?.parts?.length || !resolved.isImportedState) return
-                // Skip internal meta-properties (e.g. __raw used to bypass proxy)
-                if (resolved.parts.some((p) => p === '__raw')) return
+                // Skip internal meta-properties (e.g. [GEA_PROXY_RAW] used to bypass proxy)
+                if (resolved.parts.some((p) => p === '__raw' || p === 'GEA_PROXY_RAW')) return
                 const depKey = buildObserveKey(resolved.parts, resolved.storeVar)
                 if (!getterDepKeys.has(depKey) && !externalDeps.has(depKey)) {
                   externalDeps.set(depKey, { parts: [...resolved.parts], storeVar: resolved.storeVar })
@@ -2291,11 +2896,7 @@ export function applyStaticReactivity(
               const depMethodName = getObserveMethodName(dep.parts, dep.storeVar)
               if (!stateProps.has(depKey)) stateProps.set(depKey, dep.parts)
               const delegateBody = t.blockStatement([
-                t.expressionStatement(
-                  t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('__refreshList')), [
-                    t.stringLiteral(pathKey),
-                  ]),
-                ),
+                t.expressionStatement(t.callExpression(thisGea('GEA_REFRESH_LIST'), [t.stringLiteral(pathKey)])),
               ])
               const delegateMethod = t.classMethod(
                 'method',
@@ -2311,7 +2912,7 @@ export function applyStaticReactivity(
           htmlArrayMaps.forEach((arrayMap) => {
             const observeKey = buildObserveKey(arrayMap.arrayPathParts, arrayMap.storeVar)
             const arrayHandlerMethodName = getObserveMethodName(arrayMap.arrayPathParts, arrayMap.storeVar)
-            const { method, needsUnwrapHelper } = generateRenderItemMethod(
+            const { method, needsUnwrapHelper, needsRawStoreCache } = generateRenderItemMethod(
               arrayMap,
               imports,
               renderEventHandlers,
@@ -2320,6 +2921,7 @@ export function applyStaticReactivity(
               tmplSetupCtx,
             )
             if (needsUnwrapHelper) needsModuleLevelUnwrapHelper = true
+            if (needsRawStoreCache) needsClassLevelRawStoreField = true
             if (method) {
               classPath.node.body.body.push(method)
               applied = true
@@ -2334,7 +2936,7 @@ export function applyStaticReactivity(
                 const currentValueExpr = arrayMap.storeVar
                   ? buildMemberChainFromParts(t.identifier(arrayMap.storeVar), arrayMap.arrayPathParts)
                   : buildMemberChainFromParts(t.thisExpression(), arrayMap.arrayPathParts)
-                const initialArrayName = `__geaInitial_${arrayHandlerMethodName}`
+                const initialArrayName = `geaInitial_${arrayHandlerMethodName}`
                 initialHtmlArrayRefreshOnMount.push(
                   t.variableDeclaration('const', [
                     t.variableDeclarator(t.identifier(initialArrayName), currentValueExpr),
@@ -2360,27 +2962,32 @@ export function applyStaticReactivity(
               }
             }
 
-            const createMethod = generateCreateItemMethod(
+            const createResult = generateCreateItemMethod(
               arrayMap,
               getTemplatePropNames(classPath.node.body),
               getTemplateParamIdentifier(classPath.node.body),
               tmplSetupCtx,
             )
-            if (createMethod) {
-              classPath.node.body.body.push(createMethod)
+            if (createResult.method) {
+              classPath.node.body.body.push(createResult.method)
             }
-            const patchMethod = generatePatchItemMethod(
+            if (createResult.needsRawStoreCache) needsClassLevelRawStoreField = true
+            for (const f of createResult.privateFields) classLevelPrivateFields.add(f)
+            const patchResult = generatePatchItemMethod(
               arrayMap,
               getTemplatePropNames(classPath.node.body),
               getTemplateParamIdentifier(classPath.node.body),
               tmplSetupCtx,
             )
-            if (patchMethod) {
-              classPath.node.body.body.push(patchMethod)
+            if (patchResult.method) {
+              classPath.node.body.body.push(patchResult.method)
             }
-            generateArrayHandlers(arrayMap, arrayHandlerMethodName).forEach((h) => {
+            for (const f of patchResult.privateFields) classLevelPrivateFields.add(f)
+            const handlersResult = generateArrayHandlers(arrayMap, arrayHandlerMethodName)
+            handlersResult.methods.forEach((h) => {
               mergeObserveMethod(observeKey, h)
             })
+            for (const f of handlersResult.privateFields) classLevelPrivateFields.add(f)
 
             // Getter-backed array maps are handled by the via-handler mechanism
             // in the addedMethods loop below — no explicit delegate needed here.
@@ -2459,10 +3066,10 @@ export function applyStaticReactivity(
           // handler — no onAfterRender/__geaRequestRender overrides needed.
 
           if (renderEventHandlers.length > 0) {
-            applied = appendCompiledEventMethods(classPath.node.body, renderEventHandlers) || applied
+            applied = appendCompiledEventMethods(classPath.node.body, renderEventHandlers, [], ast) || applied
           }
           if (unresolvedEventHandlers.length > 0) {
-            applied = appendCompiledEventMethods(classPath.node.body, unresolvedEventHandlers) || applied
+            applied = appendCompiledEventMethods(classPath.node.body, unresolvedEventHandlers, [], ast) || applied
           }
 
           if (applied) {
@@ -2471,6 +3078,8 @@ export function applyStaticReactivity(
               methodName: string
               isVia?: boolean
               rereadExpr?: t.Expression
+              dynamicKeyExpr?: t.Expression
+              passValue?: boolean
             }
             const importedStores = new Map<
               string,
@@ -2483,7 +3092,7 @@ export function applyStaticReactivity(
 
             const ensureStoreGroup = (storeVar: string) => {
               if (!importedStores.has(storeVar)) {
-                const captureExpression = t.memberExpression(t.identifier(storeVar), t.identifier('__store'))
+                const captureExpression = buildExprGeaMember(t.identifier(storeVar), 'GEA_STORE_ROOT')
                 importedStores.set(storeVar, {
                   captureExpression,
                   observeHandlers: new Map<string, ObserverEntry>(),
@@ -2500,6 +3109,7 @@ export function applyStaticReactivity(
                   const compGetterDeps = componentGetterStoreDeps.get(parts[0])
                   if (compGetterDeps && compGetterDeps.length > 0) {
                     const originalMethodName = getObserveMethodName(parts)
+                    const originalMethod = addedMethodsByName.get(originalMethodName)
                     // Inline via: register observer entries with re-read expression
                     for (const dep of compGetterDeps) {
                       const depKey = buildObserveKey(dep.pathParts, dep.storeVar) + `__getter_${parts[0]}`
@@ -2508,6 +3118,8 @@ export function applyStaticReactivity(
                         methodName: originalMethodName,
                         isVia: true,
                         rereadExpr: t.memberExpression(t.thisExpression(), t.identifier(parts[0])),
+                        passValue: originalMethod ? classMethodUsesParam(originalMethod, 0) : true,
+                        ...(dep.dynamicKeyExpr ? { dynamicKeyExpr: dep.dynamicKeyExpr } : {}),
                       })
                     }
                   }
@@ -2521,6 +3133,7 @@ export function applyStaticReactivity(
                 const getterDepPaths = storeRef?.getterDeps?.get(parts[0])
                 if (getterDepPaths && getterDepPaths.length > 0) {
                   const originalMethodName = getObserveMethodName(parts, storeVar)
+                  const originalMethod = addedMethodsByName.get(originalMethodName)
                   // Build rereadExpr for the full path: store.getter?.sub1?.sub2...
                   // Use optional chaining after the getter so that null/undefined
                   // getter results don't throw when sub-properties are accessed.
@@ -2536,6 +3149,7 @@ export function applyStaticReactivity(
                       methodName: originalMethodName,
                       isVia: true,
                       rereadExpr,
+                      passValue: originalMethod ? classMethodUsesParam(originalMethod, 0) : true,
                     })
                   }
                   return
@@ -2645,6 +3259,41 @@ export function applyStaticReactivity(
                     }
                   }
                 } else if (parts.length === 1) {
+                  // Guard-key observers themselves: when the observe key IS a
+                  // guard key (e.g. ["issue"] from `if (!issue) return`), the
+                  // observer may have merged child prop update logic
+                  // (GEA_UPDATE_PROPS) that reads nested properties on the
+                  // guarded value.  When the value becomes null, those calls
+                  // crash with TypeError.  Prepend a null guard that updates
+                  // prev, triggers rerender, and returns early.
+                  // Use storeVar.property instead of the `value` parameter
+                  // because merged observers may use different parameter names.
+                  const selfKey = buildObserveKey(parts, sv)
+                  if (guardStateKeys.has(selfKey) && t.isBlockStatement(method.body)) {
+                    const storePropExpr = t.memberExpression(t.identifier(sv), t.identifier(parts[0]))
+                    const observePrevMem = t.memberExpression(
+                      t.thisExpression(),
+                      t.callExpression(t.identifier('geaObservePrevSymbol'), [
+                        t.stringLiteral(getObserveMethodName(parts, sv)),
+                      ]),
+                      true,
+                    )
+                    const guardBlock = t.ifStatement(
+                      t.binaryExpression('==', t.cloneNode(storePropExpr), t.nullLiteral()),
+                      t.blockStatement([
+                        t.expressionStatement(t.assignmentExpression('=', observePrevMem, t.cloneNode(storePropExpr))),
+                        t.ifStatement(
+                          thisGea('GEA_RENDERED'),
+                          t.blockStatement([
+                            t.expressionStatement(t.callExpression(thisGea('GEA_REQUEST_RENDER'), [])),
+                          ]),
+                        ),
+                        t.returnStatement(),
+                      ]),
+                    )
+                    method.body.body.unshift(guardBlock)
+                  }
+
                   // Also guard single-segment paths that are dependencies of a
                   // guard-key getter.  E.g. when `activeEmail` is a guard key
                   // and its getter depends on `activeEmailId`, the handler for
@@ -2728,25 +3377,32 @@ export function applyStaticReactivity(
               }
             }
 
-            if (importedStores.size > 0 || localObserveHandlers.size > 0 || mapRegistrations.length > 0) {
+            // Ensure store groups exist for observeList configs so __observeList
+            // calls are generated even when there are no other observe handlers
+            for (const olc of observeListConfigs) {
+              ensureStoreGroup(olc.storeVar)
+            }
+
+            if (
+              importedStores.size > 0 ||
+              localObserveHandlers.size > 0 ||
+              mapRegistrations.length > 0 ||
+              observeListConfigs.length > 0
+            ) {
               const storeConfigs = Array.from(importedStores.entries()).map(([storeVar, config]) => ({
                 storeVar,
                 captureExpression: config.captureExpression,
                 observeHandlers: Array.from(config.observeHandlers.values()).map(
-                  ({ pathParts, methodName, isVia, rereadExpr }) => ({
+                  ({ pathParts, methodName, isVia, rereadExpr, dynamicKeyExpr, passValue }) => ({
                     pathParts,
                     methodName,
                     isVia,
                     rereadExpr,
+                    dynamicKeyExpr,
+                    passValue,
                   }),
                 ),
               }))
-
-              // Ensure store groups exist for observeList configs so __observeList
-              // calls are generated even when there are no other observe handlers
-              for (const olc of observeListConfigs) {
-                ensureStoreGroup(olc.storeVar)
-              }
 
               if (storeConfigs.length > 0 || mapRegistrations.length > 0 || observeListConfigs.length > 0) {
                 const createdHooksMethod = generateCreatedHooks(
@@ -2797,6 +3453,16 @@ export function applyStaticReactivity(
               }
               // Observer cleanup is handled by the parent Component.dispose(),
               // so we no longer generate a redundant ensureObserverDispose here.
+            }
+          }
+
+          if (needsClassLevelRawStoreField) classLevelPrivateFields.add('__rs')
+          for (const fieldName of classLevelPrivateFields) {
+            const alreadyHas = classPath.node.body.body.some(
+              (n) => t.isClassPrivateProperty(n) && t.isIdentifier(n.key.id) && n.key.id.name === fieldName,
+            )
+            if (!alreadyHas) {
+              classPath.node.body.body.unshift(t.classPrivateProperty(t.privateName(t.identifier(fieldName))))
             }
           }
         },
@@ -2956,19 +3622,23 @@ function generateUnresolvedRelationalObserver(
     arrayPathParts: PathParts
     containerSelector: string
     containerBindingId?: string
+    containerUserIdExpr?: t.Expression
   },
   unresolvedMap: UnresolvedMapInfo,
   relBinding: import('./ir').UnresolvedRelationalClassBinding,
   methodName: string,
   templatePropNames: Set<string>,
   wholeParamName?: string,
-): t.ClassMethod {
+): { method: t.ClassMethod; privateFields: string[] } {
   const arrayPathString = pathPartsToString(arrayMap.arrayPathParts)
   const containerName = `__${arrayPathString.replace(/\./g, '_')}_container`
   const containerRef = t.memberExpression(t.thisExpression(), t.identifier(containerName))
 
-  const containerLookup =
-    arrayMap.containerBindingId !== undefined
+  const containerLookup = arrayMap.containerUserIdExpr
+    ? t.callExpression(t.memberExpression(t.identifier('document'), t.identifier('getElementById')), [
+        t.cloneNode(arrayMap.containerUserIdExpr, true) as t.Expression,
+      ])
+    : arrayMap.containerBindingId !== undefined
       ? t.callExpression(t.memberExpression(t.identifier('document'), t.identifier('getElementById')), [
           t.binaryExpression(
             '+',
@@ -3000,35 +3670,85 @@ function generateUnresolvedRelationalObserver(
       )
     : t.memberExpression(t.identifier('__arr'), t.identifier('__i'), true)
 
-  const method = jsMethod`${id(methodName)}(value, change) {}`
-  return appendToBody(
-    method,
-    js`if (!this.rendered_) return;`,
+  const classNameLiteral = t.stringLiteral(relBinding.classToggleName)
+
+  const arrDecl = t.variableDeclaration('var', [
+    t.variableDeclarator(
+      t.identifier('__arr'),
+      t.conditionalExpression(
+        t.callExpression(t.memberExpression(t.identifier('Array'), t.identifier('isArray')), [arrExpr]),
+        t.cloneNode(arrExpr, true),
+        t.arrayExpression([]),
+      ),
+    ),
+  ])
+
+  const commonPreamble: t.Statement[] = [
+    t.ifStatement(t.unaryExpression('!', thisGea('GEA_RENDERED')), t.blockStatement([t.returnStatement()])),
     lazyInit(containerName, containerLookup),
     ...jsBlockBody`if (!${containerRef}) return;`,
     ...setupStatements,
-    t.variableDeclaration('var', [
-      t.variableDeclarator(
-        t.identifier('__arr'),
-        t.conditionalExpression(
-          t.callExpression(t.memberExpression(t.identifier('Array'), t.identifier('isArray')), [arrExpr]),
-          t.cloneNode(arrExpr, true),
-          t.arrayExpression([]),
+    arrDecl,
+  ]
+
+  if (relBinding.matchWhenEqual) {
+    const cacheFieldName = methodName.replace('__observe_', '__prel_')
+    const cacheRef = t.memberExpression(t.thisExpression(), t.privateName(t.identifier(cacheFieldName)))
+
+    const method = jsMethod`${id(methodName)}(value, change) {}`
+    return {
+      method: appendToBody(
+        method,
+        ...commonPreamble,
+        t.ifStatement(
+          t.cloneNode(cacheRef, true),
+          t.blockStatement([
+            t.expressionStatement(
+              t.callExpression(
+                t.memberExpression(
+                  t.memberExpression(t.cloneNode(cacheRef, true), t.identifier('classList')),
+                  t.identifier('remove'),
+                ),
+                [t.cloneNode(classNameLiteral, true)],
+              ),
+            ),
+            t.expressionStatement(t.assignmentExpression('=', t.cloneNode(cacheRef, true), t.nullLiteral())),
+          ]),
         ),
+        ...jsBlockBody`
+          var __items = ${containerRef}.querySelectorAll('[data-gea-item-id]');
+          for (var __i = 0; __i < __items.length && __i < __arr.length; __i++) {
+            if (${itemComparison} === value) {
+              __items[__i].classList.add(${classNameLiteral});
+              ${cacheRef} = __items[__i];
+              break;
+            }
+          }
+        `,
       ),
-    ]),
-    ...jsBlockBody`
-      var __items = ${containerRef}.querySelectorAll('[data-gea-item-id]');
-      for (var __i = 0; __i < __items.length && __i < __arr.length; __i++) {
-        var __child = __items[__i];
-        if (${itemComparison} === value) {
-          __child.classList.${id(relBinding.matchWhenEqual ? 'add' : 'remove')}(${t.stringLiteral(relBinding.classToggleName)});
-        } else {
-          __child.classList.${id(relBinding.matchWhenEqual ? 'remove' : 'add')}(${t.stringLiteral(relBinding.classToggleName)});
+      privateFields: [cacheFieldName],
+    }
+  }
+
+  const method = jsMethod`${id(methodName)}(value, change) {}`
+  return {
+    method: appendToBody(
+      method,
+      ...commonPreamble,
+      ...jsBlockBody`
+        var __items = ${containerRef}.querySelectorAll('[data-gea-item-id]');
+        for (var __i = 0; __i < __items.length && __i < __arr.length; __i++) {
+          var __child = __items[__i];
+          if (${itemComparison} === value) {
+            __child.classList.${id('remove')}(${t.stringLiteral(relBinding.classToggleName)});
+          } else {
+            __child.classList.${id('add')}(${t.stringLiteral(relBinding.classToggleName)});
+          }
         }
-      }
-    `,
-  )
+      `,
+    ),
+    privateFields: [],
+  }
 }
 
 function getMapIndex(arrayPathParts: PathParts): number {
@@ -3042,6 +3762,7 @@ function generateMapRegistration(
     arrayPathParts: PathParts
     containerSelector: string
     containerBindingId?: string
+    containerUserIdExpr?: t.Expression
     itemIdProperty?: string
   },
   unresolvedMap: UnresolvedMapInfo,
@@ -3055,8 +3776,11 @@ function generateMapRegistration(
   const createMethodName = `create${capName}Item`
   const mapIdx = getMapIndex(arrayMap.arrayPathParts)
 
-  const containerLookup =
-    arrayMap.containerBindingId !== undefined
+  const containerLookup = arrayMap.containerUserIdExpr
+    ? t.callExpression(t.memberExpression(t.identifier('document'), t.identifier('getElementById')), [
+        t.cloneNode(arrayMap.containerUserIdExpr, true) as t.Expression,
+      ])
+    : arrayMap.containerBindingId !== undefined
       ? t.callExpression(t.memberExpression(t.identifier('document'), t.identifier('getElementById')), [
           t.binaryExpression(
             '+',
@@ -3095,13 +3819,26 @@ function generateMapRegistration(
     ),
   ]
 
-  if (arrayMap.itemIdProperty && arrayMap.itemIdProperty !== ITEM_IS_KEY) {
+  if (unresolvedMap.keyExpression) {
+    // Complex key expression (e.g. template literal) — pass a key function
+    const keyExpr = t.cloneNode(unresolvedMap.keyExpression, true)
+    // Rewrite item variable (and index variable if present) for the key function parameters
+    const itemVar = unresolvedMap.itemVariable
+    const idxVar = unresolvedMap.indexVariable
+    traverse(t.program([t.expressionStatement(keyExpr)]), {
+      noScope: true,
+      Identifier(path: NodePath<t.Identifier>) {
+        if (path.node.name === itemVar) path.node.name = '__k'
+        else if (idxVar && path.node.name === idxVar) path.node.name = '__ki'
+      },
+    })
+    const keyFnParams = idxVar ? [t.identifier('__k'), t.identifier('__ki')] : [t.identifier('__k')]
+    registerArgs.push(t.arrowFunctionExpression(keyFnParams, t.callExpression(t.identifier('String'), [keyExpr])))
+  } else if (arrayMap.itemIdProperty && arrayMap.itemIdProperty !== ITEM_IS_KEY) {
     registerArgs.push(t.stringLiteral(arrayMap.itemIdProperty))
   }
 
-  return t.expressionStatement(
-    t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('__geaRegisterMap')), registerArgs),
-  )
+  return t.expressionStatement(t.callExpression(thisGea('GEA_REGISTER_MAP'), registerArgs))
 }
 
 function collectFreeIdentifiers(nodes: t.Node[]): Set<string> {
@@ -3229,7 +3966,10 @@ function replaceMapWithComponentArrayItems(
       const replacement = opts?.slotBranch
         ? t.stringLiteral('')
         : t.callExpression(
-            t.memberExpression(t.memberExpression(t.thisExpression(), t.identifier(itemsName)), t.identifier('join')),
+            t.memberExpression(
+              t.memberExpression(t.thisExpression(), t.identifier(itemsName), true),
+              t.identifier('join'),
+            ),
             [t.stringLiteral('')],
           )
       toReplace.replaceWith(replacement)
@@ -3265,6 +4005,9 @@ function replaceMapWithComponentArrayItemsInConditionalSlots(
   }
 }
 
+/** Tracks splice offset after `super()` for repeated inlineIntoConstructor on the same ctor. */
+const ctorInlineInsertOffset = new WeakMap<t.ClassMethod, number>()
+
 function inlineIntoConstructor(classBody: t.ClassBody, statements: t.Statement[]): void {
   let ctor = classBody.body.find(
     (member) => t.isClassMethod(member) && t.isIdentifier(member.key) && member.key.name === 'constructor',
@@ -3277,15 +4020,44 @@ function inlineIntoConstructor(classBody: t.ClassBody, statements: t.Statement[]
       ...statements,
     )
     classBody.body.unshift(ctor)
+    ctorInlineInsertOffset.set(ctor, statements.length)
     return
   }
 
-  ctor.body.body.push(...statements)
+  const body = ctor.body.body
+  const superIdx = body.findIndex(
+    (stmt) => t.isExpressionStatement(stmt) && t.isCallExpression(stmt.expression) && t.isSuper(stmt.expression.callee),
+  )
+  const base = superIdx >= 0 ? superIdx + 1 : 0
+  const prev = ctorInlineInsertOffset.get(ctor) ?? 0
+  const insertAt = base + prev
+  body.splice(insertAt, 0, ...statements)
+  ctorInlineInsertOffset.set(ctor, prev + statements.length)
 }
 
 function ensureDisposeCalls(classBody: t.ClassBody, targets: string[]): void {
-  const disposeStatements = targets.map(
-    (target) => js`this.${id(target)}?.forEach?.(item => item?.dispose?.());` as t.ExpressionStatement,
+  const disposeStatements = targets.map((target) =>
+    t.expressionStatement(
+      t.optionalCallExpression(
+        t.optionalMemberExpression(
+          t.memberExpression(t.thisExpression(), t.identifier(target), true),
+          t.identifier('forEach'),
+          false,
+          true,
+        ),
+        [
+          t.arrowFunctionExpression(
+            [t.identifier('item')],
+            t.optionalCallExpression(
+              t.optionalMemberExpression(t.identifier('item'), t.identifier('dispose'), false, true),
+              [],
+              true,
+            ),
+          ),
+        ],
+        true,
+      ),
+    ),
   )
 
   const existingDispose = classBody.body.find(
@@ -3310,9 +4082,10 @@ function ensureOnPropChangeMethod(
   conditionalSlots: import('./ir').ConditionalSlot[] = [],
   unresolvedMapPropRefreshDeps: Array<{ mapIdx: number; propNames: string[] }> = [],
 ): void {
-  const existing = classBody.body.find(
-    (member) => t.isClassMethod(member) && t.isIdentifier(member.key) && member.key.name === '__onPropChange',
-  ) as t.ClassMethod | undefined
+  const existing = classBody.body.find((member) => {
+    if (!t.isClassMethod(member) || !t.isIdentifier(member.key)) return false
+    return member.computed && member.key.name === 'GEA_ON_PROP_CHANGE'
+  }) as t.ClassMethod | undefined
   if (existing) return
 
   const directForwardCalls: t.Statement[] = []
@@ -3332,9 +4105,9 @@ function ensureOnPropChangeMethod(
             guard,
             t.expressionStatement(
               t.callExpression(
-                t.memberExpression(
+                buildExprGeaMember(
                   t.memberExpression(t.thisExpression(), t.identifier(child.instanceVar)),
-                  t.identifier('__geaUpdateProps'),
+                  'GEA_UPDATE_PROPS',
                 ),
                 [t.objectExpression([t.objectProperty(t.identifier('key'), t.identifier('value'), true)])],
               ),
@@ -3348,9 +4121,9 @@ function ensureOnPropChangeMethod(
               t.binaryExpression('===', t.identifier('key'), t.stringLiteral(m.parentPropName)),
               t.expressionStatement(
                 t.callExpression(
-                  t.memberExpression(
+                  buildExprGeaMember(
                     t.memberExpression(t.thisExpression(), t.identifier(child.instanceVar)),
-                    t.identifier('__geaUpdateProps'),
+                    'GEA_UPDATE_PROPS',
                   ),
                   [t.objectExpression([t.objectProperty(t.identifier(m.childPropName), t.identifier('value'))])],
                 ),
@@ -3387,10 +4160,7 @@ function ensureOnPropChangeMethod(
   const childRefreshCalls: t.Statement[] = childRefreshEntries.map(({ child, depProps }) => {
     const call = t.expressionStatement(
       t.callExpression(
-        t.memberExpression(
-          t.memberExpression(t.thisExpression(), t.identifier(child.instanceVar)),
-          t.identifier('__geaUpdateProps'),
-        ),
+        buildExprGeaMember(t.memberExpression(t.thisExpression(), t.identifier(child.instanceVar)), 'GEA_UPDATE_PROPS'),
         [
           t.callExpression(
             t.memberExpression(t.thisExpression(), t.identifier(`__buildProps_${child.instanceVar.replace(/^_/, '')}`)),
@@ -3428,9 +4198,7 @@ function ensureOnPropChangeMethod(
   if (conditionalSlots.length > 0) {
     for (let i = 0; i < conditionalSlots.length; i++) {
       const slot = conditionalSlots[i]
-      const call = t.expressionStatement(
-        t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('__geaPatchCond')), [t.numericLiteral(i)]),
-      )
+      const call = t.expressionStatement(t.callExpression(thisGea('GEA_PATCH_COND'), [t.numericLiteral(i)]))
       if (slot.dependentPropNames.length > 0) {
         const guard = slot.dependentPropNames.reduce<t.Expression>((acc, prop) => {
           const test = t.binaryExpression('===', t.identifier('key'), t.stringLiteral(prop))
@@ -3451,11 +4219,7 @@ function ensureOnPropChangeMethod(
   )
 
   const unresolvedMapRefreshCalls: t.Statement[] = unresolvedMapPropRefreshDeps.map((dep) => {
-    const call = t.expressionStatement(
-      t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('__geaSyncMap')), [
-        t.numericLiteral(dep.mapIdx),
-      ]),
-    )
+    const call = t.expressionStatement(t.callExpression(thisGea('GEA_SYNC_MAP'), [t.numericLiteral(dep.mapIdx)]))
     if (dep.propNames.length > 0) {
       const guard = dep.propNames.reduce<t.Expression>((acc, prop) => {
         const test = t.binaryExpression('===', t.identifier('key'), t.stringLiteral(prop))
@@ -3478,7 +4242,18 @@ function ensureOnPropChangeMethod(
 
   const merged = mergeKeyGuards(allKeyGuarded)
 
-  classBody.body.push(appendToBody(jsMethod`${id('__onPropChange')}(key, value) {}`, ...merged))
+  classBody.body.push(
+    appendToBody(
+      t.classMethod(
+        'method',
+        t.identifier('GEA_ON_PROP_CHANGE'),
+        [t.identifier('key'), t.identifier('value')],
+        t.blockStatement([]),
+        true,
+      ),
+      ...merged,
+    ),
+  )
 }
 
 function serializeKeyGuard(test: t.Expression): string | null {
@@ -3674,7 +4449,11 @@ function generateConditionalPatchMethods(
       t.expressionStatement(
         t.assignmentExpression(
           '=',
-          t.memberExpression(t.thisExpression(), t.identifier(`__geaCond_${i}`)),
+          t.memberExpression(
+            t.thisExpression(),
+            t.callExpression(t.identifier('geaCondValueSymbol'), [t.numericLiteral(i)]),
+            true,
+          ),
           t.unaryExpression('!', t.unaryExpression('!', rewrittenCondExprsSafe[i])),
         ),
       ),
@@ -3718,7 +4497,7 @@ function generateConditionalPatchMethods(
 
     registerCondCalls.push(
       t.expressionStatement(
-        t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('__geaRegisterCond')), [
+        t.callExpression(thisGea('GEA_REGISTER_COND'), [
           t.numericLiteral(i),
           t.stringLiteral(slot.slotId),
           t.arrowFunctionExpression([], t.blockStatement(getCondBody)),
@@ -3756,6 +4535,52 @@ function getTemplateParamIdentifier(classBody: t.ClassBody): string | undefined 
   )
   const binding = templateMethod ? getTemplateParamBinding(templateMethod.params[0]) : undefined
   return t.isIdentifier(binding) ? binding.name : undefined
+}
+
+/** True if expression is a call to a property whose value is an arrow function
+ *  containing JSX in the class body (render prop pattern). */
+function expressionCallsJSXReturningClassProp(expr: t.Expression, classBody: t.ClassBody): boolean {
+  if (!t.isCallExpression(expr)) return false
+  let propName: string | undefined
+  if (t.isMemberExpression(expr.callee) && t.isIdentifier(expr.callee.property) && !expr.callee.computed) {
+    propName = expr.callee.property.name
+  }
+  if (!propName) return false
+  const scanValue = (node: t.Node): boolean => {
+    if (t.isObjectExpression(node)) {
+      for (const prop of node.properties) {
+        if (
+          t.isObjectProperty(prop) &&
+          t.isIdentifier(prop.key) &&
+          prop.key.name === propName &&
+          (t.isArrowFunctionExpression(prop.value) || t.isFunctionExpression(prop.value))
+        ) {
+          let found = false
+          const check = (n: t.Node): void => {
+            if (found) return
+            if (t.isJSXElement(n) || t.isJSXFragment(n)) {
+              found = true
+              return
+            }
+            for (const key of t.VISITOR_KEYS[n.type] || []) {
+              const child = (n as any)[key]
+              if (Array.isArray(child)) child.forEach((c: any) => c && typeof c === 'object' && 'type' in c && check(c))
+              else if (child && typeof child === 'object' && 'type' in child) check(child)
+              if (found) return
+            }
+          }
+          check(prop.value)
+          return found
+        }
+      }
+    }
+    if (t.isArrayExpression(node)) return node.elements.some((el) => el != null && scanValue(el))
+    return false
+  }
+  for (const member of classBody.body) {
+    if (t.isClassProperty(member) && member.value && scanValue(member.value)) return true
+  }
+  return false
 }
 
 /** Collect template prop names referenced in an array item template (for __onPropChange handledPropNames). */
@@ -3802,13 +4627,16 @@ function findRootTemplateLiteral(node: t.Expression | t.BlockStatement): t.Templ
   return null
 }
 
-/** Inject data-gea-event and data-gea-item-id into template inline .map() items
- *  so event delegation works from the very first render without a rebuild. */
+/** Inject data-gea-event into template inline .map() roots.
+ *  data-gea-item-id is no longer a DOM attribute; it's set as [GEA_DOM_KEY] in createDataItem.
+ *  Never inject data-gea-event on Gea component tags (e.g. <sheet-cell>): handlers live on the
+ *  child's root (#id). Injecting a token on the placeholder desynced from the `events` map. */
 function injectMapItemAttrsIntoTemplate(
   templateMethod: t.ClassMethod,
   mapInfos: Array<{
     itemVariable: string
     itemIdProperty?: string
+    keyExpression?: t.Expression
     containerBindingId?: string
     eventToken?: string
   }>,
@@ -3837,16 +4665,12 @@ function injectMapItemAttrsIntoTemplate(
       const rootTL = findRootTemplateLiteral(t.isBlockStatement(fn.body) ? fn.body : fn.body)
       if (!rootTL) return
 
-      // Strip any existing data-gea-item-id from the template literal (the JSX
-      // transform may have added one with a different item-id expression).
-      // Pattern in quasis: `... data-gea-item-id="` ${expr} `"...`
+      // Strip any leftover data-gea-item-id from the template literal (defensive)
       for (let qi = 0; qi < rootTL.quasis.length; qi++) {
         const raw = rootTL.quasis[qi].value.raw
         const attrIdx = raw.indexOf(' data-gea-item-id="')
         if (attrIdx === -1) continue
-        // Strip the attribute suffix from this quasi
         const before = raw.substring(0, attrIdx)
-        // The next quasi starts with `"` — strip that prefix
         const nextRaw = rootTL.quasis[qi + 1]?.value.raw
         if (nextRaw !== undefined && nextRaw.startsWith('"')) {
           const after = nextRaw.substring(1)
@@ -3865,16 +4689,19 @@ function injectMapItemAttrsIntoTemplate(
       if (!tagMatch) return
       const tagPart = tagMatch[1]
       const remainder = first.substring(tagPart.length)
+      const tagName = tagPart.slice(1).toLowerCase()
+      const isIntrinsicRoot = !tagName.includes('-')
+      const eventAttr = info.eventToken && isIntrinsicRoot ? ` data-gea-event="${info.eventToken}"` : ''
 
-      const itemIdExpr =
-        info.itemIdProperty && info.itemIdProperty !== ITEM_IS_KEY
+      const itemIdExpr = info.keyExpression
+        ? t.callExpression(t.identifier('String'), [t.cloneNode(info.keyExpression, true)])
+        : info.itemIdProperty && info.itemIdProperty !== ITEM_IS_KEY
           ? t.logicalExpression(
               '??',
               buildOptionalMemberChain(t.identifier(info.itemVariable), info.itemIdProperty),
               t.identifier(info.itemVariable),
             )
           : t.callExpression(t.identifier('String'), [t.identifier(info.itemVariable)])
-      const eventAttr = info.eventToken ? ` data-gea-event="${info.eventToken}"` : ''
 
       {
         rootTL.quasis = [
@@ -3913,6 +4740,9 @@ function addJoinToUnresolvedMapCalls(templateMethod: t.ClassMethod, _unresolvedM
 
       if (alreadyHasJoin) {
         const joinCall = path.parentPath!.parentPath as NodePath<t.CallExpression>
+        // Skip style object serialization: .join("; ") is CSS, not child HTML
+        const joinArg = joinCall.node.arguments[0]
+        if (t.isStringLiteral(joinArg) && joinArg.value !== '') return
         const replacement = t.binaryExpression('+', t.cloneNode(joinCall.node, true), t.stringLiteral('<!---->'))
         joinCall.replaceWith(replacement)
         joinCall.skip()
@@ -4106,42 +4936,51 @@ function generateStoreInlinePatchObserver(
   patchStatements: t.Statement[],
 ): t.ClassMethod {
   const method = jsMethod`${id(getObserveMethodName(pathParts, storeVar))}(value, change) {}`
-  method.body.body.push(
-    t.ifStatement(t.memberExpression(t.thisExpression(), t.identifier('rendered_')), t.blockStatement(patchStatements)),
-  )
+  method.body.body.push(t.ifStatement(thisGea('GEA_RENDERED'), t.blockStatement(patchStatements)))
   return method
 }
 
 function generateRerenderObserver(pathParts: PathParts, storeVar?: string, truthinessOnly?: boolean): t.ClassMethod {
   const method = jsMethod`${id(getObserveMethodName(pathParts, storeVar))}(value, change) {}`
   if (storeVar) {
-    const prevProp = `__geaPrev_${getObserveMethodName(pathParts, storeVar)}`
+    const observePrevMem = t.memberExpression(
+      t.thisExpression(),
+      t.callExpression(t.identifier('geaObservePrevSymbol'), [
+        t.stringLiteral(getObserveMethodName(pathParts, storeVar)),
+      ]),
+      true,
+    )
     if (truthinessOnly) {
       // For early-return guard keys, only re-render when truthiness flips (null<->non-null).
       // Reference equality fails for computed getters that return new proxy wrappers.
+      // Do not treat undefined prev as falsy: !undefined and !false are both true, which would
+      // skip the first meaningful notification (e.g. isLoading true→false without a prior emit).
       method.body.body.push(
-        ...jsBlockBody`
-          if (!value === !this.${id(prevProp)}) return;
-          this.${id(prevProp)} = value;
-        `,
+        t.ifStatement(
+          t.logicalExpression(
+            '&&',
+            t.binaryExpression('!==', observePrevMem, t.identifier('undefined')),
+            t.binaryExpression(
+              '===',
+              t.unaryExpression('!', t.identifier('value')),
+              t.unaryExpression('!', observePrevMem),
+            ),
+          ),
+          t.returnStatement(),
+        ),
+        t.expressionStatement(t.assignmentExpression('=', observePrevMem, t.identifier('value'))),
       )
     } else {
       method.body.body.push(
-        ...jsBlockBody`
-          if (value === this.${id(prevProp)}) return;
-          this.${id(prevProp)} = value;
-        `,
+        t.ifStatement(t.binaryExpression('===', t.identifier('value'), observePrevMem), t.returnStatement()),
+        t.expressionStatement(t.assignmentExpression('=', observePrevMem, t.identifier('value'))),
       )
     }
   }
   method.body.body.push(
     t.ifStatement(
-      t.memberExpression(t.thisExpression(), t.identifier('rendered_')),
-      t.blockStatement([
-        t.expressionStatement(
-          t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('__geaRequestRender')), []),
-        ),
-      ]),
+      thisGea('GEA_RENDERED'),
+      t.blockStatement([t.expressionStatement(t.callExpression(thisGea('GEA_REQUEST_RENDER'), []))]),
     ),
   )
   return method
@@ -4155,32 +4994,55 @@ function generateConditionalSlotObserveMethod(
 ): t.ClassMethod {
   const method = jsMethod`${id(getObserveMethodName(pathParts, storeVar))}(value, change) {}`
 
+  const anyPatchedExpr = slotIndices
+    .map(
+      (i) =>
+        t.memberExpression(
+          t.thisExpression(),
+          t.callExpression(t.identifier('geaCondPatchedSymbol'), [t.numericLiteral(i)]),
+          true,
+        ) as t.Expression,
+    )
+    .reduce((acc, expr) => t.logicalExpression('||', acc, expr))
+
   const patchStatements: t.Statement[] = []
+  if (slotIndices.length === 1) {
+    patchStatements.push(t.ifStatement(anyPatchedExpr, t.returnStatement()))
+  }
   slotIndices.forEach((slotIndex) => {
+    const patchedMem = t.memberExpression(
+      t.thisExpression(),
+      t.callExpression(t.identifier('geaCondPatchedSymbol'), [t.numericLiteral(slotIndex)]),
+      true,
+    )
     patchStatements.push(
       t.expressionStatement(
         t.assignmentExpression(
           '=',
-          t.memberExpression(t.thisExpression(), t.identifier(`__geaCondPatched_${slotIndex}`)),
-          t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('__geaPatchCond')), [
-            t.numericLiteral(slotIndex),
-          ]),
+          patchedMem,
+          t.callExpression(thisGea('GEA_PATCH_COND'), [t.numericLiteral(slotIndex)]),
         ),
+      ),
+    )
+    patchStatements.push(
+      t.ifStatement(
+        patchedMem,
+        t.blockStatement([
+          t.expressionStatement(
+            t.callExpression(t.identifier('queueMicrotask'), [
+              t.arrowFunctionExpression([], t.assignmentExpression('=', patchedMem, t.booleanLiteral(false))),
+            ]),
+          ),
+        ]),
       ),
     )
   })
 
   if (emitEarlyReturn) {
-    const anyPatchedExpr = slotIndices
-      .map((i) => t.memberExpression(t.thisExpression(), t.identifier(`__geaCondPatched_${i}`)) as t.Expression)
-      .reduce((acc, expr) => t.logicalExpression('||', acc, expr))
-
     patchStatements.push(t.ifStatement(anyPatchedExpr, t.returnStatement()))
   }
 
-  method.body.body.push(
-    t.ifStatement(t.memberExpression(t.thisExpression(), t.identifier('rendered_')), t.blockStatement(patchStatements)),
-  )
+  method.body.body.push(t.ifStatement(thisGea('GEA_RENDERED'), t.blockStatement(patchStatements)))
 
   return method
 }
@@ -4189,12 +5051,8 @@ function generateStateChildSwapObserver(pathParts: PathParts, storeVar: string |
   const method = jsMethod`${id(getObserveMethodName(pathParts, storeVar))}(value, change) {}`
   method.body.body.push(
     t.ifStatement(
-      t.memberExpression(t.thisExpression(), t.identifier('rendered_')),
-      t.blockStatement([
-        t.expressionStatement(
-          t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('__geaSwapStateChildren')), []),
-        ),
-      ]),
+      thisGea('GEA_RENDERED'),
+      t.blockStatement([t.expressionStatement(t.callExpression(thisGea('GEA_SWAP_STATE_CHILDREN'), []))]),
     ),
   )
   return method
@@ -4205,7 +5063,11 @@ function generateStateChildSwapMethod(
   stateChildSlots: import('./transform-jsx').StateChildSlot[],
 ): void {
   const existing = classBody.body.find(
-    (member) => t.isClassMethod(member) && t.isIdentifier(member.key) && member.key.name === '__geaSwapStateChildren',
+    (member) =>
+      t.isClassMethod(member) &&
+      member.computed &&
+      t.isIdentifier(member.key) &&
+      member.key.name === 'GEA_SWAP_STATE_CHILDREN',
   )
   if (existing) return
 
@@ -4234,9 +5096,9 @@ function generateStateChildSwapMethod(
       if (!hasBuildProps) return null!
       return t.expressionStatement(
         t.callExpression(
-          t.memberExpression(
+          buildExprGeaMember(
             t.memberExpression(t.thisExpression(), t.identifier(slot.childInstanceVar)),
-            t.identifier('__geaUpdateProps'),
+            'GEA_UPDATE_PROPS',
           ),
           [t.callExpression(t.memberExpression(t.thisExpression(), t.identifier(buildPropsName)), [])],
         ),
@@ -4247,7 +5109,7 @@ function generateStateChildSwapMethod(
   const swapCalls = stateChildSlots.map((slot) => {
     const guardClone = t.cloneNode(slot.guardExpr, true)
     return t.expressionStatement(
-      t.callExpression(t.memberExpression(t.thisExpression(), t.identifier('__geaSwapChild')), [
+      t.callExpression(thisGea('GEA_SWAP_CHILD'), [
         t.stringLiteral(slot.markerId),
         t.logicalExpression(
           '&&',
@@ -4262,9 +5124,10 @@ function generateStateChildSwapMethod(
 
   const method = t.classMethod(
     'method',
-    t.identifier('__geaSwapStateChildren'),
+    t.identifier('GEA_SWAP_STATE_CHILDREN'),
     [],
     t.blockStatement([...filteredSetup, ...propsUpdateCalls, ...swapCalls]),
+    true,
   )
   classBody.body.push(method)
 }

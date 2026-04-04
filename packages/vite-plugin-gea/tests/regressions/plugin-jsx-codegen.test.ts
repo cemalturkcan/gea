@@ -74,8 +74,8 @@ test('transform recognizes aliased named component imports', () => {
     }
   `)
 
-  assert.match(output, /this\._fancyCounter = this\.__child\(FancyCounter/)
-  assert.match(output, /this\._fancyCounter2 = this\.__child\(FancyCounter/)
+  assert.match(output, /this\._fancyCounter = this\[GEA_CHILD\]\(FancyCounter/)
+  assert.match(output, /this\._fancyCounter2 = this\[GEA_CHILD\]\(FancyCounter/)
 })
 
 test('prop patch methods use getElementById for element lookup', () => {
@@ -129,7 +129,9 @@ test('generated selectors distinguish repeated sibling bindings', () => {
   const bindingIds = Array.from(output.matchAll(/getElementById\([^+]*\+\s*["']-([^"']+)["']\)/g)).map(
     (match) => match[1],
   )
-  const updateTextIds = Array.from(output.matchAll(/this\.__updateText\('([^']+)'/g)).map((match) => match[1])
+  const updateTextIds = Array.from(output.matchAll(/this\[GEA_UPDATE_TEXT\]\(['"]([^'"]+)['"]/g)).map(
+    (match) => match[1],
+  )
   assert.equal(new Set(selectors).size >= 2 || new Set(bindingIds).size >= 2 || new Set(updateTextIds).size >= 2, true)
 })
 
@@ -360,6 +362,48 @@ test('static text with single quotes is escaped as &#39;', () => {
     }
   `)
   assert.match(output, /it&#39;s a test/, 'Single quote should be escaped to &#39;')
+})
+
+// ---------------------------------------------------------------------------
+// Render prop / dynamic content function calls
+// ---------------------------------------------------------------------------
+
+test('render prop call result must not be escaped with geaEscapeHtml', () => {
+  const output = transformComponentSource(`
+    import { Component } from '@geajs/core'
+    import SummaryContent from './SummaryContent'
+
+    export default class Main extends Component {
+      activeTabIndex = 0
+      tabs = [
+        { index: 0, title: "Summary", content: () => <SummaryContent /> },
+      ]
+
+      template() {
+        const activeTab = this.tabs[this.activeTabIndex]
+        return (
+          <div class="main">
+            <div class="tab-content">
+              {activeTab.content()}
+            </div>
+          </div>
+        )
+      }
+    }
+  `)
+
+  // A call that returns JSX/component HTML must not be escaped
+  assert.ok(
+    !output.includes('geaEscapeHtml(String(activeTab.content()))'),
+    'render prop call returning JSX must not be wrapped with geaEscapeHtml, got: ' +
+      output.match(/geaEscapeHtml[^)]*\)/)?.[0],
+  )
+
+  // Observer must use innerHTML (not textContent) for render prop updates
+  assert.ok(
+    !output.includes('.textContent') || output.includes('.innerHTML'),
+    'observer for render prop must use innerHTML, not textContent',
+  )
 })
 
 // ---------------------------------------------------------------------------

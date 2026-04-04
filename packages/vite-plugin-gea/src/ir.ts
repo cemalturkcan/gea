@@ -8,6 +8,8 @@ export interface ReactiveBinding {
   selector: string
   /** Unique id suffix for getElementById (this.id + '-' + bindingId). Empty for root. */
   bindingId?: string
+  /** When set, the user provided an explicit `id` attribute — use this for getElementById lookups instead of the framework-generated ID. */
+  userIdExpr?: t.Expression
   attributeName?: string
   elementPath: string[]
   isImportedState?: boolean
@@ -46,6 +48,8 @@ export interface EventHandler {
   mapContext?: {
     arrayPathParts: PathParts
     itemIdProperty: string
+    /** When the map uses a non-trivial `key` (e.g. template literal), use this for DOM↔item lookup. */
+    keyExpression?: t.Expression
     itemVariable: string
     indexVariable?: string
     isImportedState: boolean
@@ -91,12 +95,17 @@ export interface ArrayMapBinding {
   /** Path for id injection; when set, containerBindingId is assigned and getElementById is used */
   containerElementPath?: string[]
   containerBindingId?: string
+  containerUserIdExpr?: t.Expression
   itemTemplate?: t.JSXElement | t.JSXFragment
   isImportedState?: boolean
   isKeyed?: boolean
   itemIdProperty?: string
+  /** Full key expression AST when key is not a simple item.prop (e.g. template literals, concatenation) */
+  keyExpression?: t.Expression
   classToggleName?: string
   conditionalBindings?: ConditionalMapBinding[]
+  /** Index of the first conditional slot that follows this map in JSX source order. */
+  afterCondSlotIndex?: number
 }
 
 export interface ChildComponent {
@@ -124,6 +133,8 @@ export interface PropBinding {
   /** Path for id injection; when set, bindingId is assigned and getElementById is used */
   elementPath?: string[]
   bindingId?: string
+  /** When set, the user provided an explicit `id` attribute — use this for getElementById lookups instead of the framework-generated ID. */
+  userIdExpr?: t.Expression
   /** When true, the binding depends solely on local/imported state, not on props */
   stateOnly?: boolean
 }
@@ -134,6 +145,8 @@ export interface ConditionalSlot {
   setupStatements: t.Statement[]
   /** Setup statements needed by the truthy/falsy HTML expressions (may include extra vars) */
   htmlSetupStatements?: t.Statement[]
+  /** When true, branch JSX contains a compiled child (PascalCase tag). Content-only deps must not trigger GEA_PATCH_COND. */
+  hasCompiledChildren?: boolean
   dependentPropNames: string[]
   dependencies: ObserveDependency[]
   /** The original JSX expression from the template (the full conditional expression) */
@@ -158,6 +171,8 @@ export interface UnresolvedMapInfo {
   itemVariable: string
   indexVariable?: string
   itemIdProperty?: string
+  /** Full key expression AST when key is not a simple item.prop (e.g. template literals, concatenation) */
+  keyExpression?: t.Expression
   computationExpr?: t.Expression
   /** Expression that appears as the map's object in the template (for replacement matching). When computationExpr is inlined from const x = y, this stays as identifier x. */
   mapObjectExpr?: t.Expression
@@ -165,9 +180,14 @@ export interface UnresolvedMapInfo {
   /** Path for id injection; when set, containerBindingId is assigned and getElementById is used */
   containerElementPath?: string[]
   containerBindingId?: string
+  containerUserIdExpr?: t.Expression
   dependencies?: ObserveDependency[]
   /** Statements from the map callback body that precede the JSX return (e.g. variable lookups, early-return guards) */
   callbackBodyStatements?: t.Statement[]
   /** Per-item class toggles that can be patched surgically without full list rebuild */
   relationalClassBindings?: UnresolvedRelationalClassBinding[]
+  /** Index of the first conditional slot that follows this map in JSX source order.
+   *  The runtime uses this to insert list items before `<!--{id}-c{N}-->` instead of
+   *  blindly using the first conditional marker (which may precede the map). */
+  afterCondSlotIndex?: number
 }

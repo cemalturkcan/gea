@@ -1,11 +1,22 @@
 import Component from '../base/component'
+import {
+  GEA_CHILD_COMPONENTS,
+  GEA_DOM_COMPILED_CHILD_ROOT,
+  GEA_ELEMENT,
+  GEA_IS_ROUTER_OUTLET,
+  GEA_PARENT_COMPONENT,
+  GEA_PROXY_GET_RAW_TARGET,
+} from '../symbols'
 import type { Router } from './router'
+
+function engineThis(c: object): any {
+  return (c as any)[GEA_PROXY_GET_RAW_TARGET] ?? c
+}
 
 export default class Outlet extends Component<{ router?: Router | null }> {
   static _router: Router | null = null
   static _ssgHtml: string | null = null
 
-  __isRouterOutlet = true
   _routerDepth = -1
 
   private _router: Router | null = null
@@ -24,14 +35,14 @@ export default class Outlet extends Component<{ router?: Router | null }> {
   private _computeDepthAndRouter(): { depth: number; router: Router | null } {
     let depth = 0
     let router: Router | null = null
-    let parent: any = this.parentComponent
+    let parent: any = engineThis(this)[GEA_PARENT_COMPONENT]
     while (parent) {
-      if (parent.__isRouterOutlet) {
+      if (parent[GEA_IS_ROUTER_OUTLET]) {
         depth = parent._routerDepth + 1
         router = parent._router ?? parent.props?.router ?? null
         break
       }
-      parent = parent.parentComponent
+      parent = engineThis(parent)[GEA_PARENT_COMPONENT]
     }
     if (!router) router = Outlet._router
     return { depth, router }
@@ -65,7 +76,7 @@ export default class Outlet extends Component<{ router?: Router | null }> {
     if (this._currentChild) {
       this._currentChild.dispose()
       this._currentChild = null
-      this.__childComponents = []
+      this[GEA_CHILD_COMPONENTS] = []
     }
     this._currentComponentClass = null
     this._lastCacheKey = null
@@ -87,7 +98,10 @@ export default class Outlet extends Component<{ router?: Router | null }> {
     const router = this._getRouter()
     if (!router) return
 
-    if (this._currentChild && (!this._currentChild.element_ || !this.el.contains(this._currentChild.element_))) {
+    if (
+      this._currentChild &&
+      (!engineThis(this._currentChild)[GEA_ELEMENT] || !this.el.contains(engineThis(this._currentChild)[GEA_ELEMENT]))
+    ) {
       this._clearCurrent()
     }
 
@@ -118,14 +132,14 @@ export default class Outlet extends Component<{ router?: Router | null }> {
 
     if (this._isClassComponent(item.component)) {
       const child = new item.component(item.props)
-      child.parentComponent = this
+      engineThis(child)[GEA_PARENT_COMPONENT] = this
       child.render(this.el)
-      if (child.element_) {
-        ;(child.element_ as any).__geaCompiledChildRoot = true
+      if (engineThis(child)[GEA_ELEMENT]) {
+        ;(engineThis(child)[GEA_ELEMENT] as any)[GEA_DOM_COMPILED_CHILD_ROOT] = true
       }
       this._currentChild = child
       this._currentComponentClass = item.component
-      this.__childComponents = [child]
+      this[GEA_CHILD_COMPONENTS] = [child]
     }
 
     this._lastCacheKey = item.cacheKey
@@ -141,3 +155,9 @@ export default class Outlet extends Component<{ router?: Router | null }> {
     super.dispose()
   }
 }
+
+Object.defineProperty(Outlet.prototype, GEA_IS_ROUTER_OUTLET, {
+  value: true,
+  enumerable: false,
+  configurable: true,
+})

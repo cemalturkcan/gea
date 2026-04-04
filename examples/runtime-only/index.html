@@ -9,13 +9,13 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="./styles.css" />
-    <script src="https://unpkg.com/@geajs/core/dist/gea.js"></script>
+    <script src="/vendor/gea.js"></script>
   </head>
   <body>
     <div id="app"></div>
 
     <script>
-      const { Store, Component } = gea
+      const { Store, Component, GEA_OBSERVER_REMOVERS } = gea
 
       // --- Store ---
 
@@ -101,7 +101,7 @@
         }
 
         createdHooks() {
-          this.__observer_removers__.push(
+          this[GEA_OBSERVER_REMOVERS].push(
             store.observe('todos', () => {
               this.$('.todo-list').innerHTML = this.renderItems()
               this.$('.active-count').textContent = `${store.activeCount} items left`

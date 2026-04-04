@@ -16,7 +16,7 @@ The browser bundle is **13 KB gzipped** and includes everything: `Store`, `Compo
   <div id="app"></div>
 
   <script>
-    const { Store, Component } = gea
+    const { Store, Component, GEA_OBSERVER_REMOVERS } = gea
 
     class CounterStore extends Store {
       count = 0
@@ -38,7 +38,7 @@ The browser bundle is **13 KB gzipped** and includes everything: `Store`, `Compo
       }
 
       createdHooks() {
-        this.__observer_removers__.push(
+        this[GEA_OBSERVER_REMOVERS].push(
           store.observe('count', () => {
             this.$('h1').textContent = store.count
           })
@@ -126,7 +126,7 @@ In the compiled JSX path, the Vite plugin statically analyzes your templates and
 
 ```js
 createdHooks() {
-  this.__observer_removers__.push(
+  this[GEA_OBSERVER_REMOVERS].push(
     store.observe('todos', () => {
       this.$('.todo-list').innerHTML = this.renderItems()
       this.$('.count').textContent = store.activeTodos.length
@@ -138,7 +138,7 @@ createdHooks() {
 }
 ```
 
-Push the unsubscribe functions into `this.__observer_removers__` so they are automatically cleaned up when the component is disposed.
+Push the unsubscribe functions into `this[GEA_OBSERVER_REMOVERS]` so they are automatically cleaned up when the component is disposed.
 
 `this.$()` and `this.$$()` are built-in selectors that query within the component's root element — equivalent to `this.el.querySelector()` and `this.el.querySelectorAll()`.
 
@@ -181,7 +181,7 @@ You can use JSX in the browser by adding [Babel Standalone](https://babeljs.io/d
     /** @jsxRuntime classic */
     /** @jsx gea.h */
 
-    const { Store, Component } = gea
+    const { Store, Component, GEA_OBSERVER_REMOVERS } = gea
 
     class Counter extends Component {
       template() {
@@ -253,3 +253,6 @@ See the complete working examples in the repository:
 
 - [`examples/runtime-only/`](https://github.com/dashersw/gea/tree/main/examples/runtime-only) — Template literals, no build step
 - [`examples/runtime-only-jsx/`](https://github.com/dashersw/gea/tree/main/examples/runtime-only-jsx) — JSX with Babel Standalone, no build step
+
+In the monorepo, `npx vite dev` for those folders serves **`/vendor/gea.js`** from the built IIFE bundle at `packages/gea/dist/gea.js` (run `npm run build -w @geajs/core` first) and **`/vendor/babel.min.js`** from the pinned file in [`tests/e2e/vendor/babel.min.js`](https://github.com/dashersw/gea/tree/main/tests/e2e/vendor). For a standalone HTML file outside the repo, keep using the unpkg script URLs from the quick start above.
+
